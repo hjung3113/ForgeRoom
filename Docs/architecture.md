@@ -43,6 +43,10 @@ last_reviewed: 2026-05-21
 - **에이전트 실행**: OpenClaw 위임. 결정: [ADR-003](decisions/2026-05-21-003-agent-runner-openclaw-delegation.md)
 - **프롬프트 전달**: 파일 기반. 결정: [ADR-004](decisions/2026-05-21-004-file-based-prompt-passing.md)
 
+ForgeRoom은 orchestration/product layer다. Discord/GitHub UX, workflow 실행, task 상태, worktree/branch/PR, Conductor context 관리를 책임지고, CLI agent process 실행은 OpenClaw runtime gateway에 위임한다. ForgeRoom 내부에서 claude/codex/gemini CLI를 직접 `child_process`로 실행하지 않는다.
+
+예외적으로 CheckRunner의 test/lint/typecheck는 ForgeRoom이 직접 실행한다. 이는 agent runtime 호출이 아니라 프로젝트 품질 게이트이며, exit code/stdout/stderr/timeout을 ForgeRoom이 직접 기록·판단해야 한다.
+
 ## 통신 경로
 
 - **Discord**: WebSocket gateway (클라이언트 outbound)
@@ -95,8 +99,8 @@ last_reviewed: 2026-05-21
 7. PipelineEngine.execute (step 단위 반복)
    - 템플릿 + 변수 보간 → Conductor.refine → `prompts/NN.md` 저장
    - AgentRunner.run (OpenClaw 위임) → `outputs/NN.md`
-   - 파일 검증 → diff 저장 → Conductor.update (동기) → Reporter.notify (비동기)
-8. CheckRunner (1회 재시도 포함)
+   - 파일 검증 → `kind: execute`이면 CheckRunner → diff 저장 → Conductor.update (동기) → Reporter.notify (비동기)
+8. 마지막 execute step의 CheckRunner 통과 확인
 9. PR 생성, Discord 알림
 10. 사람이 GitHub에서 머지
 

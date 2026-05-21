@@ -91,7 +91,7 @@ describe('PipelineEngine', () => {
   describe('runFull', () => {
     it('creates task with workflow id', async () => { ... })
     it('throws if project not registered', async () => { ... })
-    it('respects agent overrides', async () => { ... })
+    it('rejects workflow steps with direct agent overrides', async () => { ... })
   })
 })
 ```

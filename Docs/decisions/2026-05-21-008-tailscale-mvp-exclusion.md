@@ -1,9 +1,12 @@
 ---
-status: decided
+status: superseded
 date: 2026-05-21
+superseded_by: 2026-05-21-009-forge-phase-and-slice-terminology.md
 ---
 
 # ADR-008: Tailscale MVP 제외, Phase 3 통합
+
+> Superseded by [ADR-009](2026-05-21-009-forge-phase-and-slice-terminology.md). Tailscale은 Desktop App과 함께 Forge Phase 4로 이동한다.
 
 ## 배경
 

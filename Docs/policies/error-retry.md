@@ -11,10 +11,11 @@ last_reviewed: 2026-05-21
 |---|---|
 | Agent 실행 실패 (timeout/exit≠0) | `step.attempt++`, 즉시 1회 재시도. 또 실패 → step.status=failed, task.status=failed |
 | Agent가 output 파일 미작성 | `step.attempt++`. attempt<2: resume으로 파일 작성 재요청. 초과 시 failed |
+| output selector 파싱 실패 (`## Slices`, `Review Result`) | output 파일 미작성과 같은 resume budget으로 재작성 요청. 초과 시 failed |
 | Conductor scope 위반 | 변경 파일 revert, 텍스트 응답은 사용. step 계속 |
 | Conductor 호출 실패 | 1회 재시도. 또 실패 시 graceful degradation (refine 생략, update 생략) |
 | Check 실패 | 1회 자동 수정: 실패 로그를 코드 작성 agent에 전달 → 수정 → 재실행. 또 실패 시 task.status=failed |
-| `until` max_iterations 도달 | step.status=failed → task.status=failed |
+| `review_loop` max_iterations 도달 | step.status=failed → task.status=failed |
 | Git 충돌 (rebase 실패) | task.status=failed, 사람 개입 알림 |
 | PR 생성 실패 (GitHub API) | exponential backoff 3회. 다 실패 시 task.status=failed, branch 보존 |
 | Discord 발송 실패 | exponential backoff 5회. 발송 큐 (events 테이블)에 유지. task 진행 영향 없음 |
@@ -24,7 +25,7 @@ last_reviewed: 2026-05-21
 
 - `step.attempt`: 0부터 시작, 재시도마다 +1
 - 한도: 기본 `MAX_RETRY=2` (agent 호출 1차 + resume 2회 = 총 3회 시도)
-- Phase 2에서 설정화
+- Forge Phase 2에서 설정화
 
 ## 멱등성
 
@@ -41,6 +42,7 @@ last_reviewed: 2026-05-21
    - done: 다음 step부터
    - running: 해당 step 재시작 (멱등)
    - paused: status=paused 유지, /resume 명령 대기
+   - control step row: child rows의 마지막 상태와 iteration으로 group/review_loop 내부 재진입 지점 복원
 3. worktree의 .forgeroom/ 존재 확인. 없으면 WorktreeManager.create로 부트스트랩 (재실행)
 4. Conductor.init (이미 init된 task는 skip)
 5. PipelineEngine.execute 재진입
@@ -51,11 +53,13 @@ last_reviewed: 2026-05-21
 - agent/check 재시도 발생 시 Discord에 즉시 알림 (`step <id> retrying, attempt N`)
 - task.status=failed로 전환 시 reason + 진단 링크(`logs/`, `outputs/`, `diffs/`) 포함
 
-## Phase 2 강화
+## Forge Phase 2 강화
 
 - 재시도 N회 설정화
 - 실패 카테고리별 다른 재시도 곡선
 - 자동 회복 큐 (failed → re-queue)
+- 실행 중 agent 호출 중단 정책: MVP의 `/pause`는 checkpoint pause만 지원하며, 즉시 interrupt/abort는 Forge Phase 2+에서 별도 정의
+- 장기 정체 감지 watchdog: 예상 작업 기간을 현저히 초과한 running/paused task를 감지하고 사용자 확인 플로우로 전환
 - LLM judge 기반 output 품질 검증
 
 ## 관련 문서

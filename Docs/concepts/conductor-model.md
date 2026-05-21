@@ -16,6 +16,14 @@ last_reviewed: 2026-05-21
 
 Conductor는 코드 작성 X, 커밋 X, PR 생성 X.
 
+Conductor는 task-local RAG + prompt compiler에 가깝다. 외부 지식베이스를 기본 검색하는 일반 RAG가 아니라, 현재 task의 summary, workflow 정의, step output, diff, 사용자 feedback을 모아 다음 agent가 실행할 프롬프트를 더 정확하게 만든다.
+
+다음 step 지시 관점에서 PipelineEngine은 구조적 지시를 소유한다: workflow order, step id, intent, prompt template, vars, input_refs. Conductor는 context 보강을 소유한다: task summary, 직전 결과, 통합된 user feedback을 렌더링된 base prompt에 반영한다.
+
+Conductor는 workflow 순서, step 목적, intent, agent, harness, prompt template을 바꾸지 않는다.
+
+Forge Phase 2 이후에는 ContextProvider 계층을 추가해 Target Profile, project docs, context maps, ADR, issue/PR history, 공식 문서 같은 외부 지식을 검색·요약하고 Conductor 입력에 연결할 수 있다. MVP에서는 외부 RAG를 구현하지 않고 task-local context만 사용한다.
+
 ## 동작 모델 (MVP: 옵션 B — Headless + 롤링 요약)
 
 다른 옵션과 비교한 채택 근거는 [ADR-005](../decisions/2026-05-21-005-conductor-meta-agent.md).
@@ -29,9 +37,14 @@ output: 갱신된 summary (마크다운, ≤4000 토큰)
 side effect: SQLite + summary.md 갱신
 
 [refine]
-input:  summary + 워크플로우 정의 + 직전 step output + 현재 step base_prompt
+input:  summary + feedback.md + 워크플로우 정의 + 직전 step output + 현재 step base_prompt
 output: 보강된 프롬프트 텍스트
 side effect: 없음 (prompts/ 디렉토리에 PipelineEngine이 저장)
+
+[integrateFeedback]
+input:  summary + 아직 반영되지 않은 user_feedback events + 직전 step output 경로
+output: 다음 step에 넘길 피드백 요약 문서
+side effect: feedback.md 갱신 + 반영 marker 기록
 
 [answer]
 input:  summary + 최근 N개 step output 경로 + 사용자 질문
@@ -66,7 +79,7 @@ side effect: 없음
 Conductor 호출 전 `git status` snapshot, 호출 후 비교.
 
 ```
-변경 파일 - {"<summary_path>"} =
+변경 파일 - {"<summary_path>", "<feedback_path>"} =
   - 비어 있음: 정상
   - 그 외: 위반
     1. git checkout <files>  (worktree만 revert)
@@ -74,7 +87,7 @@ Conductor 호출 전 `git status` snapshot, 호출 후 비교.
     3. Conductor 응답 텍스트는 그대로 사용
 ```
 
-OpenClaw per-call permission profile이 지원되면 사전 차단으로 전환 (Phase 2 검토 항목, [OQ-001](../open-questions.md)).
+OpenClaw per-call permission profile이 지원되면 사전 차단으로 전환 (Forge Phase 2 검토 항목, [OQ-001](../open-questions.md)).
 
 ## Conductor 에이전트 설정
 
@@ -100,6 +113,7 @@ conductor:
 | 호출 | 실패 시 |
 |---|---|
 | `update` | 1회 재시도. 또 실패 시 summary 갱신 생략, 다음 step 진행. Reporter 알림 |
+| `integrateFeedback` | 1회 재시도. 또 실패 시 feedback.md 갱신 생략, 다음 step 진행 전 사용자에게 알림 |
 | `refine` | 1회 재시도. 또 실패 시 base_prompt 그대로 사용, 진행 |
 | `answer` | 1회 재시도. 또 실패 시 사용자에게 "answer 실패, summary 직접 확인 권장" |
 

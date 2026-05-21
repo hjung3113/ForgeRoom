@@ -23,6 +23,9 @@ type ReporterEvent =
   | { type: 'task_started', task: Task }
   | { type: 'step_done', task: Task, step: Step }
   | { type: 'check_result', task: Task, results: CheckResult[] }
+  | { type: 'user_feedback', task: Task, message: string }
+  | { type: 'feedback_integrated', task: Task, feedbackPath: string }
+  | { type: 'feedback_integration_failed', task: Task, reason: string }
   | { type: 'pr_created', task: Task, pr_number: number, pr_url: string }
   | { type: 'task_failed', task: Task, reason: string }
   | { type: 'ask_response', task: Task, question: string, answer: string }
@@ -41,11 +44,13 @@ type ReporterEvent =
 주요 단계만:
 - task 시작
 - 각 step 완료 (output_path 링크 포함)
+- 사용자 피드백 접수
+- 피드백 통합 완료 또는 실패
 - check 결과 요약
 - PR 생성 (URL 포함)
 - 실패 (원인 + 진단 링크)
 
-raw stdout 스트리밍은 Phase 2.
+raw stdout 스트리밍은 Forge Phase 2.
 
 ## 메시지 포맷 (Discord)
 

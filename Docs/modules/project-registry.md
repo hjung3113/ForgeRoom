@@ -10,6 +10,7 @@ last_reviewed: 2026-05-21
 - `configs/projects.yaml` 로드·검증
 - 프로젝트 메타데이터(경로, 명령, 기본 워크플로우) 조회 API 제공
 - 시작 시 등록된 프로젝트 path 존재 여부 검증
+- 프로젝트별 사용 가능한 custom workflow 목록과 default workflow 검증
 
 ## 입력
 
@@ -36,7 +37,7 @@ interface ProjectMeta {
   package_manager: string
   default_workflow: string
   allowed_workflows: string[]
-  template_dir: string | null       // null → 기본 ~/forgeroom/templates
+  template_dir: string | null       // MVP에서는 보존만 하고 prompt_template 해석에 사용하지 않음
   commands: Record<string, string>  // { test, lint, typecheck, ... }
 }
 ```
@@ -51,6 +52,11 @@ interface ProjectMeta {
 - 파일 없음 → fatal, 부팅 실패
 - 프로젝트 path 미존재 → 경고 + 해당 프로젝트 비활성화
 - workflow 미등록 참조 → fatal, 사용자에게 명시적 에러
+- default_workflow가 allowed_workflows에 없으면 fatal
+
+`default_workflow`는 자동 선택용 기본값일 뿐이다. ForgeRoom의 기본 제공 workflow는 체험용 기준선이며, 프로젝트 운영은 `allowed_workflows`에 등록한 custom workflow 선택을 전제로 한다. Custom workflow도 WorkflowRegistry 검증을 통과해야 하며, 실행 환경은 등록된 Intent/Agent/Step Harness만 참조할 수 있다.
+
+MVP에서 `template_dir`은 설정 필드로만 보존하고 prompt template lookup에는 사용하지 않는다. `prompt_template`은 bundled template root 아래 파일만 참조할 수 있으며, 프로젝트별 template root override는 Forge Phase 2에서 실제 활용한다.
 
 ## 변경 감지 (MVP)
 

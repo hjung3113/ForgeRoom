@@ -43,7 +43,7 @@ last_reviewed: 2026-05-21
 
 ## 워크플로우 DSL
 
-- 워크플로우 id: `snake_case` (`quick`, `full`, `phase_impl`)
+- 워크플로우 id: `snake_case` (`quick`, `full`, `slice_impl`)
 - step id: `snake_case`
 - agent id: `snake_case` 또는 한 단어 (`claude`, `codex`, `gemini`)
 

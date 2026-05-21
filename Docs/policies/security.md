@@ -11,7 +11,7 @@ last_reviewed: 2026-05-21
 - Discord WebSocket: outbound only
 - GitHub API: outbound only, Octokit polling
 - OpenClaw: 로컬 IPC/loopback HTTP
-- Tailscale: MVP 제외, Phase 3에서 데스크탑 앱과 함께
+- Tailscale: MVP 제외, Forge Phase 4에서 데스크탑 앱과 함께
 
 ## 시크릿
 
@@ -38,6 +38,13 @@ last_reviewed: 2026-05-21
 - agent 작업은 worktree 내부 cwd로 강제
 - worktree 외부 file write 발견 시 자동 revert
 
+## Prompt template 격리
+
+- `prompt_template`은 bundled template root 아래 상대 경로만 허용
+- 절대경로, `..`, root 밖 symlink escape 금지
+- custom workflow도 MVP에서는 bundled template만 참조
+- 프로젝트별 `template_dir` override 실제 사용은 Forge Phase 2에서 별도 검토
+
 ## 위험 명령 차단 (ApprovalGate)
 
 상세는 [modules/approval-gate.md](../modules/approval-gate.md).
@@ -58,7 +65,7 @@ last_reviewed: 2026-05-21
 ## 감사 로그
 
 - 모든 명령·차단·시크릿 접근 시도는 `logs/audit_<date>.log`에 기록
-- 로테이션: 30일 (Phase 2)
+- 로테이션: 30일 (Forge Phase 2)
 
 ## OpenClaw 의존성 보안
 
@@ -66,7 +73,7 @@ last_reviewed: 2026-05-21
 - OpenClaw가 노출하는 게이트웨이 포트는 loopback 바인딩 확인
 - 가능하면 per-call permission profile 활용 (OQ-001)
 
-## Phase 2/3 강화
+## Forge Phase 2/4 강화
 
 - Discord 승인 게이트 (위험 작업 1회 승인)
 - 차단 카탈로그 핫리로드

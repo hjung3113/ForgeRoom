@@ -22,14 +22,15 @@ date: 2026-05-21
 - 작업 복잡도별 적절한 워크플로우 (full, quick, hotfix 등) 재사용 가능
 - 새 워크플로우 = yaml 추가만. 코드 변경 0
 - 프로젝트 간 워크플로우 공유 가능 (모든 Node 프로젝트가 `full` 사용 가능)
-- 런타임 override (agent 교체) 와 결합해 유연성 확보
+- Intent Catalog와 custom workflow 조합으로 실행 구성을 유연하게 교체
+- 기본 제공 workflow는 체험용 sane default이고, 실제 운영은 custom workflow 선택을 전제로 함
 
 ## 호출 모델
 
 ```
 /run <project> "<title>"                          # default_workflow 사용
 /run <project> "<title>" --workflow=quick
-/run <project> "<title>" --workflow=full --override design=gemini,review=claude
+/run <project> "<title>" --workflow=full-gemini-design
 /plan <project> "<title>"                         # 단일 step 호출
 /code <task-id>
 ```
@@ -38,8 +39,11 @@ date: 2026-05-21
 
 - 설정 파일 분리: `workflows.yaml`(라이브러리), `projects.yaml`(가용 목록+기본값), `agents.yaml`(에이전트 정의)
 - 검증: 프로젝트에서 참조한 워크플로우는 반드시 라이브러리에 존재
+- custom workflow는 step 순서와 prompt template 구성을 자유롭게 바꿀 수 있지만, `intent`, `agent`, `harness`는 registry에 등록된 값만 참조
+- MVP에서는 workflow step의 `agent`/`kind`/`harness` 직접 override를 금지하고, 필요하면 새 Intent를 등록해 사용
 
 ## 트레이드오프
 
 - 설정 파일 3개로 증가. 학습 곡선 살짝 가파라짐
-- 잘못된 워크플로우 매칭 디버깅 필요 → dry-run validator 도입 (Phase 2)
+- 잘못된 워크플로우 매칭 디버깅 필요 → dry-run validator 도입 (Forge Phase 2)
+- 실행 preset override가 간접적이다. 대신 MVP에서는 custom workflow의 실행 환경 추적성이 높아진다.

@@ -1,9 +1,12 @@
 ---
-status: decided
+status: superseded
 date: 2026-05-21
+superseded_by: 2026-05-21-009-forge-phase-and-slice-terminology.md
 ---
 
 # ADR-007: 데스크탑 앱은 Phase 3로 이동
+
+> Superseded by [ADR-009](2026-05-21-009-forge-phase-and-slice-terminology.md). Desktop App은 Forge Phase 4로 이동한다.
 
 ## 배경
 

@@ -8,7 +8,7 @@ last_reviewed: 2026-05-21
 ## 책임
 
 - 위험 명령·경로·작업을 시스템 레벨에서 거부
-- MVP: 거부만 (Discord 승인 흐름은 Phase 2)
+- MVP: 거부만 (Discord 승인 흐름은 Forge Phase 2)
 
 ## 차단 대상 (MVP 카탈로그)
 
@@ -80,7 +80,7 @@ allowed_write_roots:
 - 정규식 컴파일 실패 → fatal (부팅 거부)
 - 평가 실패 → 안전 우선 (`allowed=false`)
 
-## Phase 2 확장
+## Forge Phase 2 확장
 
 - Discord 명령으로 차단된 작업 1회 승인 (`/approve <task>`)
 - merge 외 위험 작업도 Discord 승인 게이트

@@ -35,12 +35,17 @@ interface CheckResult {
 
 ## 실행 정책
 
-1. `projects.yaml`의 `commands` 키를 정의된 순서대로 실행
-2. 하나라도 exit ≠ 0:
+1. PipelineEngine은 Resolved Step의 `kind`가 `execute`인 step 직후에만 CheckRunner를 호출한다.
+2. `projects.yaml`의 `commands` 키를 정의된 순서대로 실행
+3. 하나라도 exit ≠ 0:
    - 실패 로그(stdout+stderr 마지막 200줄)를 `.forgeroom/prompts/check_retry_<commandName>.md`에 작성
    - 워크플로우에서 마지막 코드 작성 step의 agent에 resume 또는 신규 호출로 수정 요청
    - 모든 check 재실행
-3. 재시도 후에도 실패 시 task.status=failed
+4. 재시도 후에도 실패 시 task.status=failed
+
+CheckRunner는 `kind: write_plan`, `kind: review`, 문서 보강용 `kind: refine` step 뒤에는 실행하지 않는다. `review_loop.refine`이 `kind: execute`이면 매 refine iteration 뒤 실행하고, 다음 review는 checks를 통과한 diff를 대상으로 한다.
+
+CheckRunner는 ForgeRoom이 직접 실행한다. test/lint/typecheck는 agent runtime 호출이 아니라 프로젝트 검증 명령이며, exit code/stdout/stderr/timeout은 workflow 품질 게이트의 근거이므로 OpenClaw에 위임하지 않는다.
 
 ## 명령 정의
 

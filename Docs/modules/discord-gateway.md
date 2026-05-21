@@ -15,17 +15,22 @@ last_reviewed: 2026-05-21
 ## 지원 명령 (MVP)
 
 ```
-/run <project> "<title>" [--workflow=<id>] [--override <step>=<agent>]
-/plan <project> "<title>"
-/code <task-id> [--override=<agent>]
-/review <task-id>
+/run <project> "<title>" [--workflow=<id>]
 /pause <task-id>
 /resume <task-id>
-/skip <task-id> <step-id>
 /cancel <task-id>
 /status [project|task-id]
 /ask <task-id> "<question>"
+/feedback <task-id> "<message>"
 ```
+
+`/cancel`은 task 이력을 닫고 같은 project의 active slot을 해제한다. canceled task는 `/resume` 대상이 아니며, 보존된 worktree/branch/log를 근거로 새 task를 시작하거나 사람이 수동으로 이어간다.
+
+특정 step을 건너뛰어야 하는 경우 런타임 `/skip` 명령을 쓰지 않고, 해당 step이 없는 별도 workflow를 정의한다.
+리뷰만 실행하고 싶은 경우에도 `/review` 명령을 두지 않고, review-only workflow를 정의한 뒤 `/run <project> "<title>" --workflow=review-only` 형태로 실행한다.
+특정 step의 agent/harness/kind를 바꾸고 싶으면 `/run` override 옵션을 쓰지 않고, 새 Intent와 custom workflow를 등록한 뒤 `--workflow`로 선택한다.
+`/ask`는 현재 task 컨텍스트에 대한 질의응답이고, `/feedback`은 다음 step의 Conductor.refine 입력에 반영되는 사용자 지시다.
+`/feedback`은 running/paused task에만 허용한다. running 중 받은 피드백은 현재 agent 호출에는 영향 없고 다음 step부터 반영하며, done/failed/canceled task에는 거부한다.
 
 ## 인터페이스
 
@@ -55,7 +60,7 @@ allowed_user_ids:
 
 - discord.js slash command framework 사용
 - 옵션 파싱은 discord.js builder로 타입 안전
-- override 옵션: 콤마 구분 문자열 `design=gemini,review=claude`
+- MVP에서 step-level agent override 옵션은 지원하지 않는다. 실행 preset 변경은 Intent Catalog와 custom workflow로 표현한다.
 
 ## 응답
 

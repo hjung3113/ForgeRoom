@@ -65,6 +65,7 @@ interface TaskStore {
 
 - 작업 시작 시 `tasks.insert` + `acquireProjectLock` 한 트랜잭션
 - step 단계 종료 시 `updateStep` + `events.insert` 한 트랜잭션
+- cancel 처리 시 `tasks.status='canceled'` + `events.insert(type='task_canceled')` + project lock release를 한 트랜잭션으로 처리
 - 멱등성 핵심: event 발송 전 row 생성, 발송 후 `delivered_at` 갱신
 
 ## 인덱스
