@@ -5,36 +5,36 @@ last_reviewed: 2026-05-21
 
 # db/ Context Map
 
-## 책임
+## Responsibility
 
-SQLite 스키마, 마이그레이션, TaskStore 구현체. core의 TaskStore 인터페이스 만족.
+SQLite schema, migrations, and the `TaskStore` implementation satisfying the `core` interface.
 
-## 주요 파일 (예정)
+## Key files (planned)
 
-| 파일 | 역할 |
+| File | Role |
 |---|---|
-| `schema.ts` | Drizzle 테이블 정의 (tasks, steps, checks, events, conductor_state) |
-| `client.ts` | better-sqlite3 + Drizzle 초기화, PRAGMA 설정 |
-| `migrate.ts` | 부팅 시 마이그레이션 적용 |
-| `migrations/` | 생성된 마이그레이션 SQL (Drizzle CLI) |
-| `sqlite-task-store.ts` | TaskStore 구현체 |
+| `schema.ts` | Drizzle table definitions (tasks, steps, checks, events, conductor_state) |
+| `client.ts` | better-sqlite3 + Drizzle bootstrap and PRAGMAs |
+| `migrate.ts` | Boot-time migration runner |
+| `migrations/` | Generated migration SQL (Drizzle CLI) |
+| `sqlite-task-store.ts` | TaskStore implementation |
 
-## 같이 읽을 문서
+## Related docs
 
-- [데이터 모델](../../../../Docs/concepts/data-model.md) ← **필수**
-- [TaskStore 모듈 spec](../../../../Docs/modules/task-store.md)
-- [동시성 정책](../../../../Docs/policies/concurrency.md)
-- [ADR-002 SQLite 채택](../../../../Docs/decisions/2026-05-21-002-storage-sqlite.md)
+- [Data model](../../../../Docs/concepts/data-model.md) — required reading
+- [TaskStore module spec](../../../../Docs/modules/task-store.md)
+- [Concurrency policy](../../../../Docs/policies/concurrency.md)
+- [ADR-002 SQLite adoption](../../../../Docs/decisions/2026-05-21-002-storage-sqlite.md)
 
-## 의존
+## Dependencies
 
-- 외부: `better-sqlite3`, `drizzle-orm`, `drizzle-kit` (개발)
-- 내부: `core/` (TaskStore 인터페이스), `utils/` (logger)
+- External: `better-sqlite3`, `drizzle-orm`, `drizzle-kit` (dev)
+- Internal: `core/` (TaskStore interface), `utils/` (logger)
 
-## 진입 가이드
+## Entry guide
 
-1. data-model 문서로 스키마 확정
-2. Drizzle 스키마 작성
-3. `drizzle-kit generate` 로 마이그레이션 생성
-4. 인터페이스 메서드 1개씩 구현 + 단위 테스트
-5. UNIQUE 인덱스 + 트랜잭션 동작 통합 테스트
+1. Confirm the schema against the data-model doc
+2. Author the Drizzle schema
+3. Run `drizzle-kit generate` to create the initial migration
+4. Implement TaskStore methods one at a time with unit tests
+5. Add integration tests for unique indexes and transactional flows

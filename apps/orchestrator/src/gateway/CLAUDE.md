@@ -5,36 +5,36 @@ last_reviewed: 2026-05-21
 
 # gateway/ Rules
 
-작업 시작 전 [context-map.md](context-map.md)부터.
+Read [context-map.md](context-map.md) first.
 
-## 핵심 규칙
+## Core rules
 
-1. **얇은 어댑터로 유지**. 외부 SDK(discord.js, Octokit)와 core 사이의 통역만. 비즈니스 로직 금지
-2. **외부 IO 모두 여기**. core에서 discord.js나 Octokit을 직접 import하면 안 됨
-3. **입력 검증·sanitize 책임**. 외부에서 들어온 명령·이슈 본문은 여기서 검증 후 core로 전달
-4. **allowlist 적용 지점**. Discord 사용자 ID 검사, GitHub repo 등록 검사 모두 여기
-5. **재시도·backoff**. API 호출 실패 시 여기서 backoff. core 호출은 깔끔하게
+1. **Stay a thin adapter.** Translate between external SDKs (discord.js, Octokit) and `core`. No business logic.
+2. **All external IO lives here.** `core` must not import `discord.js` or `Octokit` directly.
+3. **Validate and sanitize input.** Commands, issue bodies, and other external input get validated here before reaching `core`.
+4. **Apply allowlists here.** Discord user-id checks and GitHub repo registration checks happen at the gateway boundary.
+5. **Retries and backoff live here.** API failure handling stays in the adapter so `core` calls remain clean.
 
-## 파일 단위
+## Files
 
 - `discord-gateway.ts`
 - `github-gateway.ts`
-- `clients/` (sub-folder, 필요 시): SDK 래핑
+- `clients/` (sub-folder, if needed): SDK wrappers
 
-## 금기
+## Forbidden
 
-- 워크플로우 해석·step 실행 로직 (core 영역)
-- TaskStore 직접 호출 (`PipelineEngine` 같은 core API를 통해)
-- 시크릿 로깅
+- Workflow evaluation or step execution logic (those belong in `core`)
+- Direct TaskStore access (go through `core` APIs like `PipelineEngine`)
+- Logging secrets
 
-## 체크리스트
+## Checklist
 
-- [ ] core 모듈을 직접 호출하나 (TaskStore X)
-- [ ] 입력 검증·allowlist 적용했나
-- [ ] API 에러를 도메인 에러로 변환했나
-- [ ] mock 가능하도록 SDK는 생성자 주입했나
+- [ ] Only `core` modules called from here (not `TaskStore` directly)
+- [ ] Input validation and allowlists applied
+- [ ] API errors converted to domain errors
+- [ ] SDK clients injected via constructor for testability
 
-## 상위 규칙
+## Upstream rules
 
 - [src/CLAUDE.md](../CLAUDE.md)
-- [보안 정책](../../../../Docs/policies/security.md)
+- [Security policy](../../../../Docs/policies/security.md)

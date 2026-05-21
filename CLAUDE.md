@@ -1,65 +1,65 @@
-# ForgeRoom — 작업 진입 가이드
+# ForgeRoom — Working Guide
 
-이 레포에서 작업할 때 반드시 따른다.
+Required reading for anyone (human or agent) working in this repo.
 
-## 첫 진입 순서
+## First-entry order
 
-1. [Docs/overview.md](Docs/overview.md) — 무엇을 만드는가
-2. [Docs/architecture.md](Docs/architecture.md) — 시스템 구성
-3. 작업할 모듈의 [Docs/modules/<name>.md](Docs/modules/) 또는 개념의 [Docs/concepts/<topic>.md](Docs/concepts/)
-4. 진입할 폴더의 `context-map.md`
+1. [Docs/overview.md](Docs/overview.md) — what we are building
+2. [Docs/architecture.md](Docs/architecture.md) — system layout
+3. The relevant [Docs/modules/<name>.md](Docs/modules/) or [Docs/concepts/<topic>.md](Docs/concepts/)
+4. The `context-map.md` of the folder you are entering
 
-## 절대 룰
+## Absolute rules
 
-- **설계 결정은 ADR 동반**. 기존 문서에 영향 주는 변경은 ADR `proposed` → 사용자 승인 → `decided` + 영향 문서 동시 갱신
-- **placeholder 금지**. TBD/TODO 코드·문서에 남기지 않음
-- **시크릿 절대 커밋 X**. `.env` 등은 `.gitignore` 유지
-- **main 직접 push 금지**. PR로만
-- **`--no-verify` 금지**. hook 실패 시 원인 수정
+- **Design changes require an ADR.** Anything that affects existing specs goes through ADR `proposed` → user approval → `decided`, with the impacted docs updated in the same commit.
+- **No placeholders.** Never leave `TBD` / `TODO` / `fill later` in code or docs.
+- **Never commit secrets.** Keep `.env` and similar in `.gitignore`.
+- **Never push directly to `main`.** PRs only.
+- **Never bypass hooks** (`--no-verify`). If a hook fails, fix the root cause.
 
-## 규칙 파일 (필독)
+## Rule documents (must read)
 
-| 영역 | 위치 |
+| Area | File |
 |---|---|
-| 코딩 원칙 | [Docs/rules/coding-rules.md](Docs/rules/coding-rules.md) |
-| 네이밍 | [Docs/rules/naming-rules.md](Docs/rules/naming-rules.md) |
-| 테스트 | [Docs/rules/testing-rules.md](Docs/rules/testing-rules.md) |
-| 문서 작성 | [Docs/rules/doc-rules.md](Docs/rules/doc-rules.md) |
-| Git/커밋/PR | [Docs/rules/git-rules.md](Docs/rules/git-rules.md) |
-| Context Map | [Docs/rules/context-map-rules.md](Docs/rules/context-map-rules.md) |
+| Coding principles | [Docs/rules/coding-rules.md](Docs/rules/coding-rules.md) |
+| Naming | [Docs/rules/naming-rules.md](Docs/rules/naming-rules.md) |
+| Testing | [Docs/rules/testing-rules.md](Docs/rules/testing-rules.md) |
+| Doc workflow | [Docs/rules/doc-rules.md](Docs/rules/doc-rules.md) |
+| Git / commits / PRs | [Docs/rules/git-rules.md](Docs/rules/git-rules.md) |
+| Context map convention | [Docs/rules/context-map-rules.md](Docs/rules/context-map-rules.md) |
 
-## 폴더 규약
+## Folder convention
 
-- 모든 코드 폴더에 `CLAUDE.md` (이 폴더의 규칙) + `context-map.md` (이 폴더의 안내) 존재
-- 새 폴더 만들면 두 파일 함께 생성
+- Every code folder has both `CLAUDE.md` (folder-scoped rules) and `context-map.md` (folder guide).
+- When you create a new folder, create both files at the same time.
 
-## 핵심 결정 요약 (최신 상태는 ADR 참고)
+## Key decisions (canonical source: ADRs)
 
-- 런타임: Node.js + TypeScript
-- DB: SQLite + Drizzle
-- Agent 실행: OpenClaw 위임
-- 프롬프트 전달: 파일 기반 (worktree `.forgeroom/`)
-- 총괄 Conductor 메타 에이전트 (옵션 B: headless + 롤링 요약)
-- 워크플로우는 라이브러리 + 호출 시 선택
-- 데스크탑 앱·Tailscale = Phase 3
-- Phase 1 MVP 범위: [Docs/phases/phase-1-mvp.md](Docs/phases/phase-1-mvp.md)
+- Runtime: Node.js + TypeScript
+- Storage: SQLite + Drizzle
+- Agent execution: delegated to OpenClaw
+- Prompt passing: file-based (under worktree `.forgeroom/`)
+- Conductor meta-agent (option B: headless + rolling summary)
+- Workflows are a library; chosen at invocation time
+- Desktop app and Tailscale: Phase 3
+- Phase 1 MVP scope: [Docs/phases/phase-1-mvp.md](Docs/phases/phase-1-mvp.md)
 
-## 미해결 항목
+## Open items
 
-[Docs/open-questions.md](Docs/open-questions.md) — 진행 중 결정·검증 필요 항목
+[Docs/open-questions.md](Docs/open-questions.md) — unresolved decisions and items to verify
 
-## 용어 충돌 방지
+## Term disambiguation
 
-작업 전 [Docs/glossary.md](Docs/glossary.md) 확인. 특히 `Conductor` vs `Orchestrator`, `Phase` 의 두 의미 등.
+Check [Docs/glossary.md](Docs/glossary.md) before assuming. Pay special attention to `Conductor` vs `Orchestrator` and the two meanings of `Phase`.
 
-## 작업 워크플로우 (사람·에이전트 공통)
+## Working loop (humans and agents)
 
-1. plan 또는 task 확인
-2. 진입 폴더의 `context-map.md` → `CLAUDE.md` 읽기
-3. 관련 모듈 spec + 개념 문서 확인
-4. 테스트 먼저 또는 동시에 작성
-5. 구현
-6. lint + typecheck + test 통과 (pre-commit이 강제)
-7. 커밋 (1 task = 1 commit 권장)
-8. 영향 받은 문서 갱신
-9. PR
+1. Read the plan or task
+2. Read the entry folder's `context-map.md` then `CLAUDE.md`
+3. Read the matching module spec and concept doc
+4. Write tests first, or alongside the implementation
+5. Implement
+6. Run lint + typecheck + tests (the pre-commit hook enforces this)
+7. Commit (one task ≈ one commit)
+8. Update the docs you affected
+9. Open a PR

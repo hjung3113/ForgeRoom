@@ -5,32 +5,32 @@ last_reviewed: 2026-05-21
 
 # gateway/ Context Map
 
-## 책임
+## Responsibility
 
-Discord, GitHub 외부 인터페이스 어댑터. 외부 입력 수신·검증, core 호출, 외부 API 발송.
+Adapters for the external surfaces (Discord, GitHub). Receive and validate external input, route into `core`, and send outbound API calls.
 
-## 주요 파일 (예정)
+## Key files (planned)
 
-| 파일 | 역할 | spec |
+| File | Role | Spec |
 |---|---|---|
-| `discord-gateway.ts` | 슬래시 명령 수신·allowlist·core 라우팅 | [Docs/modules/discord-gateway.md](../../../../Docs/modules/discord-gateway.md) |
-| `github-gateway.ts` | Issue label polling·PR 생성 | [Docs/modules/github-gateway.md](../../../../Docs/modules/github-gateway.md) |
-| `types.ts` | 게이트웨이 외부 노출 타입 | — |
+| `discord-gateway.ts` | Slash command intake, allowlist, routing into `core` | [Docs/modules/discord-gateway.md](../../../../Docs/modules/discord-gateway.md) |
+| `github-gateway.ts` | Issue label polling, PR creation | [Docs/modules/github-gateway.md](../../../../Docs/modules/github-gateway.md) |
+| `types.ts` | Exported gateway types | — |
 
-## 같이 읽을 문서
+## Related docs
 
 - [Discord Gateway spec](../../../../Docs/modules/discord-gateway.md)
 - [GitHub Gateway spec](../../../../Docs/modules/github-gateway.md)
-- [Reporter (응답 발송)](../../../../Docs/modules/reporter.md)
-- [보안 정책](../../../../Docs/policies/security.md)
+- [Reporter (response delivery)](../../../../Docs/modules/reporter.md)
+- [Security policy](../../../../Docs/policies/security.md)
 
-## 의존
+## Dependencies
 
-- 외부: `discord.js`, `@octokit/rest`
-- 내부: `core/` (PipelineEngine, Reporter, Conductor)
+- External: `discord.js`, `@octokit/rest`
+- Internal: `core/` (PipelineEngine, Reporter, Conductor)
 
-## 진입 가이드
+## Entry guide
 
-1. spec의 명령·이벤트 목록 정독
-2. SDK는 인터페이스로 감싼 후 core에 주입 가능하게 (테스트 위해)
-3. allowlist는 가장 먼저 적용
+1. Read the spec's list of commands and events
+2. Wrap the SDK behind an interface so it can be injected (and mocked) by `core`
+3. Apply the allowlist before doing anything else
