@@ -1,7 +1,17 @@
-# ForgeRoom 설계 명세
+---
+status: superseded
+superseded_by: Docs/overview.md
+last_reviewed: 2026-05-21
+---
+
+> **주의**: 이 문서는 2026-05-21 작성된 초기 단일 통합 설계서다.
+> 이후 모듈별·개념별 문서로 분할되어 `Docs/` 하위에 재구성됨.
+> 진입점은 `Docs/overview.md`. 이 파일은 이력 보존 목적으로만 유지.
+
+# ForgeRoom 설계 명세 (모놀리식 원본)
 
 - **작성일**: 2026-05-21
-- **상태**: MVP 설계 확정 (Phase 1 범위)
+- **상태**: superseded (분할 완료)
 - **기반 문서**: `Docs/local_multi_agent_collaboration_design_concise.md` + 워크플로우 슬라이드 7장 + 데스크탑 앱 목업 2장
 - **범위**: 로컬 단일 머신에서 동작하는 중앙 멀티에이전트 오케스트레이터. 데스크탑 앱은 Phase 3.
 
