@@ -1,13 +1,14 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import type { CreateTaskInput, TaskStore } from '../core/task-store';
-import type { Task, TaskStatus } from '../core/types';
+import type { CreateCheckInput, CreateStepInput, CreateTaskInput, TaskStore } from '../core/task-store';
+import type { Check, Step, Task, TaskStatus } from '../core/types';
 import type { TaskStoreDatabase } from './client';
 import * as schema from './schema';
-import { tasks } from './schema';
+import { checks, steps, tasks } from './schema';
 
 type Database = BetterSQLite3Database<typeof schema>;
+type StepRow = typeof steps.$inferSelect;
 type TaskRow = typeof tasks.$inferSelect;
 
 export class SqliteTaskStore implements TaskStore {
@@ -100,6 +101,55 @@ export class SqliteTaskStore implements TaskStore {
       await this.updateTaskStatus(taskId, 'queued');
     }
   }
+
+  createStep(input: CreateStepInput): Promise<Step> {
+    try {
+      this.db.insert(steps).values(toStepRow(input)).run();
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+    return Promise.resolve(input);
+  }
+
+  updateStep(id: string, patch: Partial<Step>): Promise<void> {
+    const rowPatch = toStepPatch(patch);
+    if (Object.keys(rowPatch).length === 0) {
+      return Promise.resolve();
+    }
+
+    try {
+      this.db.update(steps).set(rowPatch).where(eq(steps.id, id)).run();
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+    return Promise.resolve();
+  }
+
+  listSteps(taskId: string): Promise<Step[]> {
+    const rows = this.db
+      .select()
+      .from(steps)
+      .where(eq(steps.taskId, taskId))
+      .orderBy(asc(steps.startedAt))
+      .all();
+
+    return Promise.resolve(rows.map(fromStepRow));
+  }
+
+  recordCheck(input: CreateCheckInput): Promise<Check> {
+    const check: Check = {
+      ...input,
+      created_at: input.created_at ?? new Date(),
+    };
+
+    try {
+      this.db.insert(checks).values(toCheckRow(check)).run();
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+
+    return Promise.resolve(check);
+  }
 }
 
 export { SqliteTaskStore as SQLiteTaskStore };
@@ -143,6 +193,88 @@ function fromTaskRow(row: TaskRow): Task {
     vars: row.vars,
     created_at: new Date(row.createdAt),
     updated_at: new Date(row.updatedAt),
+  };
+}
+
+function toStepRow(step: Step): typeof steps.$inferInsert {
+  return {
+    id: step.id,
+    taskId: step.task_id,
+    stepId: step.step_id,
+    parentStepId: step.parent_step_id,
+    iteration: step.iteration,
+    agentId: step.agent_id,
+    status: step.status,
+    failureReason: step.failure_reason,
+    attempt: step.attempt,
+    checkFixAttempt: step.check_fix_attempt,
+    checkStatus: step.check_status,
+    promptPath: step.prompt_path,
+    outputPath: step.output_path,
+    diffPath: step.diff_path,
+    exitCode: step.exit_code,
+    startedAt: step.started_at.toISOString(),
+    finishedAt: step.finished_at?.toISOString() ?? null,
+  };
+}
+
+function fromStepRow(row: StepRow): Step {
+  return {
+    id: row.id,
+    task_id: row.taskId,
+    step_id: row.stepId,
+    parent_step_id: row.parentStepId,
+    iteration: row.iteration,
+    agent_id: row.agentId,
+    status: row.status,
+    failure_reason: row.failureReason,
+    attempt: row.attempt,
+    check_fix_attempt: row.checkFixAttempt,
+    check_status: row.checkStatus,
+    prompt_path: row.promptPath,
+    output_path: row.outputPath,
+    diff_path: row.diffPath,
+    exit_code: row.exitCode,
+    started_at: new Date(row.startedAt),
+    finished_at: row.finishedAt === null ? null : new Date(row.finishedAt),
+  };
+}
+
+function toStepPatch(patch: Partial<Step>): Partial<typeof steps.$inferInsert> {
+  const rowPatch: Partial<typeof steps.$inferInsert> = {};
+
+  if (patch.task_id !== undefined) rowPatch.taskId = patch.task_id;
+  if (patch.step_id !== undefined) rowPatch.stepId = patch.step_id;
+  if (patch.parent_step_id !== undefined) rowPatch.parentStepId = patch.parent_step_id;
+  if (patch.iteration !== undefined) rowPatch.iteration = patch.iteration;
+  if (patch.agent_id !== undefined) rowPatch.agentId = patch.agent_id;
+  if (patch.status !== undefined) rowPatch.status = patch.status;
+  if (patch.failure_reason !== undefined) rowPatch.failureReason = patch.failure_reason;
+  if (patch.attempt !== undefined) rowPatch.attempt = patch.attempt;
+  if (patch.check_fix_attempt !== undefined) rowPatch.checkFixAttempt = patch.check_fix_attempt;
+  if (patch.check_status !== undefined) rowPatch.checkStatus = patch.check_status;
+  if (patch.prompt_path !== undefined) rowPatch.promptPath = patch.prompt_path;
+  if (patch.output_path !== undefined) rowPatch.outputPath = patch.output_path;
+  if (patch.diff_path !== undefined) rowPatch.diffPath = patch.diff_path;
+  if (patch.exit_code !== undefined) rowPatch.exitCode = patch.exit_code;
+  if (patch.started_at !== undefined) rowPatch.startedAt = patch.started_at.toISOString();
+  if (patch.finished_at !== undefined) rowPatch.finishedAt = patch.finished_at?.toISOString() ?? null;
+
+  return rowPatch;
+}
+
+function toCheckRow(check: Check): typeof checks.$inferInsert {
+  return {
+    id: check.id,
+    stepRowId: check.step_row_id,
+    checkFixAttempt: check.check_fix_attempt,
+    commandName: check.command_name,
+    command: check.command,
+    exitCode: check.exit_code,
+    stdoutPath: check.stdout_path,
+    stderrPath: check.stderr_path,
+    durationMs: check.duration_ms,
+    createdAt: check.created_at.toISOString(),
   };
 }
 

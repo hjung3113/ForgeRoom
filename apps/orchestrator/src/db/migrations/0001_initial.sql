@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS steps (
   id TEXT PRIMARY KEY NOT NULL,
   task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   step_id TEXT NOT NULL,
-  parent_step_id TEXT,
+  parent_step_id TEXT REFERENCES steps(id),
   iteration INTEGER NOT NULL DEFAULT 0,
   agent_id TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'paused', 'done', 'failed')),

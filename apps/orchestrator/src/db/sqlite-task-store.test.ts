@@ -99,6 +99,263 @@ describe('SqliteTaskStore', () => {
     await store.updateTaskStatus('queued-1', 'done');
     await expect(store.acquireProjectLock('project-a', 'queued-2')).resolves.toBe(true);
   });
+
+  it('creates and lists steps with all data-model fields ordered by started_at', async () => {
+    await store.createTask(taskInput('task-steps', 'project-a', 'queued'));
+    const laterStartedAt = new Date('2026-05-22T10:02:00.000Z');
+    const earlierStartedAt = new Date('2026-05-22T10:01:00.000Z');
+    const finishedAt = new Date('2026-05-22T10:03:00.000Z');
+
+    await store.createStep({
+      id: 'step-parent',
+      task_id: 'task-steps',
+      step_id: 'review_loop',
+      parent_step_id: null,
+      iteration: 0,
+      agent_id: 'conductor',
+      status: 'running',
+      failure_reason: null,
+      attempt: 0,
+      check_fix_attempt: 0,
+      check_status: 'not_run',
+      prompt_path: '/tmp/forgeroom/prompts/review-loop.md',
+      output_path: '/tmp/forgeroom/outputs/review-loop.md',
+      diff_path: null,
+      exit_code: null,
+      started_at: earlierStartedAt,
+      finished_at: null,
+    });
+    await store.createStep({
+      id: 'step-child',
+      task_id: 'task-steps',
+      step_id: 'execute',
+      parent_step_id: 'step-parent',
+      iteration: 2,
+      agent_id: 'implementer',
+      status: 'done',
+      failure_reason: null,
+      attempt: 1,
+      check_fix_attempt: 1,
+      check_status: 'fixed',
+      prompt_path: '/tmp/forgeroom/prompts/execute.md',
+      output_path: '/tmp/forgeroom/outputs/execute.md',
+      diff_path: '/tmp/forgeroom/diffs/execute.patch',
+      exit_code: 0,
+      started_at: laterStartedAt,
+      finished_at: finishedAt,
+    });
+
+    await expect(
+      store.createStep({
+        id: 'step-orphan',
+        task_id: 'task-steps',
+        step_id: 'execute',
+        parent_step_id: 'missing-parent',
+        iteration: 2,
+        agent_id: 'implementer',
+        status: 'done',
+        failure_reason: null,
+        attempt: 1,
+        check_fix_attempt: 1,
+        check_status: 'fixed',
+        prompt_path: '/tmp/forgeroom/prompts/execute.md',
+        output_path: '/tmp/forgeroom/outputs/execute.md',
+        diff_path: '/tmp/forgeroom/diffs/execute.patch',
+        exit_code: 0,
+        started_at: laterStartedAt,
+        finished_at: finishedAt,
+      }),
+    ).rejects.toThrow(/foreign key/i);
+
+    await expect(store.listSteps('task-steps')).resolves.toEqual([
+      {
+        id: 'step-parent',
+        task_id: 'task-steps',
+        step_id: 'review_loop',
+        parent_step_id: null,
+        iteration: 0,
+        agent_id: 'conductor',
+        status: 'running',
+        failure_reason: null,
+        attempt: 0,
+        check_fix_attempt: 0,
+        check_status: 'not_run',
+        prompt_path: '/tmp/forgeroom/prompts/review-loop.md',
+        output_path: '/tmp/forgeroom/outputs/review-loop.md',
+        diff_path: null,
+        exit_code: null,
+        started_at: earlierStartedAt,
+        finished_at: null,
+      },
+      {
+        id: 'step-child',
+        task_id: 'task-steps',
+        step_id: 'execute',
+        parent_step_id: 'step-parent',
+        iteration: 2,
+        agent_id: 'implementer',
+        status: 'done',
+        failure_reason: null,
+        attempt: 1,
+        check_fix_attempt: 1,
+        check_status: 'fixed',
+        prompt_path: '/tmp/forgeroom/prompts/execute.md',
+        output_path: '/tmp/forgeroom/outputs/execute.md',
+        diff_path: '/tmp/forgeroom/diffs/execute.patch',
+        exit_code: 0,
+        started_at: laterStartedAt,
+        finished_at: finishedAt,
+      },
+    ]);
+  });
+
+  it('updates selected step fields without clobbering unchanged fields', async () => {
+    await store.createTask(taskInput('task-update-step', 'project-a', 'queued'));
+    const startedAt = new Date('2026-05-22T11:00:00.000Z');
+    const finishedAt = new Date('2026-05-22T11:05:00.000Z');
+    await store.createStep({
+      id: 'step-update',
+      task_id: 'task-update-step',
+      step_id: 'execute',
+      parent_step_id: null,
+      iteration: 0,
+      agent_id: 'implementer',
+      status: 'running',
+      failure_reason: null,
+      attempt: 0,
+      check_fix_attempt: 0,
+      check_status: 'not_run',
+      prompt_path: '/tmp/forgeroom/prompts/execute.md',
+      output_path: '/tmp/forgeroom/outputs/execute.md',
+      diff_path: null,
+      exit_code: null,
+      started_at: startedAt,
+      finished_at: null,
+    });
+
+    await store.updateStep('step-update', {
+      status: 'failed',
+      failure_reason: 'check_failed_after_fix',
+      attempt: 2,
+      check_fix_attempt: 1,
+      check_status: 'failed',
+      diff_path: '/tmp/forgeroom/diffs/execute.patch',
+      exit_code: 1,
+      finished_at: finishedAt,
+    });
+
+    await expect(store.listSteps('task-update-step')).resolves.toEqual([
+      {
+        id: 'step-update',
+        task_id: 'task-update-step',
+        step_id: 'execute',
+        parent_step_id: null,
+        iteration: 0,
+        agent_id: 'implementer',
+        status: 'failed',
+        failure_reason: 'check_failed_after_fix',
+        attempt: 2,
+        check_fix_attempt: 1,
+        check_status: 'failed',
+        prompt_path: '/tmp/forgeroom/prompts/execute.md',
+        output_path: '/tmp/forgeroom/outputs/execute.md',
+        diff_path: '/tmp/forgeroom/diffs/execute.patch',
+        exit_code: 1,
+        started_at: startedAt,
+        finished_at: finishedAt,
+      },
+    ]);
+  });
+
+  it('records check rows append-only by check_fix_attempt', async () => {
+    await store.createTask(taskInput('task-checks', 'project-a', 'queued'));
+    await store.createStep({
+      id: 'step-checks',
+      task_id: 'task-checks',
+      step_id: 'execute',
+      parent_step_id: null,
+      iteration: 0,
+      agent_id: 'implementer',
+      status: 'done',
+      failure_reason: null,
+      attempt: 0,
+      check_fix_attempt: 1,
+      check_status: 'fixed',
+      prompt_path: '/tmp/forgeroom/prompts/execute.md',
+      output_path: '/tmp/forgeroom/outputs/execute.md',
+      diff_path: '/tmp/forgeroom/diffs/execute.patch',
+      exit_code: 0,
+      started_at: new Date('2026-05-22T12:00:00.000Z'),
+      finished_at: new Date('2026-05-22T12:01:00.000Z'),
+    });
+
+    await expect(
+      store.recordCheck({
+        id: 'check-attempt-0',
+        step_row_id: 'step-checks',
+        check_fix_attempt: 0,
+        command_name: 'test',
+        command: 'pnpm test',
+        exit_code: 1,
+        stdout_path: '/tmp/forgeroom/logs/test-0.stdout.log',
+        stderr_path: '/tmp/forgeroom/logs/test-0.stderr.log',
+        duration_ms: 1200,
+      }),
+    ).resolves.toMatchObject({
+      id: 'check-attempt-0',
+      step_row_id: 'step-checks',
+      check_fix_attempt: 0,
+      exit_code: 1,
+      stdout_path: '/tmp/forgeroom/logs/test-0.stdout.log',
+      stderr_path: '/tmp/forgeroom/logs/test-0.stderr.log',
+      duration_ms: 1200,
+    });
+    await store.recordCheck({
+      id: 'check-attempt-1',
+      step_row_id: 'step-checks',
+      check_fix_attempt: 1,
+      command_name: 'test',
+      command: 'pnpm test',
+      exit_code: 0,
+      stdout_path: '/tmp/forgeroom/logs/test-1.stdout.log',
+      stderr_path: '/tmp/forgeroom/logs/test-1.stderr.log',
+      duration_ms: 900,
+    });
+
+    expect(
+      database.sqlite
+        .prepare(
+          `select id, step_row_id, check_fix_attempt, command_name, command, exit_code, stdout_path, stderr_path, duration_ms
+           from checks
+           where step_row_id = ?
+           order by check_fix_attempt`,
+        )
+        .all('step-checks'),
+    ).toEqual([
+      {
+        id: 'check-attempt-0',
+        step_row_id: 'step-checks',
+        check_fix_attempt: 0,
+        command_name: 'test',
+        command: 'pnpm test',
+        exit_code: 1,
+        stdout_path: '/tmp/forgeroom/logs/test-0.stdout.log',
+        stderr_path: '/tmp/forgeroom/logs/test-0.stderr.log',
+        duration_ms: 1200,
+      },
+      {
+        id: 'check-attempt-1',
+        step_row_id: 'step-checks',
+        check_fix_attempt: 1,
+        command_name: 'test',
+        command: 'pnpm test',
+        exit_code: 0,
+        stdout_path: '/tmp/forgeroom/logs/test-1.stdout.log',
+        stderr_path: '/tmp/forgeroom/logs/test-1.stderr.log',
+        duration_ms: 900,
+      },
+    ]);
+  });
 });
 
 function taskInput(id: string, projectId: string, status: 'queued' | 'running' | 'paused' | 'done') {

@@ -57,6 +57,19 @@ export interface Step {
   finished_at: Date | null;
 }
 
+export interface Check {
+  id: string;
+  step_row_id: string;
+  check_fix_attempt: number;
+  command_name: string;
+  command: string;
+  exit_code: number;
+  stdout_path: string;
+  stderr_path: string;
+  duration_ms: number;
+  created_at: Date;
+}
+
 export interface CheckResult {
   commandName: string;
   command: string;

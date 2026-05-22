@@ -1,7 +1,14 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+  type AnySQLiteColumn,
+} from 'drizzle-orm/sqlite-core';
 
-import type { CheckStatus, ExternalRef, TaskSource, TaskStatus } from '../core/types';
+import type { CheckStatus, ExternalRef, StepStatus, TaskSource, TaskStatus } from '../core/types';
 
 export const tasks = sqliteTable(
   'tasks',
@@ -39,10 +46,10 @@ export const steps = sqliteTable(
       .notNull()
       .references(() => tasks.id, { onDelete: 'cascade' }),
     stepId: text('step_id').notNull(),
-    parentStepId: text('parent_step_id'),
+    parentStepId: text('parent_step_id').references((): AnySQLiteColumn => steps.id),
     iteration: integer('iteration').notNull().default(0),
     agentId: text('agent_id').notNull(),
-    status: text('status').notNull(),
+    status: text('status').$type<StepStatus>().notNull(),
     failureReason: text('failure_reason'),
     attempt: integer('attempt').notNull().default(0),
     checkFixAttempt: integer('check_fix_attempt').notNull().default(0),
