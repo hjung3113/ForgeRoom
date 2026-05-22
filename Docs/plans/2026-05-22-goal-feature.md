@@ -321,23 +321,23 @@ Tests:
 - `apps/orchestrator/src/core/approval-gate.test.ts`
 
 Tasks:
-- [ ] Red: CheckRunner tests require `kind: execute` check command failures to record attempt 0, call the fix agent once, and record attempt 1.
-- [ ] Green: implement CheckRunner with injected command runner and ApprovalGate.
-- [ ] Red: tests require command-not-found to record exit code 127 and artifact paths.
-- [ ] Green: implement command-runner result normalization.
-- [ ] Red: tests require timeout to terminate, record timeout failure, and write stdout/stderr paths.
-- [ ] Green: implement timeout handling.
-- [ ] Red: tests require check-fix failure after one retry to set `failure_reason=check_failed_after_fix`.
-- [ ] Green: implement failure-after-fix handling.
-- [ ] Red: tests prove check fixes update the original execute step row and do not create a new workflow step row.
-- [ ] Green: implement check-fix persistence contract.
-- [ ] Refactor: keep child process execution in `utils`, not `core`.
+- [x] Red: CheckRunner tests require `kind: execute` check command failures to record attempt 0, call the fix agent once, and record attempt 1.
+- [x] Green: implement CheckRunner with injected command runner and ApprovalGate.
+- [x] Red: tests require command-not-found to record exit code 127 and artifact paths.
+- [x] Green: implement command-runner result normalization.
+- [x] Red: tests require timeout to terminate, record timeout failure, and write stdout/stderr paths.
+- [x] Green: implement timeout handling.
+- [x] Red: tests require check-fix failure after one retry to set `failure_reason=check_failed_after_fix`.
+- [x] Green: implement failure-after-fix handling.
+- [x] Red: tests prove check fixes update the original execute step row and do not create a new workflow step row.
+- [x] Green: implement check-fix persistence contract.
+- [x] Refactor: keep child process execution in `utils`, not `core`.
 
 Acceptance checklist:
-- [ ] CheckRunner runs ForgeRoom-owned verification commands directly, not through OpenClaw.
-- [ ] Check fix budget is separate from AgentRunner output-producing attempts.
-- [ ] Failure logs include the last 200 stdout/stderr lines in the check-fix prompt artifact.
-- [ ] Stage adversarial review completed and refinements applied.
+- [x] CheckRunner runs ForgeRoom-owned verification commands directly, not through OpenClaw.
+- [x] Check fix budget is separate from AgentRunner output-producing attempts.
+- [x] Failure logs include the last 200 stdout/stderr lines in the check-fix prompt artifact.
+- [x] Stage adversarial review completed and refinements applied.
 
 ## Stage 7: PipelineEngine Execution, Selectors, Loops, Lifecycle, and Recovery
 
