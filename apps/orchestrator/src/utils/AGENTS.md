@@ -20,6 +20,7 @@ Read [context-map.md](context-map.md) first.
 - `logger.ts` — pino-based JSON logger
 - `secret-mask.ts` — token pattern masking
 - `paths.ts` — worktree-internal path builders (prompts/outputs/diffs)
+- `command-runner.ts` — command execution adapter for ForgeRoom-owned check commands
 - `env.ts` — environment variable schema and validation
 - `errors.ts` — base error class (`OrchestratorError`)
 - `time.ts` — duration / sleep / AbortController helpers as needed
@@ -27,7 +28,7 @@ Read [context-map.md](context-map.md) first.
 ## Forbidden
 
 - Business logic (no dependency on `Task`, `Workflow`, `Step`, etc.)
-- External IO (DB, filesystem) — except `logger` writing to stdout / a log file
+- External IO (DB, filesystem) — except `logger` writing to stdout / a log file, and `command-runner.ts` writing caller-specified stdout/stderr artifacts for check commands
 - Importing from any other `src/` folder
 
 ## Checklist
