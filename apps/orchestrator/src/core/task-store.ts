@@ -43,7 +43,11 @@ export interface MarkDeliveryFailedPatch {
 export interface TaskStore {
   createTask(input: CreateTaskInput): Promise<Task>;
   startTask(input: CreateTaskInput): Promise<Task>;
-  updateTaskStatus(id: string, status: TaskStatus): Promise<void>;
+  updateTaskStatus(
+    id: string,
+    status: TaskStatus,
+    failureReason?: OrchestratorFailureCode | null,
+  ): Promise<void>;
   getTask(id: string): Promise<Task | null>;
   listActiveTasks(projectId?: string): Promise<Task[]>;
   acquireProjectLock(projectId: string, taskId: string): Promise<boolean>;

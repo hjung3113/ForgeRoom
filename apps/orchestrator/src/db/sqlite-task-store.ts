@@ -69,11 +69,19 @@ export class SqliteTaskStore implements TaskStore {
     return Promise.resolve(task);
   }
 
-  updateTaskStatus(id: string, status: TaskStatus): Promise<void> {
+  updateTaskStatus(
+    id: string,
+    status: TaskStatus,
+    failureReason?: OrchestratorFailureCode | null,
+  ): Promise<void> {
     try {
       this.db
         .update(tasks)
-        .set({ status, updatedAt: new Date().toISOString() })
+        .set({
+          status,
+          updatedAt: new Date().toISOString(),
+          ...(failureReason === undefined ? {} : { failureReason: validateFailureReason(failureReason) }),
+        })
         .where(eq(tasks.id, id))
         .run();
     } catch (error) {

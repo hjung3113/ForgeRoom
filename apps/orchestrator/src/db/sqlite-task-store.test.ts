@@ -578,6 +578,25 @@ describe('SqliteTaskStore', () => {
     ).rejects.toThrow(/invalid failure_reason/i);
   });
 
+  it('updates task status with a canonical failure reason', async () => {
+    await store.createTask(taskInput('task-update-failure', 'project-a', 'running'));
+
+    await store.updateTaskStatus('task-update-failure', 'failed', 'check_failed_after_fix');
+
+    await expect(store.getTask('task-update-failure')).resolves.toMatchObject({
+      id: 'task-update-failure',
+      status: 'failed',
+      failure_reason: 'check_failed_after_fix',
+    });
+    await expect(
+      store.updateTaskStatus(
+        'task-update-failure',
+        'failed',
+        'not_canonical' as unknown as OrchestratorFailureCode,
+      ),
+    ).rejects.toThrow(/invalid failure_reason/i);
+  });
+
   it('lists only due undelivered deliveries in a predictable order', async () => {
     await store.createTask(taskInput('task-due-deliveries', 'project-a', 'queued'));
     await store.enqueueEvent({
