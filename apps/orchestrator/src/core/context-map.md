@@ -23,6 +23,7 @@ The business logic of ForgeRoom: workflow execution, agent orchestration, worktr
 | `approval-gate.ts` | ApprovalGate | [Docs/modules/approval-gate.md](../../../../Docs/modules/approval-gate.md) |
 | `project-registry.ts` | ProjectRegistry | [Docs/modules/project-registry.md](../../../../Docs/modules/project-registry.md) |
 | `workflow-registry.ts` | WorkflowRegistry | [Docs/modules/workflow-registry.md](../../../../Docs/modules/workflow-registry.md) |
+| `output-selectors.ts` | PipelineEngine output selector parsing helpers | [Docs/modules/pipeline-engine.md](../../../../Docs/modules/pipeline-engine.md) |
 | `intent-registry.ts` | Intent registry validation and lookup | [Docs/concepts/workflow-dsl.md](../../../../Docs/concepts/workflow-dsl.md) |
 | `agent-registry.ts` | Phase 1 OpenClaw agent registry validation and lookup | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
 | `harness-registry.ts` | Step Harness registry validation and lookup | [Docs/concepts/workflow-dsl.md](../../../../Docs/concepts/workflow-dsl.md) |
