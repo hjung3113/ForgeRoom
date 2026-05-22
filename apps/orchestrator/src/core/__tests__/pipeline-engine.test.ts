@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { WorkflowError } from '../errors';
 import { makePipelineHarness } from '../test-support/pipeline-engine-fixtures';
 
 describe('DefaultPipelineEngine', () => {
@@ -137,5 +138,38 @@ describe('DefaultPipelineEngine', () => {
       { projectId: 'forge', taskId: 'task-1' },
       { projectId: 'forge', taskId: 'task-1' },
     ]);
+  });
+
+  it('pauses and resumes a task through explicit lifecycle commands', async () => {
+    const harness = makePipelineHarness();
+    const taskId = await harness.engine.runFull('forge', {
+      title: 'Pause orchestration',
+      description: 'Prepare a task that can be paused.',
+      source: 'discord-command',
+    });
+
+    await harness.engine.pause(taskId);
+    await harness.engine.resume(taskId);
+
+    expect(harness.taskStore.taskStatusUpdates).toEqual([
+      { id: 'task-1', status: 'paused' },
+      { id: 'task-1', status: 'running' },
+    ]);
+    expect(harness.taskStore.lockRequests).toEqual([
+      { projectId: 'forge', taskId: 'task-1' },
+      { projectId: 'forge', taskId: 'task-1' },
+    ]);
+  });
+
+  it('does not resume canceled tasks', async () => {
+    const harness = makePipelineHarness();
+    const taskId = await harness.engine.runFull('forge', {
+      title: 'Canceled orchestration',
+      description: 'Prepare a canceled task.',
+      source: 'discord-command',
+    });
+    harness.taskStore.setTaskStatus(taskId, 'canceled');
+
+    await expect(harness.engine.resume(taskId)).rejects.toThrow(WorkflowError);
   });
 });

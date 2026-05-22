@@ -119,6 +119,24 @@ export class DefaultPipelineEngine {
     await this.taskStore.releaseProjectLock(task.project_id, task.id);
   }
 
+  async pause(taskId: string): Promise<void> {
+    const task = await this.taskStore.getTask(taskId);
+    if (task === null || task.status === 'canceled') return;
+
+    await this.taskStore.updateTaskStatus(task.id, 'paused');
+  }
+
+  async resume(taskId: string): Promise<void> {
+    const task = await this.taskStore.getTask(taskId);
+    if (task === null) return;
+    if (task.status === 'canceled') {
+      throw new WorkflowError('output_contract_failed', `Canceled task cannot resume: ${task.id}`);
+    }
+
+    await this.taskStore.updateTaskStatus(task.id, 'running');
+    await this.taskStore.acquireProjectLock(task.project_id, task.id);
+  }
+
   private requireProject(projectId: string): ProjectMeta {
     const project = this.projectRegistry.get(projectId);
     if (project === null) {

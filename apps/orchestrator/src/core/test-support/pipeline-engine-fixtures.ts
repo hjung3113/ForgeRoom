@@ -149,6 +149,7 @@ export class FakeTaskStore
       status,
       ...(failureReason === undefined ? {} : { failureReason }),
     });
+    this.setTaskStatus(id, status);
     return Promise.resolve();
   }
 
@@ -159,6 +160,13 @@ export class FakeTaskStore
       ...(payload === undefined ? {} : { payload }),
     });
     return Promise.resolve();
+  }
+
+  setTaskStatus(id: string, status: Task['status']): void {
+    const task = this.tasks.get(id);
+    if (task !== undefined) {
+      this.tasks.set(id, { ...task, status });
+    }
   }
 }
 
