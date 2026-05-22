@@ -31,13 +31,15 @@ export interface DefaultPipelineEngineOptions {
   projectRegistry: Pick<ProjectRegistryLike, 'get'>;
   workflowRegistry: Pick<WorkflowRegistryLike, 'get'>;
   taskStore: Pick<
-    TaskStore,
+      TaskStore,
     | 'createTask'
+    | 'getTask'
     | 'acquireProjectLock'
     | 'releaseProjectLock'
     | 'createStep'
     | 'updateStep'
     | 'updateTaskStatus'
+    | 'cancelTask'
   >;
   worktreeManager: WorktreeManagerLike;
   agentRunner: AgentRunner;
@@ -68,7 +70,14 @@ export class DefaultPipelineEngine {
   private readonly workflowRegistry: Pick<WorkflowRegistryLike, 'get'>;
   private readonly taskStore: Pick<
     TaskStore,
-    'createTask' | 'acquireProjectLock' | 'releaseProjectLock' | 'createStep' | 'updateStep' | 'updateTaskStatus'
+    | 'createTask'
+    | 'getTask'
+    | 'acquireProjectLock'
+    | 'releaseProjectLock'
+    | 'createStep'
+    | 'updateStep'
+    | 'updateTaskStatus'
+    | 'cancelTask'
   >;
   private readonly worktreeManager: WorktreeManagerLike;
   private readonly agentRunner: AgentRunner;
@@ -101,6 +110,14 @@ export class DefaultPipelineEngine {
     await this.taskStore.releaseProjectLock(project.id, task.id);
 
     return task.id;
+  }
+
+  async cancel(taskId: string): Promise<void> {
+    const task = await this.taskStore.getTask(taskId);
+    if (task === null) return;
+
+    await this.taskStore.cancelTask(task.id, this.createId(), { reason: 'user_requested' });
+    await this.taskStore.releaseProjectLock(task.project_id, task.id);
   }
 
   private requireProject(projectId: string): ProjectMeta {

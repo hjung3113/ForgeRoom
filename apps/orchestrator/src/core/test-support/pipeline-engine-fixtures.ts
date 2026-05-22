@@ -72,7 +72,7 @@ export function makePipelineHarness(
     agentRunner,
     checkRunner,
     artifactStore,
-    createId: makeIdFactory(['task-1', 'step-1']),
+    createId: makeIdFactory(['task-1', 'step-1', 'event-1']),
     now: () => now,
   });
 
@@ -83,28 +83,44 @@ export class FakeTaskStore
   implements
     Pick<
       TaskStore,
-      'createTask' | 'acquireProjectLock' | 'releaseProjectLock' | 'createStep' | 'updateStep' | 'updateTaskStatus'
+      | 'createTask'
+      | 'getTask'
+      | 'acquireProjectLock'
+      | 'releaseProjectLock'
+      | 'createStep'
+      | 'updateStep'
+      | 'updateTaskStatus'
+      | 'cancelTask'
     >
 {
   readonly createdTasks: CreateTaskInput[] = [];
   readonly createdSteps: CreateStepInput[] = [];
+  readonly tasks = new Map<string, Task>();
   readonly lockRequests: Array<{ projectId: string; taskId: string }> = [];
   readonly releaseLockRequests: Array<{ projectId: string; taskId: string }> = [];
   readonly stepPatches: Array<{ id: string; patch: Partial<Step> }> = [];
   readonly taskStatusUpdates: Array<{ id: string; status: Task['status']; failureReason?: Task['failure_reason'] }> =
     [];
+  readonly cancelRequests: Array<{ taskId: string; eventId: string; payload?: Record<string, unknown> }> = [];
 
   constructor(private readonly now: Date) {}
 
   createTask(input: CreateTaskInput): Promise<Task> {
     this.createdTasks.push(input);
 
-    return Promise.resolve({
+    const task = {
       ...input,
       failure_reason: input.failure_reason ?? null,
       created_at: this.now,
       updated_at: this.now,
-    });
+    };
+    this.tasks.set(task.id, task);
+
+    return Promise.resolve(task);
+  }
+
+  getTask(id: string): Promise<Task | null> {
+    return Promise.resolve(this.tasks.get(id) ?? null);
   }
 
   acquireProjectLock(projectId: string, taskId: string): Promise<boolean> {
@@ -132,6 +148,15 @@ export class FakeTaskStore
       id,
       status,
       ...(failureReason === undefined ? {} : { failureReason }),
+    });
+    return Promise.resolve();
+  }
+
+  cancelTask(taskId: string, eventId: string, payload?: Record<string, unknown>): Promise<void> {
+    this.cancelRequests.push({
+      taskId,
+      eventId,
+      ...(payload === undefined ? {} : { payload }),
     });
     return Promise.resolve();
   }

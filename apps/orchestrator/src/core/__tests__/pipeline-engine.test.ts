@@ -115,4 +115,27 @@ describe('DefaultPipelineEngine', () => {
     ]);
     expect(harness.taskStore.releaseLockRequests).toEqual([{ projectId: 'forge', taskId: 'task-1' }]);
   });
+
+  it('cancels an active task and releases its project lock', async () => {
+    const harness = makePipelineHarness();
+    const taskId = await harness.engine.runFull('forge', {
+      title: 'Cancelable orchestration',
+      description: 'Prepare a task that can be canceled.',
+      source: 'discord-command',
+    });
+
+    await harness.engine.cancel(taskId);
+
+    expect(harness.taskStore.cancelRequests).toEqual([
+      {
+        taskId: 'task-1',
+        eventId: 'event-1',
+        payload: { reason: 'user_requested' },
+      },
+    ]);
+    expect(harness.taskStore.releaseLockRequests).toEqual([
+      { projectId: 'forge', taskId: 'task-1' },
+      { projectId: 'forge', taskId: 'task-1' },
+    ]);
+  });
 });
