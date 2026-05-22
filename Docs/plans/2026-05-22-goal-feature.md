@@ -286,24 +286,24 @@ Tests:
 - `apps/orchestrator/src/core/openclaw-provider.test.ts`
 
 Tasks:
-- [ ] Red: OpenClawProvider tests require `health`, `run`, and `resume` to translate ForgeRoom requests into OpenClaw IPC client calls with runtime, model, cwd, prompt path instruction, output path instruction, stdout path, and stderr path.
-- [ ] Green: implement OpenClawProvider against an injected fake OpenClaw IPC client.
-- [ ] Red: tests document the selected OQ-004 IPC shape and fail if endpoint/token/runtime inputs are missing.
-- [ ] Green: implement config validation and update OQ-004 status only if the IPC shape is confirmed by implementation evidence.
-- [ ] Red: AgentRunner tests require missing output, output smaller than `MIN_BYTES`, provider non-zero, timeout, and output selector failure to consume the same output-producing attempt budget.
-- [ ] Green: implement AgentRunner attempt handling.
-- [ ] Red: AgentRunner tests require provider `resume` when `sessionId` exists and a new headless run fallback when `sessionId === null`.
-- [ ] Green: implement resume and fallback.
-- [ ] Red: tests require timeout defaults from OQ-007 to be configurable at the workflow/step policy seam.
-- [ ] Green: implement timeout default and config plumbing without adding Phase 2 behavior.
-- [ ] Refactor: keep provider-specific raw diagnostics in logs, not public ForgeRoom failure contracts.
+- [x] Red: OpenClawProvider tests require `health`, `run`, and `resume` to translate ForgeRoom requests into OpenClaw IPC client calls with runtime, model, cwd, prompt path instruction, output path instruction, stdout path, and stderr path.
+- [x] Green: implement OpenClawProvider against an injected fake OpenClaw IPC client.
+- [x] Red: tests document the selected OQ-004 IPC shape and fail if endpoint/token/runtime inputs are missing.
+- [x] Green: implement config validation and update OQ-004 status only if the IPC shape is confirmed by implementation evidence.
+- [x] Red: AgentRunner tests require missing output, output smaller than `MIN_BYTES`, provider non-zero, timeout, and output selector failure to consume the same output-producing attempt budget.
+- [x] Green: implement AgentRunner attempt handling.
+- [x] Red: AgentRunner tests require provider `resume` when `sessionId` exists and a new headless run fallback when `sessionId === null`.
+- [x] Green: implement resume and fallback.
+- [x] Red: tests require timeout defaults from OQ-007 to be configurable at the workflow/step policy seam.
+- [x] Green: implement timeout default and config plumbing without adding Phase 2 behavior.
+- [x] Refactor: keep provider-specific raw diagnostics in logs, not public ForgeRoom failure contracts.
 
 Acceptance checklist:
-- [ ] MVP has a concrete `OpenClawProvider` implementation, not only a fake provider.
-- [ ] `OpenCodeProvider`, `HermesProvider`, and direct CLI providers remain out of scope.
-- [ ] AgentRunner owns output validation and retry semantics.
-- [ ] OQ-004 and OQ-007 are either resolved with evidence or left pending with explicit implementation blockers.
-- [ ] Stage adversarial review completed and refinements applied.
+- [x] MVP has a concrete `OpenClawProvider` implementation, not only a fake provider.
+- [x] `OpenCodeProvider`, `HermesProvider`, and direct CLI providers remain out of scope.
+- [x] AgentRunner owns output validation and retry semantics.
+- [x] OQ-004 and OQ-007 are either resolved with evidence or left pending with explicit implementation blockers.
+- [x] Stage adversarial review completed and refinements applied.
 
 ## Stage 6: CheckRunner and Check-Fix Contract
 
