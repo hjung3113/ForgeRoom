@@ -4,18 +4,18 @@ import { tmpdir } from 'node:os';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { AgentRegistry } from './agent-registry';
-import type {
-  AgentResumeRequest,
-  AgentRunnerResumeRequest,
-  AgentRunRequest,
-  AgentRunResult,
-  AgentRuntimeProvider,
-  ProviderHealth,
+import { AgentRegistry, type ResolvedAgent } from './agent-registry';
+import {
+  DEFAULT_AGENT_TIMEOUT_MS,
+  DefaultAgentRunner,
+  type AgentResumeRequest,
+  type AgentRunnerResumeRequest,
+  type AgentRunRequest,
+  type AgentRunResult,
+  type AgentRuntimeProvider,
+  type ProviderHealth,
 } from './agent-runner';
-import { DefaultAgentRunner } from './agent-runner';
 import { HarnessRegistry } from './harness-registry';
-import type { ResolvedAgent } from './agent-registry';
 
 class FakeAgentRuntimeProvider implements AgentRuntimeProvider {
   runRequests: Array<{ req: AgentRunRequest; agent: ResolvedAgent }> = [];
@@ -138,6 +138,51 @@ describe('DefaultAgentRunner', () => {
     expect(result.failureKind).toBeUndefined();
   });
 
+  it('applies the configured default timeout when a run request omits timeoutMs', async () => {
+    const { timeoutMs: _timeoutMs, ...req } = await createRunRequest();
+    await writeOutput(req.outputPath, 'x'.repeat(50));
+    const provider = new FakeAgentRuntimeProvider();
+    provider.results = [providerResult()];
+    const runner = new DefaultAgentRunner({
+      agentRegistry: registry,
+      provider,
+      defaultTimeoutMs: 123_000,
+    });
+
+    await runner.run(req);
+
+    expect(provider.runRequests).toEqual([
+      {
+        req: { ...req, timeoutMs: 123_000 },
+        agent: resolvedAgent,
+      },
+    ]);
+  });
+
+  it('preserves an explicit per-request timeout over the runner default', async () => {
+    const req = {
+      ...(await createRunRequest()),
+      timeoutMs: 42_000,
+    };
+    await writeOutput(req.outputPath, 'x'.repeat(50));
+    const provider = new FakeAgentRuntimeProvider();
+    provider.results = [providerResult()];
+    const runner = new DefaultAgentRunner({
+      agentRegistry: registry,
+      provider,
+      defaultTimeoutMs: 123_000,
+    });
+
+    await runner.run(req);
+
+    expect(provider.runRequests).toEqual([
+      {
+        req: { ...req, timeoutMs: 42_000 },
+        agent: resolvedAgent,
+      },
+    ]);
+  });
+
   it('retries a tiny output by resuming the provider session with an injected addendum prompt path', async () => {
     const req = await createRunRequest();
     await writeOutput(req.outputPath, 'too small');
@@ -173,6 +218,41 @@ describe('DefaultAgentRunner', () => {
     ]);
     expect(result).toMatchObject({ outputExists: true, outputBytes: 51 });
     expect(result.failureKind).toBeUndefined();
+  });
+
+  it('applies the built-in default timeout to internal resume retries when the run request omits timeoutMs', async () => {
+    const { timeoutMs: _timeoutMs, ...req } = await createRunRequest();
+    await writeOutput(req.outputPath, 'too small');
+    const retryPromptPath = join(req.cwd, '.forgeroom', 'prompts', '01_plan.retry-2.md');
+    const provider = new FakeAgentRuntimeProvider();
+    provider.results = [providerResult(), providerResult({ durationMs: 75 })];
+    const runner = new DefaultAgentRunner({
+      agentRegistry: registry,
+      provider,
+      createRetryPrompt: async () => {
+        await writeFile(req.outputPath, 'x'.repeat(51));
+        return retryPromptPath;
+      },
+    });
+
+    await runner.run(req);
+
+    expect(provider.runRequests[0]?.req.timeoutMs).toBe(DEFAULT_AGENT_TIMEOUT_MS);
+    expect(provider.resumeRequests).toEqual([
+      {
+        req: {
+          sessionId: 'session-1',
+          addendumPromptPath: retryPromptPath,
+          outputPath: req.outputPath,
+          stdoutPath: req.stdoutPath,
+          stderrPath: req.stderrPath,
+          cwd: req.cwd,
+          mode: req.mode,
+          timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+        },
+        agent: resolvedAgent,
+      },
+    ]);
   });
 
   it('falls back to provider.run for output retries when the previous attempt has no session id', async () => {
@@ -316,6 +396,49 @@ describe('DefaultAgentRunner', () => {
     expect(result.failureKind).toBeUndefined();
   });
 
+  it('applies the built-in default timeout to selector resume requests with a provider session', async () => {
+    const req = await createRunRequest();
+    const selectorRetry: AgentRunnerResumeRequest = {
+      agentId: req.agentId,
+      promptPath: req.promptPath,
+      sessionId: 'session-1',
+      addendumPromptPath: join(req.cwd, '.forgeroom', 'prompts', '01_plan.selector-retry.md'),
+      outputPath: req.outputPath,
+      stdoutPath: req.stdoutPath,
+      stderrPath: req.stderrPath,
+      cwd: req.cwd,
+      mode: req.mode,
+      attempt: 2,
+    };
+    const provider = new FakeAgentRuntimeProvider();
+    provider.results = [providerResult({ durationMs: 80 })];
+    const runner = new DefaultAgentRunner({
+      agentRegistry: registry,
+      provider,
+      createRetryPrompt: () =>
+        Promise.reject(new Error('selector retry should not need a second retry prompt')),
+    });
+
+    await writeOutput(req.outputPath, 'x'.repeat(54));
+    await runner.resume(selectorRetry);
+
+    expect(provider.resumeRequests).toEqual([
+      {
+        req: {
+          sessionId: 'session-1',
+          addendumPromptPath: selectorRetry.addendumPromptPath,
+          outputPath: req.outputPath,
+          stdoutPath: req.stdoutPath,
+          stderrPath: req.stderrPath,
+          cwd: req.cwd,
+          mode: req.mode,
+          timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+        },
+        agent: resolvedAgent,
+      },
+    ]);
+  });
+
   it('lets PipelineEngine continue selector failures with a new run when no session id exists', async () => {
     const req = await createRunRequest();
     const selectorRetry: AgentRunnerResumeRequest = {
@@ -347,6 +470,71 @@ describe('DefaultAgentRunner', () => {
     expect(provider.resumeRequests).toEqual([]);
     expect(result).toMatchObject({ outputExists: true, outputBytes: 55 });
     expect(result.failureKind).toBeUndefined();
+  });
+
+  it('applies the built-in default timeout to selector resume fallback runs without a provider session', async () => {
+    const req = await createRunRequest();
+    const selectorRetry: AgentRunnerResumeRequest = {
+      agentId: req.agentId,
+      promptPath: req.promptPath,
+      sessionId: null,
+      addendumPromptPath: join(req.cwd, '.forgeroom', 'prompts', '01_plan.selector-retry.md'),
+      outputPath: req.outputPath,
+      stdoutPath: req.stdoutPath,
+      stderrPath: req.stderrPath,
+      cwd: req.cwd,
+      mode: req.mode,
+      attempt: 2,
+    };
+    const provider = new FakeAgentRuntimeProvider();
+    provider.results = [providerResult({ sessionId: null })];
+    const runner = new DefaultAgentRunner({ agentRegistry: registry, provider });
+
+    await writeOutput(req.outputPath, 'x'.repeat(55));
+    await runner.resume(selectorRetry);
+
+    expect(provider.runRequests).toEqual([
+      {
+        req: { ...req, promptPath: selectorRetry.addendumPromptPath, timeoutMs: DEFAULT_AGENT_TIMEOUT_MS },
+        agent: resolvedAgent,
+      },
+    ]);
+    expect(provider.resumeRequests).toEqual([]);
+  });
+
+  it('preserves an explicit timeout on selector fallback runs without a provider session', async () => {
+    const req = await createRunRequest();
+    const selectorRetry: AgentRunnerResumeRequest = {
+      agentId: req.agentId,
+      promptPath: req.promptPath,
+      sessionId: null,
+      addendumPromptPath: join(req.cwd, '.forgeroom', 'prompts', '01_plan.selector-retry.md'),
+      outputPath: req.outputPath,
+      stdoutPath: req.stdoutPath,
+      stderrPath: req.stderrPath,
+      cwd: req.cwd,
+      mode: req.mode,
+      attempt: 2,
+      timeoutMs: 42_000,
+    };
+    const provider = new FakeAgentRuntimeProvider();
+    provider.results = [providerResult({ sessionId: null })];
+    const runner = new DefaultAgentRunner({
+      agentRegistry: registry,
+      provider,
+      defaultTimeoutMs: 123_000,
+    });
+
+    await writeOutput(req.outputPath, 'x'.repeat(55));
+    await runner.resume(selectorRetry);
+
+    expect(provider.runRequests).toEqual([
+      {
+        req: { ...req, promptPath: selectorRetry.addendumPromptPath, timeoutMs: 42_000 },
+        agent: resolvedAgent,
+      },
+    ]);
+    expect(provider.resumeRequests).toEqual([]);
   });
 
   it('retries timeout failures through the output-producing attempt budget', async () => {

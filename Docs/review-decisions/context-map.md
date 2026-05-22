@@ -20,6 +20,7 @@ This folder records implementation-level decisions settled during review so late
 | `2026-05-23-stage-4-approval-gate-worktree-seam.md` | Stage 4 ApprovalGate seam for worktree branch/path safety |
 | `2026-05-23-stage-5-openclaw-ipc-contract.md` | Stage 5 ForgeRoom-side OpenClaw IPC contract decision |
 | `2026-05-23-stage-5-agent-runner-retry-policy.md` | Stage 5 AgentRunner output-producing retry policy decision |
+| `2026-05-23-stage-5-agent-timeout-policy.md` | Stage 5 AgentRunner timeout default policy decision |
 
 ## Related Docs
 

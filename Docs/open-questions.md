@@ -15,7 +15,7 @@ last_reviewed: 2026-05-21
 | OQ-004 | OpenClaw IPC 인터페이스 (HTTP vs Unix socket vs Node SDK) | AgentRunner 구현 | ForgeRoom core는 injected OpenClaw IPC client contract로 고정. `openclaw-provider.test.ts`와 `openclaw-provider.ts`가 endpoint/token/runtime health, run/resume request shape, and response mapping을 정의한다. 실제 OpenClaw transport 검증은 adapter/e2e 단계에서 별도 확인. | resolved by Stage 5 provider contract tests |
 | OQ-005 | PR 본문 생성에 Conductor의 summary를 그대로 사용해도 되는가? | 품질 vs 자동화 | Forge Phase 1 시도, Forge Phase 2에서 LLM judge 도입 가능 | pending |
 | OQ-006 | `agents.yaml`에서 모델 자동 선택(예: 토큰량 기준) 필요한가? | 비용 | Forge Phase 2 검토 | pending |
-| OQ-007 | step별 timeout 기본값? (agent run, check 별도) | 안정성 | 합리적 기본값 + 설정화 | pending |
+| OQ-007 | step별 timeout 기본값? (agent run, check 별도) | 안정성 | Agent run default는 Stage 5 AgentRunner policy로 해결: caller `timeoutMs` 우선, 생략 시 `DEFAULT_AGENT_TIMEOUT_MS = 300_000`. Check timeout 기본값은 Stage 6 CheckRunner 정책에서 별도 결정. | partially resolved by Stage 5 AgentRunner policy; check timeout pending Stage 6 |
 | OQ-008 | worktree 정리 정책 (성공 후 보존 기간) | 디스크 사용 | MVP는 수동, Forge Phase 2 자동화 | pending |
 | OQ-009 | Discord 메시지 길이 제한(2000자) 대응 (긴 step output 분할) | 사용성 | 구현 단계에서 split 또는 thread 사용 | pending |
 | OQ-010 | yaml `commands` 명령에 환경변수 주입 필요한가? (예: `${task.id}`) | 워크플로우 표현력 | Forge Phase 2 | pending |

@@ -139,6 +139,15 @@ interface AgentRunResult {
   stdoutPath: string
   stderrPath: string
 }
+
+interface DefaultAgentRunnerOptions {
+  agentRegistry: AgentRegistry
+  provider: AgentRuntimeProvider
+  minOutputBytes?: number
+  maxAttempts?: number
+  defaultTimeoutMs?: number             // 기본값: 300_000
+  createRetryPrompt?: (context: RetryPromptContext) => Promise<string>
+}
 ```
 
 `failureKind`는 ForgeRoom 공통 실패 분류다. Provider-specific raw code(예: gateway HTTP status, provider-local auth reason)는 `AgentRunResult` contract에 노출하지 않고 stdout/stderr/log에 남긴다. Reporter와 task 상태는 공통 `failureKind`만 사용한다.
@@ -153,7 +162,7 @@ Provider는 `outputPath`를 검증하지 않는다. Output 파일 존재 여부,
 
 `stdoutPath`와 `stderrPath`도 AgentRunner가 할당하는 task artifact 경로다. Provider는 runtime stdout/stderr와 provider-specific raw diagnostics를 주어진 경로에 기록한다. Log path layout과 cleanup 정책은 ForgeRoom이 소유한다.
 
-`timeoutMs`는 ForgeRoom의 workflow/step execution policy다. AgentRunner가 timeout budget을 결정해 request에 넣고, provider는 가능한 경우 runtime 호출에 적용한다. Timeout 발생 시 provider는 공통 `failureKind: 'timeout'`으로 반환하고, retry/failed 판단은 AgentRunner가 수행한다.
+`timeoutMs`는 ForgeRoom의 workflow/step execution policy다. AgentRunner가 timeout budget을 결정해 request에 넣고, provider는 가능한 경우 runtime 호출에 적용한다. Caller가 `timeoutMs`를 명시하면 그 값을 보존하고, 생략하면 `DefaultAgentRunnerOptions.defaultTimeoutMs`를 사용한다. 기본 agent run timeout은 `DEFAULT_AGENT_TIMEOUT_MS = 300_000`(5분)이다. Timeout 발생 시 provider는 공통 `failureKind: 'timeout'`으로 반환하고, retry/failed 판단은 AgentRunner가 수행한다.
 
 `mode`는 ForgeRoom이 요청하는 실행 형태다. MVP 기본값은 `headless`다. `pty`는 pseudo-terminal 기반 interactive/session 실행을 뜻하며 optional provider capability로 둔다. Provider가 `pty`를 지원하지 않으면 실행 전 validation error 또는 `failureKind: 'runtime_unavailable'`로 반환한다.
 
@@ -210,6 +219,7 @@ run 종료 후:
 - AgentRunner는 valid step output을 만들기 위한 output-producing attempt budget 하나를 가진다. 기본값은 `MAX_AGENT_ATTEMPTS = 3`이다.
 - 이 budget에는 retryable provider failure(`timeout`, `agent_error`), output 파일 미작성/너무 작은 파일, output selector 실패(`## Slices`, `Review Result`)가 모두 포함된다. Provider readiness failure(`runtime_unavailable`, `auth_failed`)는 같은 요청을 반복해도 output 생성 가능성이 없으므로 즉시 반환한다.
 - provider resume은 retry 결정을 하지 않는다. AgentRunner가 sessionId 유무와 mode에 따라 provider `resume` 또는 새 `run` fallback을 호출한다.
+- AgentRunner는 최초 `run`, internal retry `resume`, selector retry `resume`, session 없는 selector fallback `run` 모두에 effective `timeoutMs`를 포함해 provider로 전달한다.
 - Budget 소진 시 step.status=failed로 기록하고 공통 `failureKind`를 남긴다.
 - CheckRunner 자동 수정은 별도 budget이다. AgentRunner retry는 valid step output 생성까지, CheckRunner retry는 생성된 코드 변경의 품질 게이트 통과까지를 책임진다.
 
@@ -230,3 +240,4 @@ run 종료 후:
 - [ADR-003](../decisions/2026-05-21-003-agent-runner-openclaw-delegation.md)
 - [ADR-012](../decisions/2026-05-22-012-agent-runtime-provider-boundary.md)
 - [ADR-004](../decisions/2026-05-21-004-file-based-prompt-passing.md)
+- [Stage 5 Agent Timeout Policy](../review-decisions/2026-05-23-stage-5-agent-timeout-policy.md)

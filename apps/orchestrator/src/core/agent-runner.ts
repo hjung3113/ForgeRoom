@@ -20,6 +20,10 @@ export interface AgentRunRequest {
   timeoutMs?: number;
 }
 
+type AgentRunRequestWithTimeout = AgentRunRequest & {
+  timeoutMs: number;
+};
+
 export type AgentResumeRequest = Omit<AgentRunRequest, 'agentId' | 'promptPath'> & {
   sessionId: string;
   addendumPromptPath: string;
@@ -70,11 +74,13 @@ export interface DefaultAgentRunnerOptions {
   provider: AgentRuntimeProvider;
   minOutputBytes?: number;
   maxAttempts?: number;
+  defaultTimeoutMs?: number;
   createRetryPrompt?: (context: RetryPromptContext) => Promise<string>;
 }
 
 const DEFAULT_MIN_OUTPUT_BYTES = 50;
 const DEFAULT_MAX_ATTEMPTS = 3;
+export const DEFAULT_AGENT_TIMEOUT_MS = 300_000;
 const TERMINAL_PROVIDER_FAILURES = new Set<AgentRunFailureKind>([
   'runtime_unavailable',
   'auth_failed',
@@ -90,6 +96,7 @@ export class DefaultAgentRunner implements AgentRunner {
   private readonly provider: AgentRuntimeProvider;
   private readonly minOutputBytes: number;
   private readonly maxAttempts: number;
+  private readonly defaultTimeoutMs: number;
   private readonly createRetryPrompt: (context: RetryPromptContext) => Promise<string>;
 
   constructor(options: DefaultAgentRunnerOptions) {
@@ -97,15 +104,17 @@ export class DefaultAgentRunner implements AgentRunner {
     this.provider = options.provider;
     this.minOutputBytes = options.minOutputBytes ?? DEFAULT_MIN_OUTPUT_BYTES;
     this.maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
     this.createRetryPrompt = options.createRetryPrompt ?? writeDefaultRetryPrompt;
   }
 
   async run(req: AgentRunRequest): Promise<AgentRunResult> {
     const agent = this.agentRegistry.resolve(req.agentId);
-    const result = await this.provider.run(req, agent);
+    const runRequest = withDefaultTimeout(req, this.defaultTimeoutMs);
+    const result = await this.provider.run(runRequest, agent);
 
     return this.completeOutputAttempts({
-      req,
+      req: runRequest,
       agent,
       result,
       attempt: 1,
@@ -114,9 +123,9 @@ export class DefaultAgentRunner implements AgentRunner {
 
   async resume(req: AgentRunnerResumeRequest): Promise<AgentRunResult> {
     const agent = this.agentRegistry.resolve(req.agentId);
-    const runRequest = toRunRequest(req);
+    const runRequest = withDefaultTimeout(toRunRequest(req), this.defaultTimeoutMs);
     const result = req.sessionId
-      ? await this.provider.resume(toProviderResumeRequest(req, req.sessionId), agent)
+      ? await this.provider.resume(toProviderResumeRequest(req, req.sessionId, runRequest.timeoutMs), agent)
       : await this.provider.run({ ...runRequest, promptPath: req.addendumPromptPath }, agent);
 
     return this.completeOutputAttempts({
@@ -232,7 +241,11 @@ function toRetryResumeRequest(
   };
 }
 
-function toProviderResumeRequest(req: AgentRunnerResumeRequest, sessionId: string): AgentResumeRequest {
+function toProviderResumeRequest(
+  req: AgentRunnerResumeRequest,
+  sessionId: string,
+  timeoutMs: number,
+): AgentResumeRequest {
   return {
     sessionId,
     addendumPromptPath: req.addendumPromptPath,
@@ -241,7 +254,7 @@ function toProviderResumeRequest(req: AgentRunnerResumeRequest, sessionId: strin
     stderrPath: req.stderrPath,
     cwd: req.cwd,
     mode: req.mode,
-    ...(req.timeoutMs === undefined ? {} : { timeoutMs: req.timeoutMs }),
+    timeoutMs,
   };
 }
 
@@ -255,6 +268,13 @@ function toRunRequest(req: AgentRunnerResumeRequest): AgentRunRequest {
     cwd: req.cwd,
     mode: req.mode,
     ...(req.timeoutMs === undefined ? {} : { timeoutMs: req.timeoutMs }),
+  };
+}
+
+function withDefaultTimeout(req: AgentRunRequest, defaultTimeoutMs: number): AgentRunRequestWithTimeout {
+  return {
+    ...req,
+    timeoutMs: req.timeoutMs ?? defaultTimeoutMs,
   };
 }
 
