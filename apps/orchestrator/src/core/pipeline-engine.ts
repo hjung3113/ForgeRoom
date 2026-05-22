@@ -30,7 +30,7 @@ export interface PipelineArtifactStore {
 export interface DefaultPipelineEngineOptions {
   projectRegistry: Pick<ProjectRegistryLike, 'get'>;
   workflowRegistry: Pick<WorkflowRegistryLike, 'get'>;
-  taskStore: Pick<TaskStore, 'createTask' | 'acquireProjectLock' | 'createStep' | 'updateStep'>;
+  taskStore: Pick<TaskStore, 'createTask' | 'acquireProjectLock' | 'createStep' | 'updateStep' | 'updateTaskStatus'>;
   worktreeManager: WorktreeManagerLike;
   agentRunner: AgentRunner;
   checkRunner?: CheckRunnerLike;
@@ -58,7 +58,10 @@ interface CheckRunnerLike {
 export class DefaultPipelineEngine {
   private readonly projectRegistry: Pick<ProjectRegistryLike, 'get'>;
   private readonly workflowRegistry: Pick<WorkflowRegistryLike, 'get'>;
-  private readonly taskStore: Pick<TaskStore, 'createTask' | 'acquireProjectLock' | 'createStep' | 'updateStep'>;
+  private readonly taskStore: Pick<
+    TaskStore,
+    'createTask' | 'acquireProjectLock' | 'createStep' | 'updateStep' | 'updateTaskStatus'
+  >;
   private readonly worktreeManager: WorktreeManagerLike;
   private readonly agentRunner: AgentRunner;
   private readonly checkRunner: CheckRunnerLike | null;
@@ -182,12 +185,16 @@ export class DefaultPipelineEngine {
       if (!checkResult.allPassed) return;
     }
 
+    const failureReason = result.failureKind;
     await this.taskStore.updateStep(stepRow.id, {
       status: agentSucceeded ? 'done' : 'failed',
       exit_code: result.exitCode,
-      ...(result.failureKind === undefined ? {} : { failure_reason: result.failureKind }),
+      ...(failureReason === undefined ? {} : { failure_reason: failureReason }),
       finished_at: this.now(),
     });
+    if (!agentSucceeded && failureReason !== undefined) {
+      await this.taskStore.updateTaskStatus(task.id, 'failed', failureReason);
+    }
   }
 
   private requireCheckRunner(): CheckRunnerLike {

@@ -1,5 +1,6 @@
 import type { AgentRunRequest, AgentRunResult, AgentRunner, AgentRunnerResumeRequest } from '../agent-runner';
 import type { CheckRunnerRequest } from '../check-runner';
+import type { AgentRunFailureKind } from '../agent-runner';
 import { DefaultPipelineEngine, type PipelineArtifactStore } from '../pipeline-engine';
 import type { ProjectMeta } from '../project-registry';
 import type { CreateStepInput, CreateTaskInput, TaskStore } from '../task-store';
@@ -7,7 +8,9 @@ import type { Step, Task } from '../types';
 import type { ParsedWorkflow } from '../workflow-registry';
 import type { WorktreeHandle } from '../worktree-manager';
 
-export function makePipelineHarness(options: { firstStepKind?: string; checksPass?: boolean } = {}) {
+export function makePipelineHarness(
+  options: { firstStepKind?: string; checksPass?: boolean; agentFailureKind?: AgentRunFailureKind } = {},
+) {
   const now = new Date('2026-05-23T00:00:00.000Z');
   const project: ProjectMeta = {
     id: 'forge',
@@ -58,7 +61,7 @@ export function makePipelineHarness(options: { firstStepKind?: string; checksPas
   };
   const taskStore = new FakeTaskStore(now);
   const artifactStore = new FakeArtifactStore([['plan.md', 'Plan ${task.title}\n\n${task.description}\n']]);
-  const agentRunner = new FakeAgentRunner();
+  const agentRunner = new FakeAgentRunner(options.agentFailureKind);
   const checkRunner = new FakeCheckRunner(options.checksPass ?? true);
   const worktreeManager = new FakeWorktreeManager();
   const engine = new DefaultPipelineEngine({
@@ -77,12 +80,15 @@ export function makePipelineHarness(options: { firstStepKind?: string; checksPas
 }
 
 export class FakeTaskStore
-  implements Pick<TaskStore, 'createTask' | 'acquireProjectLock' | 'createStep' | 'updateStep'>
+  implements
+    Pick<TaskStore, 'createTask' | 'acquireProjectLock' | 'createStep' | 'updateStep' | 'updateTaskStatus'>
 {
   readonly createdTasks: CreateTaskInput[] = [];
   readonly createdSteps: CreateStepInput[] = [];
   readonly lockRequests: Array<{ projectId: string; taskId: string }> = [];
   readonly stepPatches: Array<{ id: string; patch: Partial<Step> }> = [];
+  readonly taskStatusUpdates: Array<{ id: string; status: Task['status']; failureReason?: Task['failure_reason'] }> =
+    [];
 
   constructor(private readonly now: Date) {}
 
@@ -111,6 +117,15 @@ export class FakeTaskStore
     this.stepPatches.push({ id, patch });
     return Promise.resolve();
   }
+
+  updateTaskStatus(id: string, status: Task['status'], failureReason?: Task['failure_reason']): Promise<void> {
+    this.taskStatusUpdates.push({
+      id,
+      status,
+      ...(failureReason === undefined ? {} : { failureReason }),
+    });
+    return Promise.resolve();
+  }
 }
 
 export class FakeArtifactStore implements PipelineArtifactStore {
@@ -133,11 +148,14 @@ export class FakeArtifactStore implements PipelineArtifactStore {
 export class FakeAgentRunner implements AgentRunner {
   readonly runs: AgentRunRequest[] = [];
 
+  constructor(private readonly failureKind?: AgentRunFailureKind) {}
+
   run(req: AgentRunRequest): Promise<AgentRunResult> {
     this.runs.push(req);
 
     return Promise.resolve({
-      exitCode: 0,
+      exitCode: this.failureKind === undefined ? 0 : 1,
+      ...(this.failureKind === undefined ? {} : { failureKind: this.failureKind }),
       outputExists: true,
       outputBytes: 120,
       durationMs: 1000,

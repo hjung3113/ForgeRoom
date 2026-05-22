@@ -88,4 +88,29 @@ describe('DefaultPipelineEngine', () => {
 
     expect(harness.taskStore.stepPatches).toEqual([]);
   });
+
+  it('marks the task failed when the first agent step fails', async () => {
+    const harness = makePipelineHarness({ agentFailureKind: 'agent_error' });
+
+    await harness.engine.runFull('forge', {
+      title: 'Fail orchestration',
+      description: 'Provider fails before producing usable output.',
+      source: 'discord-command',
+    });
+
+    expect(harness.taskStore.stepPatches).toEqual([
+      {
+        id: 'step-1',
+        patch: {
+          status: 'failed',
+          exit_code: 1,
+          failure_reason: 'agent_error',
+          finished_at: harness.now,
+        },
+      },
+    ]);
+    expect(harness.taskStore.taskStatusUpdates).toEqual([
+      { id: 'task-1', status: 'failed', failureReason: 'agent_error' },
+    ]);
+  });
 });
