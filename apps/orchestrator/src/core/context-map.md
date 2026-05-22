@@ -9,7 +9,7 @@ last_reviewed: 2026-05-21
 
 The business logic of ForgeRoom: workflow execution, agent orchestration, worktree management, task state machine, and notifications. All external IO is reached through adapters in sibling folders.
 
-## Key files (planned)
+## Key files
 
 | File | Module | Spec |
 |---|---|---|
@@ -24,8 +24,9 @@ The business logic of ForgeRoom: workflow execution, agent orchestration, worktr
 | `workflow-registry.ts` | WorkflowRegistry | [Docs/modules/workflow-registry.md](../../../../Docs/modules/workflow-registry.md) |
 | `openclaw-agent-registry.ts` | OpenClawAgentRegistry | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
 | `task-store.ts` | TaskStore interface | [Docs/modules/task-store.md](../../../../Docs/modules/task-store.md) |
-| `types.ts` | Exported types | — |
-| `errors.ts` | Domain error classes | — |
+| `types.ts` | Exported task, step, check, and shared contract types | [Docs/concepts/data-model.md](../../../../Docs/concepts/data-model.md) |
+| `errors.ts` | Domain error classes with canonical failure codes | [Docs/concepts/data-model.md](../../../../Docs/concepts/data-model.md) |
+| `*.test.ts` | Unit tests for core contracts and modules | [Docs/rules/testing-rules.md](../../../../Docs/rules/testing-rules.md) |
 
 ## Import direction
 

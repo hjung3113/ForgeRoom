@@ -8,3 +8,5 @@ worktrees/
 .env
 .env.local
 *.log
+dist/
+*.tsbuildinfo
