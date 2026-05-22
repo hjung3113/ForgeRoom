@@ -1,10 +1,11 @@
 import path from 'node:path';
 
 import type { AgentRunner } from './agent-runner';
+import type { CheckRunnerRequest } from './check-runner';
 import { WorkflowError } from './errors';
 import type { ProjectMeta } from './project-registry';
 import type { CreateTaskInput, TaskStore } from './task-store';
-import type { Step, Task, TaskSource } from './types';
+import type { CheckRunResult, Step, Task, TaskSource } from './types';
 import type { ParsedWorkflow, ResolvedExecutableStep } from './workflow-registry';
 import type { WorktreeHandle } from './worktree-manager';
 
@@ -32,6 +33,7 @@ export interface DefaultPipelineEngineOptions {
   taskStore: Pick<TaskStore, 'createTask' | 'acquireProjectLock' | 'createStep' | 'updateStep'>;
   worktreeManager: WorktreeManagerLike;
   agentRunner: AgentRunner;
+  checkRunner?: CheckRunnerLike;
   artifactStore: PipelineArtifactStore;
   createId?: () => string;
   now?: () => Date;
@@ -49,12 +51,17 @@ interface WorktreeManagerLike {
   create(task: Task): Promise<WorktreeHandle>;
 }
 
+interface CheckRunnerLike {
+  run(request: CheckRunnerRequest): Promise<CheckRunResult>;
+}
+
 export class DefaultPipelineEngine {
   private readonly projectRegistry: Pick<ProjectRegistryLike, 'get'>;
   private readonly workflowRegistry: Pick<WorkflowRegistryLike, 'get'>;
   private readonly taskStore: Pick<TaskStore, 'createTask' | 'acquireProjectLock' | 'createStep' | 'updateStep'>;
   private readonly worktreeManager: WorktreeManagerLike;
   private readonly agentRunner: AgentRunner;
+  private readonly checkRunner: CheckRunnerLike | null;
   private readonly artifactStore: PipelineArtifactStore;
   private readonly createId: () => string;
   private readonly now: () => Date;
@@ -65,6 +72,7 @@ export class DefaultPipelineEngine {
     this.taskStore = options.taskStore;
     this.worktreeManager = options.worktreeManager;
     this.agentRunner = options.agentRunner;
+    this.checkRunner = options.checkRunner ?? null;
     this.artifactStore = options.artifactStore;
     this.createId = options.createId ?? cryptoRandomId;
     this.now = options.now ?? (() => new Date());
@@ -78,7 +86,7 @@ export class DefaultPipelineEngine {
     await this.worktreeManager.create(task);
 
     const firstStep = firstExecutableStep(workflow);
-    await this.executeFirstStep(task, firstStep);
+    await this.executeFirstStep(task, firstStep, project);
 
     return task.id;
   }
@@ -130,7 +138,7 @@ export class DefaultPipelineEngine {
     return task;
   }
 
-  private async executeFirstStep(task: Task, step: ResolvedExecutableStep): Promise<void> {
+  private async executeFirstStep(task: Task, step: ResolvedExecutableStep, project: ProjectMeta): Promise<void> {
     const startedAt = this.now();
     const stepIndex = 1;
     const paths = stepArtifactPaths(task.worktree_path, stepIndex, step.id);
@@ -167,13 +175,26 @@ export class DefaultPipelineEngine {
       cwd: task.worktree_path,
       mode: 'headless',
     });
+    const agentSucceeded = result.failureKind === undefined && result.exitCode === 0;
+
+    if (agentSucceeded && step.kind === 'execute') {
+      const checkResult = await this.requireCheckRunner().run({ task, step: stepRow, project });
+      if (!checkResult.allPassed) return;
+    }
 
     await this.taskStore.updateStep(stepRow.id, {
-      status: result.failureKind === undefined && result.exitCode === 0 ? 'done' : 'failed',
+      status: agentSucceeded ? 'done' : 'failed',
       exit_code: result.exitCode,
       ...(result.failureKind === undefined ? {} : { failure_reason: result.failureKind }),
       finished_at: this.now(),
     });
+  }
+
+  private requireCheckRunner(): CheckRunnerLike {
+    if (this.checkRunner === null) {
+      throw new WorkflowError('output_contract_failed', 'CheckRunner is required for execute steps');
+    }
+    return this.checkRunner;
   }
 
   private async renderPrompt(task: Task, step: ResolvedExecutableStep): Promise<string> {

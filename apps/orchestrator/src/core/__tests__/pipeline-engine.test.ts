@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { AgentRunRequest, AgentRunResult, AgentRunner, AgentRunnerResumeRequest } from '../agent-runner';
+import type { CheckRunnerRequest } from '../check-runner';
 import { DefaultPipelineEngine, type PipelineArtifactStore } from '../pipeline-engine';
 import type { ProjectMeta } from '../project-registry';
 import type { CreateStepInput, CreateTaskInput, TaskStore } from '../task-store';
@@ -65,9 +66,38 @@ describe('DefaultPipelineEngine', () => {
       },
     ]);
   });
+
+  it('runs CheckRunner only for execute steps after agent output is produced', async () => {
+    const harness = makeHarness({ firstStepKind: 'execute' });
+
+    await harness.engine.runFull('forge', {
+      title: 'Implement execution',
+      description: 'Write code and verify it.',
+      source: 'discord-command',
+    });
+
+    expect(harness.checkRunner.requests).toHaveLength(1);
+    expect(harness.checkRunner.requests[0]).toMatchObject({
+      task: { id: 'task-1', project_id: 'forge' },
+      step: { id: 'step-1', step_id: 'plan' },
+      project: { id: 'forge' },
+    });
+  });
+
+  it('does not mark an execute step done when CheckRunner fails after its fix attempt', async () => {
+    const harness = makeHarness({ firstStepKind: 'execute', checksPass: false });
+
+    await harness.engine.runFull('forge', {
+      title: 'Implement execution',
+      description: 'Write code and verify it.',
+      source: 'discord-command',
+    });
+
+    expect(harness.taskStore.stepPatches).toEqual([]);
+  });
 });
 
-function makeHarness() {
+function makeHarness(options: { firstStepKind?: string; checksPass?: boolean } = {}) {
   const now = new Date('2026-05-23T00:00:00.000Z');
   const project: ProjectMeta = {
     id: 'forge',
@@ -110,7 +140,7 @@ function makeHarness() {
         until: null,
         max_iterations: null,
         pause_after: false,
-        kind: 'write_plan',
+        kind: options.firstStepKind ?? 'write_plan',
         agent: 'codex',
         harness: 'planning',
       },
@@ -119,6 +149,7 @@ function makeHarness() {
   const taskStore = new FakeTaskStore(now);
   const artifactStore = new FakeArtifactStore([['plan.md', 'Plan ${task.title}\n\n${task.description}\n']]);
   const agentRunner = new FakeAgentRunner();
+  const checkRunner = new FakeCheckRunner(options.checksPass ?? true);
   const worktreeManager = new FakeWorktreeManager();
   const engine = new DefaultPipelineEngine({
     projectRegistry: { get: (projectId: string) => (projectId === project.id ? project : null) },
@@ -126,12 +157,13 @@ function makeHarness() {
     taskStore,
     worktreeManager,
     agentRunner,
+    checkRunner,
     artifactStore,
     createId: makeIdFactory(['task-1', 'step-1']),
     now: () => now,
   });
 
-  return { agentRunner, artifactStore, engine, now, taskStore, worktreeManager };
+  return { agentRunner, artifactStore, checkRunner, engine, now, taskStore, worktreeManager };
 }
 
 class FakeTaskStore
@@ -207,6 +239,17 @@ class FakeAgentRunner implements AgentRunner {
 
   resume(_req: AgentRunnerResumeRequest): Promise<AgentRunResult> {
     throw new Error('Unexpected resume');
+  }
+}
+
+class FakeCheckRunner {
+  readonly requests: CheckRunnerRequest[] = [];
+
+  constructor(private readonly checksPass: boolean) {}
+
+  run(request: CheckRunnerRequest): Promise<{ allPassed: boolean; results: [] }> {
+    this.requests.push(request);
+    return Promise.resolve({ allPassed: this.checksPass, results: [] });
   }
 }
 
