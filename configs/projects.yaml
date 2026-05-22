@@ -1,0 +1,18 @@
+forgeroom:
+  path: /Users/hyojung/Desktop/2026/ForgeRoom
+  default_branch: main
+  package_manager: pnpm
+  default_workflow: quick
+  allowed_workflows:
+    - quick
+    - full
+    - hotfix
+  template_dir: null
+  commands:
+    lint: pnpm lint
+    typecheck: pnpm typecheck
+    test: pnpm test:unit
+  maintainers:
+    discord_user_ids: []
+    github_logins:
+      - hyojung

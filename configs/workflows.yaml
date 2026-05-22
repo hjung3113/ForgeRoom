@@ -1,0 +1,82 @@
+quick:
+  description: "간단 작업"
+  effects:
+    worktree: modifies
+    external:
+      report: status
+      pr: ready
+  steps:
+    - type: run
+      id: plan
+      intent: claude_write_plan
+      prompt_template: implementation_plan.md
+    - type: run
+      id: implement
+      intent: codex_execute
+      prompt_template: execute.md
+      input_refs:
+        plan: ${plan.output_path}
+
+hotfix:
+  description: "긴급 수정"
+  effects:
+    worktree: modifies
+    external:
+      report: status
+      pr: ready
+  steps:
+    - type: run
+      id: fix
+      intent: codex_execute
+      prompt_template: hotfix.md
+    - type: run
+      id: review
+      intent: claude_review
+      prompt_template: review_hotfix.md
+
+full:
+  description: "설계, 계획, slice 구현, 최종 리뷰"
+  effects:
+    worktree: modifies
+    external:
+      report: status
+      pr: ready
+  steps:
+    - type: run
+      id: impl_plan
+      intent: claude_write_plan
+      prompt_template: implementation_plan.md
+    - type: run
+      id: impl_plan_refine
+      intent: claude_write_plan
+      prompt_template: refine_plan.md
+      input_refs:
+        original: ${impl_plan.output_path}
+    - type: group
+      id: slices
+      foreach: ${task.final_slices}
+      as: slice
+      steps:
+        - type: run
+          id: slice_impl
+          intent: codex_execute
+          prompt_template: slice_impl.md
+          vars:
+            slice: ${slice}
+    - type: review_loop
+      id: final_quality
+      max_iterations: 2
+      until: ${final_review.passed}
+      review:
+        id: final_review
+        intent: claude_review
+        prompt_template: final_review.md
+        input_refs:
+          full_diff: ${task.full_diff_path}
+      refine:
+        id: final_refine
+        intent: codex_execute
+        prompt_template: final_refine.md
+        input_refs:
+          review: ${final_review.output_path}
+          full_diff: ${task.full_diff_path}

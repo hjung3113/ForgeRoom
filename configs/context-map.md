@@ -16,6 +16,8 @@ This folder stores ForgeRoom runtime registry config for projects, workflows, in
 | `intents.yaml` | Intent catalog mapping intent ids to kind, agent, and Step Harness |
 | `agents.yaml` | Agent registry mapping agent ids to the Phase 1 `openclaw` provider runtime and model |
 | `harnesses.yaml` | Step Harness registry mapping harness ids to managed `.forgeroom/harnesses/*` sources |
+| `workflows.yaml` | Built-in Phase 1 workflow library for `quick`, `full`, and `hotfix` |
+| `projects.yaml` | Local project registry entries and verification command metadata |
 
 ## Related Docs
 
@@ -29,6 +31,8 @@ This folder stores ForgeRoom runtime registry config for projects, workflows, in
 - `apps/orchestrator/src/core/intent-registry.ts`
 - `apps/orchestrator/src/core/agent-registry.ts`
 - `apps/orchestrator/src/core/harness-registry.ts`
+- `apps/orchestrator/src/core/workflow-registry.ts`
+- `apps/orchestrator/src/core/project-registry.ts`
 
 ## Entry Guide
 
