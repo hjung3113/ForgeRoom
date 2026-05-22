@@ -28,7 +28,14 @@ last_reviewed: 2026-05-21
 interface ApprovalGate {
   checkCommand(cmd: string, cwd: string): GateDecision
   checkFileWrite(path: string, worktreePath: string): GateDecision
+  checkWorktreeCreation(input: WorktreeCreationSafetyInput, project: ProjectMeta): GateDecision
   checkWorkflow(workflow: ParsedWorkflow, project: ProjectMeta): GateDecision
+}
+
+interface WorktreeCreationSafetyInput {
+  branch: string
+  worktreePath: string
+  allowedWorktreeRoots: string[]
 }
 
 interface GateDecision {

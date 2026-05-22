@@ -17,6 +17,7 @@ This folder records implementation-level decisions settled during review so late
 | `2026-05-23-stage-3-task-store-row-types.md` | Stage 3 decision for durable TaskStore row types in core contracts |
 | `2026-05-23-stage-3-task-store-completion.md` | Stage 3 completion decisions for failure reasons, conductor state, and lock integration |
 | `2026-05-23-stage-4-worktree-bootstrap-boundary.md` | Stage 4 boundary between base worktree bootstrap and Stage 8 ForgeMap staging |
+| `2026-05-23-stage-4-approval-gate-worktree-seam.md` | Stage 4 ApprovalGate seam for worktree branch/path safety |
 
 ## Related Docs
 
@@ -27,6 +28,7 @@ This folder records implementation-level decisions settled during review so late
 - [TaskStore](../modules/task-store.md)
 - [Data model](../concepts/data-model.md)
 - [WorktreeManager](../modules/worktree-manager.md)
+- [ApprovalGate](../modules/approval-gate.md)
 - [Prompt file protocol](../concepts/prompt-file-protocol.md)
 - [Doc rules](../rules/doc-rules.md)
 
