@@ -1,0 +1,1174 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ForgeRoom MVP Review Wiki</title>
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #607080;
+      --line: #d9e0e7;
+      --accent: #0f766e;
+      --accent-2: #8a5a00;
+      --danger: #a23b3b;
+      --code: #eef3f6;
+      --nav: #101820;
+      --nav-ink: #ecf3f8;
+      --nav-muted: #9fb0bf;
+      --ok: #2f7d4f;
+      --warn: #9a6500;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+      line-height: 1.65;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+      background: var(--code);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+    pre {
+      overflow: auto;
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #111827;
+      color: #eef6ff;
+      line-height: 1.45;
+    }
+    pre code { padding: 0; background: transparent; color: inherit; }
+    .diagram {
+      margin: 1rem 0 1.35rem;
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+      overflow: auto;
+    }
+    .diagram-title {
+      margin: 0 0 0.6rem;
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+    .mermaid {
+      min-width: 720px;
+      text-align: center;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0 1.25rem;
+      background: var(--panel);
+    }
+    th, td {
+      padding: 0.75rem;
+      border: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+    th { background: #eef3f6; }
+    .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }
+    nav {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 1.25rem;
+      background: var(--nav);
+      color: var(--nav-ink);
+      border-right: 1px solid #0b1118;
+    }
+    nav h1 {
+      margin: 0 0 0.35rem;
+      font-size: 1.25rem;
+      line-height: 1.2;
+    }
+    nav p { margin: 0 0 1rem; color: var(--nav-muted); font-size: 0.9rem; }
+    nav ul { list-style: none; padding: 0; margin: 0; }
+    nav li { margin: 0.25rem 0; }
+    nav a {
+      display: block;
+      padding: 0.35rem 0.45rem;
+      border-radius: 6px;
+      color: var(--nav-ink);
+      font-size: 0.92rem;
+    }
+    nav a:hover { background: rgba(255,255,255,0.08); text-decoration: none; }
+    main { max-width: 1180px; padding: 2rem 2.25rem 4rem; }
+    section {
+      margin: 0 0 1.5rem;
+      padding: 1.5rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    h2, h3, h4 { line-height: 1.25; }
+    h2 { margin: 0 0 1rem; font-size: 1.75rem; }
+    h3 { margin: 1.4rem 0 0.7rem; font-size: 1.22rem; }
+    h4 { margin: 1rem 0 0.45rem; font-size: 1rem; }
+    .hero {
+      padding: 2rem;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #10202a, #17423f);
+      color: #f5fbfb;
+    }
+    .hero h2 { font-size: 2.25rem; margin-bottom: 0.5rem; }
+    .hero p { max-width: 880px; color: #d7e5e4; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.22rem 0.55rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f4f7f8;
+      color: var(--muted);
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+    .hero .pill { border-color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.08); color: #e8f4f2; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+    .card {
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+    .card h3, .card h4 { margin-top: 0; }
+    .note {
+      padding: 0.9rem 1rem;
+      border-left: 4px solid var(--accent);
+      background: #edf8f6;
+      border-radius: 0 6px 6px 0;
+    }
+    .warning { border-left-color: var(--warn); background: #fff7e8; }
+    .danger { border-left-color: var(--danger); background: #fff1f1; }
+    .ok { border-left-color: var(--ok); background: #eff8f2; }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.7rem;
+      counter-reset: step;
+      margin: 1rem 0;
+    }
+    .flow div {
+      position: relative;
+      min-height: 7rem;
+      padding: 0.85rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+    .flow div::before {
+      counter-increment: step;
+      content: counter(step);
+      display: inline-grid;
+      place-items: center;
+      width: 1.6rem;
+      height: 1.6rem;
+      margin-bottom: 0.45rem;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+      font-size: 0.85rem;
+    }
+    .source {
+      margin-top: 1rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .review-list li { margin-bottom: 0.45rem; }
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      nav { position: relative; height: auto; }
+      main { padding: 1rem; }
+      .grid, .grid-3, .flow { grid-template-columns: 1fr; }
+      .hero h2 { font-size: 1.75rem; }
+    }
+  </style>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      securityLevel: "strict",
+      theme: "base",
+      themeVariables: {
+        fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans KR, sans-serif",
+        primaryColor: "#edf8f6",
+        primaryTextColor: "#17202a",
+        primaryBorderColor: "#0f766e",
+        lineColor: "#607080",
+        secondaryColor: "#eef3f6",
+        tertiaryColor: "#fff7e8"
+      }
+    });
+  </script>
+</head>
+<body>
+  <div class="layout">
+    <nav>
+      <h1>ForgeRoom MVP Wiki</h1>
+      <p>설계문서 기반 리뷰용 단일 페이지</p>
+      <ul>
+        <li><a href="#summary">1. MVP 한 줄 정의</a></li>
+        <li><a href="#scope">2. 범위와 비범위</a></li>
+        <li><a href="#actors">3. 사용자와 입력 경로</a></li>
+        <li><a href="#architecture">4. 아키텍처</a></li>
+        <li><a href="#runtime-flow">5. 실행 흐름</a></li>
+        <li><a href="#workflow">6. Workflow DSL</a></li>
+        <li><a href="#context">7. ForgeMap과 Context</a></li>
+        <li><a href="#agent-runtime">8. Agent Runtime</a></li>
+        <li><a href="#quality">9. 품질 게이트</a></li>
+        <li><a href="#state">10. 저장소와 복구</a></li>
+        <li><a href="#modules">11. 모듈별 상세</a></li>
+        <li><a href="#adr">12. ADR 지도</a></li>
+        <li><a href="#acceptance">13. 완료 정의</a></li>
+        <li><a href="#open-questions">14. Open Questions</a></li>
+        <li><a href="#review-guide">15. 리뷰 체크리스트</a></li>
+      </ul>
+    </nav>
+
+    <main>
+      <section class="hero" id="summary">
+        <h2>ForgeRoom Forge Phase 1 MVP</h2>
+        <p>
+          ForgeRoom MVP는 로컬 단일 머신에서 실행되는 중앙 멀티에이전트 오케스트레이터다.
+          사용자가 Discord slash command 또는 GitHub Issue label로 작업을 요청하면,
+          ForgeRoom이 대상 프로젝트의 context를 선별하고, task 전용 branch와 worktree를 만들고,
+          workflow DSL에 따라 여러 CLI agent를 순차 실행한 뒤, test/lint/typecheck를 통과한 변경을 PR로 만든다.
+        </p>
+        <div class="meta">
+          <span class="pill">Runtime: Node.js + TypeScript</span>
+          <span class="pill">Storage: SQLite + Drizzle</span>
+          <span class="pill">Agent runtime: AgentRuntimeProvider</span>
+          <span class="pill">MVP provider: OpenClawProvider</span>
+          <span class="pill">Prompt IO: file-based</span>
+          <span class="pill">Context: ForgeMap</span>
+        </div>
+        <p class="source">
+          기준 문서: <a href="../overview.md">overview.md</a>,
+          <a href="../architecture.md">architecture.md</a>,
+          <a href="../phases/phase-1-mvp.md">phase-1-mvp.md</a>
+        </p>
+      </section>
+
+      <section>
+        <h2>이 문서의 성격</h2>
+        <div class="note">
+          이 HTML은 canonical spec이 아니라 리뷰용 wiki다. 설계 변경은 ADR과 원본 문서에 반영되어야 한다.
+          여기서는 현재 문서들이 말하는 MVP를 한 번에 검토할 수 있도록 흐름, 모듈, 결정, 리스크를 재배열했다.
+        </div>
+      </section>
+
+      <section id="scope">
+        <h2>2. 범위와 비범위</h2>
+        <h3>MVP가 제공하는 것</h3>
+        <table>
+          <thead><tr><th>영역</th><th>MVP 내용</th><th>리뷰 포인트</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Task intake</td>
+              <td>Discord slash command와 GitHub.com Issue label polling을 TaskSource로 사용한다.</td>
+              <td>내부 기업 환경에서 Discord/GitHub.com이 실제 MVP 입력 경로로 충분한가?</td>
+            </tr>
+            <tr>
+              <td>Project context</td>
+              <td>ForgeMap이 대상 프로젝트의 canonical context를 관리하고, task 시작 시 필요한 subset만 worktree에 staging한다.</td>
+              <td>ForgeMap의 최소 산출물과 stale/dirty 정책이 운영 가능한가?</td>
+            </tr>
+            <tr>
+              <td>Execution</td>
+              <td>Workflow DSL이 plan, review, refine, slice 구현, code review loop를 순차 실행한다.</td>
+              <td>default workflow가 너무 무겁거나 너무 암묵적이지 않은가?</td>
+            </tr>
+            <tr>
+              <td>Agent runtime</td>
+              <td>AgentRunner는 provider-neutral 계약만 알고, MVP 구현체 OpenClawProvider가 실제 CLI runtime 호출을 맡는다.</td>
+              <td>OpenClawProvider 하나로 MVP 검증이 가능한가?</td>
+            </tr>
+            <tr>
+              <td>Quality</td>
+              <td>CheckRunner가 execute step 직후 project commands를 실행하고, 실패 시 1회 자동 수정 요청 후 재검증한다.</td>
+              <td>check fix budget 1회가 적절한가?</td>
+            </tr>
+            <tr>
+              <td>Output</td>
+              <td>Check 통과 후 branch를 push하고 PR을 생성한다. 사람은 GitHub UI에서 merge한다.</td>
+              <td>PR body와 status comment에 필요한 정보가 충분한가?</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>MVP에서 명시적으로 제외된 것</h3>
+        <div class="grid">
+          <div class="card">
+            <h3>운영 확장</h3>
+            <ul>
+              <li>GitHub Enterprise, git issue, Local CLI, 사내 chat/ticket TaskSource</li>
+              <li>Cross-posting Reporter policy</li>
+              <li>raw stdout streaming</li>
+              <li>Discord 승인 게이트</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Agent runtime 확장</h3>
+            <ul>
+              <li>OpenCodeProvider</li>
+              <li>HermesProvider</li>
+              <li>직접 CLI provider</li>
+              <li>provider별 permission profile</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Context 확장</h3>
+            <ul>
+              <li>외부 wiki/ticket/document ingestion</li>
+              <li>issue/PR history RAG</li>
+              <li>vector DB와 graph query engine</li>
+              <li>LLM judge 기반 자동 품질 평가</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>제품 확장</h3>
+            <ul>
+              <li>한 task 안 병렬 sub-task</li>
+              <li>동적 workflow 변형</li>
+              <li>Desktop GUI</li>
+              <li>Tailscale, inbound remote access, multi-machine queue</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="actors">
+        <h2>3. 사용자와 입력 경로</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>Human maintainer</h3>
+            <p>
+              작업을 요청하고, 중간 산출물을 확인하고, 필요하면 `/feedback`으로 지시를 보강한다.
+              최종 merge는 사람이 GitHub에서 수행한다. ForgeRoom은 merge 자동화가 아니라 PR 생성까지를 MVP 자동화 경계로 둔다.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Discord command user</h3>
+            <p>
+              `/run`, `/pause`, `/resume`, `/cancel`, `/status`, `/ask`, `/feedback`으로 task lifecycle에 개입한다.
+              Gateway는 명령을 수신하고 TaskRequest를 만들며, 진행 보고는 Reporter가 맡는다.
+            </p>
+          </div>
+          <div class="card">
+            <h3>GitHub issue author</h3>
+            <p>
+              등록된 repo의 issue에 trigger label을 붙이면 GitHubGateway가 polling으로 감지해 task를 생성한다.
+              status는 하나의 pinned status comment를 갱신하는 방식으로 누적된다.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Agent runtime</h3>
+            <p>
+              Claude Code, Codex 같은 CLI agent는 ForgeRoom의 직접 관심사가 아니다.
+              ForgeRoom은 OpenClawProvider를 통해 provider-neutral request를 전달하고 output file을 검증한다.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <h2>4. 아키텍처</h2>
+        <h3>큰 그림</h3>
+        <div class="diagram">
+          <p class="diagram-title">System Context</p>
+          <pre class="mermaid">flowchart TB
+    User["Human maintainer"]
+    Discord["Discord Slash Commands"]
+    GitHub["GitHub.com Issues / PRs"]
+    Orchestrator["ForgeRoom Orchestrator<br/>Node.js + TypeScript"]
+    SQLite["TaskStore<br/>SQLite + Drizzle"]
+    Target["Target Project<br/>git repository"]
+    Worktree["Task Worktree<br/>branch + .forgeroom/"]
+    ForgeMap["ForgeMap<br/>canonical project context"]
+    OpenClaw["OpenClawProvider<br/>AgentRuntimeProvider"]
+    Agents["CLI Agents<br/>Claude / Codex / Gemini"]
+    Checks["Project Commands<br/>test / lint / typecheck"]
+
+    User --> Discord
+    User --> GitHub
+    Discord --> Orchestrator
+    GitHub --> Orchestrator
+    Orchestrator --> SQLite
+    Orchestrator --> ForgeMap
+    Orchestrator --> Worktree
+    Target --> Worktree
+    ForgeMap --> Worktree
+    Orchestrator --> OpenClaw
+    OpenClaw --> Agents
+    Agents --> Worktree
+    Orchestrator --> Checks
+    Checks --> Worktree
+    Orchestrator --> GitHub</pre>
+        </div>
+        <pre><code>Discord / GitHub.com
+        |
+        v
+ForgeRoom Orchestrator (single local Node.js process)
+        |
+        +-- ProjectRegistry / WorkflowRegistry
+        +-- TaskStore (SQLite)
+        +-- WorktreeManager
+        +-- ForgeMap + ContextSelector
+        +-- PipelineEngine
+        +-- Conductor
+        +-- AgentRunner -> AgentRuntimeProvider -> OpenClawProvider -> CLI agents
+        +-- CheckRunner -> project test/lint/typecheck commands
+        +-- Reporter -> Discord/GitHub status surfaces</code></pre>
+
+        <h3>핵심 설계 원칙</h3>
+        <ul>
+          <li>중앙 orchestrator는 로컬 단일 프로세스다.</li>
+          <li>대상 프로젝트에는 최소한의 파일만 둔다. ForgeRoom 운영 artifact는 task worktree의 `.forgeroom/` 아래에 둔다.</li>
+          <li>1 Task는 보통 1 Issue를 처리하고, 1 Branch / 1 Worktree / 1 PR을 갖는다.</li>
+          <li>Agent들은 같은 worktree를 turn-taking 방식으로 사용한다.</li>
+          <li>Prompt와 output은 파일 기반으로 주고받는다.</li>
+          <li>Agent runtime 실행과 project verification은 분리한다. CheckRunner는 ForgeRoom이 직접 실행한다.</li>
+        </ul>
+
+        <h3>Runtime file layout</h3>
+        <pre><code>~/forgeroom/
+├── apps/orchestrator/
+├── configs/
+│   ├── projects.yaml
+│   ├── workflows.yaml
+│   ├── intents.yaml
+│   ├── agents.yaml
+│   └── discord.yaml
+├── templates/
+├── maps/
+├── data/forgeroom.sqlite
+└── logs/</code></pre>
+      </section>
+
+      <section id="runtime-flow">
+        <h2>5. 실행 흐름</h2>
+        <div class="diagram">
+          <p class="diagram-title">End-to-End MVP Sequence</p>
+          <pre class="mermaid">sequenceDiagram
+    autonumber
+    actor Maintainer
+    participant Gateway as DiscordGateway / GitHubGateway
+    participant Store as TaskStore
+    participant Engine as PipelineEngine
+    participant Worktree as WorktreeManager
+    participant Map as ForgeMap / ContextSelector
+    participant Conductor
+    participant Runner as AgentRunner
+    participant Provider as OpenClawProvider
+    participant Check as CheckRunner
+    participant Reporter
+
+    Maintainer->>Gateway: /run or issue label
+    Gateway->>Store: create TaskRequest
+    Store-->>Engine: queued task
+    Engine->>Worktree: create task branch + worktree
+    Engine->>Map: stale check + select context
+    Map-->>Worktree: stage .forgeroom/context
+    Engine->>Conductor: init task summary
+    loop each executable step
+      Engine->>Conductor: refine base prompt
+      Engine->>Runner: run prompt file
+      Runner->>Provider: run or resume
+      Provider-->>Runner: session result + logs
+      Runner-->>Engine: output file verified
+      alt kind is execute
+        Engine->>Check: run project commands
+        alt check failed
+          Check->>Runner: request one fix attempt
+          Runner->>Provider: run fix prompt
+          Check->>Check: rerun all commands
+        end
+      end
+      Engine->>Conductor: update rolling summary
+      Engine->>Reporter: step_done / check_result
+    end
+    Engine->>Gateway: create PR
+    Gateway-->>Reporter: PR URL
+    Reporter-->>Maintainer: status + PR link</pre>
+        </div>
+        <div class="flow">
+          <div><strong>Task 생성</strong><br>Discord command 또는 GitHub label polling이 TaskRequest를 만든다.</div>
+          <div><strong>검증</strong><br>ProjectRegistry, WorkflowRegistry, ApprovalGate가 project/workflow/권한을 확인한다.</div>
+          <div><strong>Worktree 준비</strong><br>TaskStore에 task를 만들고 WorktreeManager가 branch/worktree와 `.forgeroom/`을 준비한다.</div>
+          <div><strong>Context staging</strong><br>ForgeMap stale check 후 ContextSelector가 필요한 project context를 `.forgeroom/context/`에 복사한다.</div>
+          <div><strong>Conductor init</strong><br>task-local summary와 feedback context를 준비한다.</div>
+          <div><strong>Step 실행</strong><br>PipelineEngine이 template 렌더링, Conductor.refine, AgentRunner.run을 순차 수행한다.</div>
+          <div><strong>Quality gate</strong><br>`kind: execute` step 직후 CheckRunner가 commands를 실행하고 필요하면 1회 자동 수정한다.</div>
+          <div><strong>Report + PR</strong><br>Reporter가 상태를 갱신하고, 마지막 check 통과 후 GitHubGateway가 PR을 만든다.</div>
+        </div>
+
+        <h3>Step 내부 흐름</h3>
+        <ol>
+          <li>Resolved Step 생성: workflow step + intent + prompt template + vars + input_refs를 합친다.</li>
+          <li>변수 보간: `${task.*}`, `${step.output_path}`, `${task.final_slices}` 등을 해석한다.</li>
+          <li>사용자 피드백 통합: pending feedback event가 있으면 Conductor가 `feedback.md`를 갱신한다.</li>
+          <li>Prompt 보강: Conductor가 ForgeMap subset, summary, feedback, 직전 결과를 반영한다.</li>
+          <li>Prompt 저장: `.forgeroom/prompts/NN_step.md`에 쓴다.</li>
+          <li>Agent 실행: AgentRunner가 provider에 prompt/output path와 cwd를 전달한다.</li>
+          <li>Output 검증: 파일 존재, 최소 크기, 명백한 거부 응답, selector contract를 확인한다.</li>
+          <li>Execute step이면 CheckRunner를 실행한다.</li>
+          <li>Diff 저장, step 완료, Conductor.update, Reporter.notify를 수행한다.</li>
+        </ol>
+      </section>
+
+      <section id="workflow">
+        <h2>6. Workflow DSL</h2>
+        <p>
+          Workflow는 agent에게 바로 명령을 쓰는 파일이 아니라, step 순서와 제어 흐름을 선언하는 library다.
+          실행 구성은 `configs/intents.yaml`에 둔 Intent Catalog가 소유하고, step은 intent와 prompt template을 참조한다.
+        </p>
+        <table>
+          <thead><tr><th>개념</th><th>역할</th><th>MVP 제약</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Workflow</td>
+              <td>step 순서, group, review_loop, effects metadata를 정의한다.</td>
+              <td>`effects.worktree`, `effects.external.report`, `effects.external.pr` 필수.</td>
+            </tr>
+            <tr>
+              <td>Intent</td>
+              <td>Intent Kind, agent, Step Harness를 묶은 실행 preset이다.</td>
+              <td>step이 `kind`, `agent`, `harness`를 직접 지정하지 않는다.</td>
+            </tr>
+            <tr>
+              <td>Prompt Template</td>
+              <td>해당 step에서 실제로 무엇을 시킬지 렌더링하는 지시 양식이다.</td>
+              <td>bundled template root 아래 상대 경로만 허용. inline prompt 금지.</td>
+            </tr>
+            <tr>
+              <td>foreach</td>
+              <td>slice list를 순회하며 내부 steps를 실행한다.</td>
+              <td>MVP slice 구현은 `${task.final_slices}`만 사용한다.</td>
+            </tr>
+            <tr>
+              <td>review_loop</td>
+              <td>review가 pass할 때까지 review/refine 쌍을 반복한다.</td>
+              <td>`until`은 `${review_id.passed}` 형식만 허용한다.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Output contract</h3>
+        <div class="diagram">
+          <p class="diagram-title">Workflow Control Model</p>
+          <pre class="mermaid">stateDiagram-v2
+    [*] --> ResolveStep
+    ResolveStep --> RenderPrompt
+    RenderPrompt --> ConductorRefine
+    ConductorRefine --> AgentRun
+    AgentRun --> OutputContract
+    OutputContract --> RetryOutput: invalid output and attempts remain
+    RetryOutput --> AgentRun
+    OutputContract --> CheckGate: valid output and kind execute
+    OutputContract --> StepDone: valid output and non-execute
+    CheckGate --> CheckFix: failed and fix attempt available
+    CheckFix --> CheckGate
+    CheckGate --> StepDone: passed or fixed
+    CheckGate --> Failed: failed after fix
+    StepDone --> Pause: pause_after true
+    StepDone --> NextStep: more steps
+    Pause --> NextStep: resume
+    NextStep --> ResolveStep
+    StepDone --> [*]: workflow complete
+    Failed --> [*]</pre>
+        </div>
+        <div class="grid">
+          <div class="card">
+            <h3>Slice extraction</h3>
+            <p>
+              `implementation_plan.md`와 `refine_plan.md`는 마지막에 `## Slices` 섹션을 내야 한다.
+              PipelineEngine은 top-level `- ` bullet만 slice 문자열로 인정한다. 0개면 output contract 실패다.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Review result</h3>
+            <p>
+              `kind: review` output의 첫 non-empty line은 정확히 `Review Result: pass` 또는
+              `Review Result: fail`이어야 한다. review_loop 종료 조건은 이 헤더만 신뢰한다.
+            </p>
+          </div>
+        </div>
+
+        <h3>Default workflow의 의미</h3>
+        <p>
+          기본 제공 workflow는 온보딩용 sane default다. 실제 운영은 project의 `allowed_workflows` 안에서 custom workflow를
+          선택하는 모델이다. Custom workflow도 Intent/Agent/Harness registry를 통과해야 하므로, 임의 agent 호출을 workflow 파일에서 바로 열어두지 않는다.
+        </p>
+      </section>
+
+      <section id="context">
+        <h2>7. ForgeMap과 Runtime Context</h2>
+        <p>
+          ForgeMap은 대상 프로젝트를 이해하기 위한 canonical project context다. 한 장 요약이 아니라 목적별 markdown 문서와
+          machine-readable `symbols/*.json` index를 함께 갖는 context substrate다.
+        </p>
+
+        <h3>Canonical ForgeMap layout</h3>
+        <div class="diagram">
+          <p class="diagram-title">ForgeMap Selection and Staging</p>
+          <pre class="mermaid">flowchart LR
+    subgraph Canonical["~/forgeroom/maps/project_id"]
+      Registry["forgemap.yaml"]
+      Profile["project-profile.md"]
+      Architecture["architecture-map.md"]
+      Modules["module-index.md"]
+      Commands["command-map.md"]
+      Risks["risk-map.md"]
+      Symbols["symbols/*.json"]
+    end
+
+    Task["Task title / description<br/>workflow / changed refs"]
+    Selector["ContextSelector"]
+    Log["Selection Log<br/>reason + signal"]
+
+    subgraph Runtime["worktree/.forgeroom/context"]
+      Manifest["selected-forgemap.md"]
+      TargetProfile["target-profile.md"]
+      Docs["docs/ selected snapshots"]
+      Summary["summary.md"]
+      Feedback["feedback.md"]
+    end
+
+    Task --> Selector
+    Registry --> Selector
+    Symbols --> Selector
+    Profile --> Selector
+    Architecture --> Selector
+    Modules --> Selector
+    Commands --> Selector
+    Risks --> Selector
+    Selector --> Log
+    Selector --> Manifest
+    Selector --> TargetProfile
+    Selector --> Docs
+    Manifest --> Summary
+    Feedback --> Summary</pre>
+        </div>
+        <pre><code>~/forgeroom/maps/&lt;project_id&gt;/
+├── forgemap.yaml
+├── project-profile.md
+├── architecture-map.md
+├── module-index.md
+├── dependency-map.md
+├── command-map.md
+├── testing-map.md
+├── risk-map.md
+├── decisions-index.md
+├── folders/*.md
+└── symbols/*.json</code></pre>
+
+        <h3>Task-local staging</h3>
+        <pre><code>&lt;worktree&gt;/.forgeroom/context/
+├── selected-forgemap.md
+├── target-profile.md
+├── summary.md
+├── feedback.md
+└── docs/
+    └── selected source doc snapshots</code></pre>
+
+        <div class="grid">
+          <div class="card">
+            <h3>ContextSelector</h3>
+            <p>
+              task title, description, workflow, changed refs, symbol matches, dependency hints를 기준으로 subset을 고른다.
+              MVP는 direct match와 명시적 1-hop dependency를 기본으로 한다.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Selection log</h3>
+            <p>
+              포함된 문서마다 reason과 signal을 남겨야 한다.
+              예: `matched_symbol: DiscordGateway`, `1hop_depends_on: DiscordGateway -> ReporterSink`.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Stale check</h3>
+            <p>
+              `indexed_commit`과 current HEAD가 같고 dirty change가 없으면 기존 ForgeMap을 사용한다.
+              HEAD 변경, dirty baseline, pending rebuild는 별도 정책을 탄다.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Conductor relation</h3>
+            <p>
+              Conductor는 staged context를 읽고 prompt를 보강하지만 canonical ForgeMap을 직접 수정하지 않는다.
+              task 종료 후 refresh 계획은 ForgeMapRefresher가 맡는다.
+            </p>
+          </div>
+        </div>
+
+        <div class="note warning">
+          Modification workflow에서 ForgeMap이 pending rebuild 상태면 기본 중단한다.
+          Maintainer approval이 있으면 warning artifact를 남기고 진행할 수 있지만, 이는 리뷰해야 할 운영 정책이다.
+        </div>
+      </section>
+
+      <section id="agent-runtime">
+        <h2>8. Agent Runtime 경계</h2>
+        <p>
+          ForgeRoom은 agent process 실행 세부사항을 직접 소유하지 않는다. AgentRunner는 provider-neutral request를 만들고,
+          AgentRuntimeProvider가 OpenClaw 같은 runtime gateway에 연결한다.
+        </p>
+
+        <table>
+          <thead><tr><th>경계</th><th>책임</th><th>책임이 아닌 것</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>AgentRunner</td>
+              <td>prompt/output/log path 할당, provider 호출, output 검증, retry/resume 판단.</td>
+              <td>provider-specific auth, runtime session internals, test/lint 실행.</td>
+            </tr>
+            <tr>
+              <td>AgentRuntimeProvider</td>
+              <td>`run`, `resume`, `health`를 제공하는 adapter interface.</td>
+              <td>ForgeRoom retry semantics 결정, output contract 검증.</td>
+            </tr>
+            <tr>
+              <td>OpenClawProvider</td>
+              <td>MVP provider. runtime/model/cwd와 prompt instruction을 OpenClaw IPC/HTTP에 전달.</td>
+              <td>Discord/GitHub command handling, project verification command 실행.</td>
+            </tr>
+            <tr>
+              <td>CheckRunner</td>
+              <td>project commands 실행, exit code/stdout/stderr/timeout 기록.</td>
+              <td>Agent runtime 호출 경유 실행.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Runtime boundary UML</h3>
+        <div class="diagram">
+          <p class="diagram-title">AgentRunner and Provider Class Diagram</p>
+          <pre class="mermaid">classDiagram
+    class AgentRegistry {
+      +load()
+      +has(agentId)
+      +resolve(agentId) ResolvedAgent
+    }
+    class AgentRunner {
+      +run(req) AgentRunResult
+      +resume(sessionId, addendumPromptPath) AgentRunResult
+    }
+    class AgentRuntimeProvider {
+      &lt;&lt;interface&gt;&gt;
+      +run(req, agent) AgentRunResult
+      +resume(sessionId, addendumPromptPath, agent) AgentRunResult
+      +health() ProviderHealth
+    }
+    class OpenClawProvider {
+      +run(req, agent) AgentRunResult
+      +resume(sessionId, addendumPromptPath, agent) AgentRunResult
+      +health() ProviderHealth
+    }
+    class CheckRunner {
+      +run(task, project) CheckRunResult
+    }
+    class PipelineEngine {
+      +run(taskId)
+      +runNextStep(taskId)
+      +pause(taskId)
+      +resume(taskId)
+      +cancel(taskId)
+      +recoverPending()
+    }
+
+    PipelineEngine --> AgentRunner : executable step
+    PipelineEngine --> CheckRunner : kind execute only
+    AgentRunner --> AgentRegistry : resolve agent
+    AgentRunner --> AgentRuntimeProvider : delegates runtime call
+    AgentRuntimeProvider <|.. OpenClawProvider
+    CheckRunner --> AgentRunner : one fix attempt</pre>
+        </div>
+
+        <h3>Retry budget</h3>
+        <ul>
+          <li>AgentRunner output-producing attempt budget 기본값은 3회다.</li>
+          <li>provider non-zero exit, timeout, output 미작성, output 너무 작음, selector contract 실패가 같은 budget을 쓴다.</li>
+          <li>CheckRunner 자동 수정은 별도 budget이며 MVP에서는 1회다.</li>
+          <li>Provider는 자체 retry 정책을 갖지 않고, AgentRunner가 resume 또는 신규 headless fallback을 결정한다.</li>
+        </ul>
+      </section>
+
+      <section id="quality">
+        <h2>9. 품질 게이트와 안전장치</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>CheckRunner</h3>
+            <p>
+              `projects.yaml`의 `commands`를 정의된 순서대로 worktree cwd에서 실행한다.
+              하나라도 실패하면 실패 로그 마지막 200줄을 prompt로 만들어 마지막 코드 작성 agent에게 1회 수정 요청한다.
+            </p>
+          </div>
+          <div class="card">
+            <h3>ApprovalGate</h3>
+            <p>
+              위험 명령, 위험 경로, main 직접 수정, secret 접근, migration/reset, `curl | sh` 같은 작업을 거부한다.
+              MVP는 승인 흐름이 아니라 거부만 제공한다.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Conductor scope defense</h3>
+            <p>
+              Conductor는 코드 작성자가 아니다. 호출 전후 git status를 비교하고,
+              허용 파일 외 변경이 있으면 revert하고 scope violation log를 남긴다.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Reporter delivery</h3>
+            <p>
+              외부 알림은 outbox delivery로 처리한다. Discord/GitHub status update 실패는 task 실행을 실패시키지 않고 재발송 대상으로 남긴다.
+            </p>
+          </div>
+        </div>
+
+        <h3>Check status model</h3>
+        <table>
+          <thead><tr><th>Status</th><th>의미</th></tr></thead>
+          <tbody>
+            <tr><td><code>not_run</code></td><td>`kind: execute`가 아니거나 아직 CheckRunner가 실행되지 않은 상태.</td></tr>
+            <tr><td><code>passed</code></td><td>첫 CheckRunner 실행에서 모든 command 통과.</td></tr>
+            <tr><td><code>fixed</code></td><td>첫 실행은 실패했지만 자동 수정 1회 후 모든 command 통과.</td></tr>
+            <tr><td><code>failed</code></td><td>자동 수정 없이 실패했거나 자동 수정 후에도 command 실패.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="state">
+        <h2>10. 저장소와 복구</h2>
+        <p>
+          TaskStore는 SQLite 기반의 영속 저장소이자 project별 FIFO queue 역할을 한다.
+          DB는 task history와 external delivery 상태를 기록하고, prompt/output 본문은 파일을 primary source로 둔다.
+        </p>
+
+        <table>
+          <thead><tr><th>Table</th><th>역할</th><th>핵심 포인트</th></tr></thead>
+          <tbody>
+            <tr><td><code>tasks</code></td><td>task lifecycle, project lock, external ref.</td><td>project별 active task는 최대 1개.</td></tr>
+            <tr><td><code>steps</code></td><td>workflow step 실행 이력.</td><td>step retry는 같은 row의 attempt 증가. 새 row 생성 아님.</td></tr>
+            <tr><td><code>checks</code></td><td>CheckRunner command 결과.</td><td>append-only로 exit code, log path, duration을 남긴다.</td></tr>
+            <tr><td><code>events</code></td><td>task domain history.</td><td>user_feedback, task_canceled, step_done 등.</td></tr>
+            <tr><td><code>event_deliveries</code></td><td>ReporterSink outbox.</td><td>at-least-once delivery, backoff, undelivered 진단 보존.</td></tr>
+            <tr><td><code>conductor_state</code></td><td>summary path와 conductor 상태.</td><td>`summary.md`는 task-local context 파일.</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Data model UML</h3>
+        <div class="diagram">
+          <p class="diagram-title">SQLite Entity Relationship</p>
+          <pre class="mermaid">erDiagram
+    TASKS ||--o{ STEPS : contains
+    TASKS ||--o{ CHECKS : records
+    TASKS ||--o{ EVENTS : emits
+    EVENTS ||--o{ EVENT_DELIVERIES : enqueues
+    TASKS ||--|| CONDUCTOR_STATE : has
+
+    TASKS {
+      string id
+      string project_id
+      string workflow_id
+      string status
+      string branch
+      string worktree_path
+      string external_ref
+      string pr_number
+    }
+    STEPS {
+      string id
+      string task_id
+      string step_id
+      string status
+      int attempt
+      int check_fix_attempt
+      string check_status
+      string output_path
+      string diff_path
+    }
+    CHECKS {
+      string id
+      string task_id
+      string command_name
+      int exit_code
+      string stdout_path
+      string stderr_path
+      int check_fix_attempt
+    }
+    EVENTS {
+      string id
+      string task_id
+      string type
+      string payload
+      datetime created_at
+    }
+    EVENT_DELIVERIES {
+      string id
+      string event_id
+      string sink
+      int delivery_attempts
+      datetime next_delivery_at
+      datetime delivered_at
+    }
+    CONDUCTOR_STATE {
+      string task_id
+      string summary_path
+      datetime updated_at
+    }</pre>
+        </div>
+
+        <h3>Recovery</h3>
+        <ul>
+          <li>Orchestrator 재시작 시 `status IN ('running','paused')` task를 조회한다.</li>
+          <li>마지막 step row와 control step child rows를 보고 다음 실행 지점을 복원한다.</li>
+          <li>worktree의 `.forgeroom/` 디렉토리를 검증하고 없으면 bootstrap을 재실행한다.</li>
+          <li>canceled task는 자동 resume 대상이 아니며, worktree/branch/PR은 분석 또는 수동 이어받기를 위해 보존한다.</li>
+        </ul>
+      </section>
+
+      <section id="modules">
+        <h2>11. 모듈별 상세</h2>
+        <table>
+          <thead><tr><th>모듈</th><th>MVP 책임</th><th>주요 경계</th><th>원본</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>ProjectRegistry</td>
+              <td>`projects.yaml` 로드, 프로젝트 path/commands/default workflow/allowed workflows 검증.</td>
+              <td>핫리로드 없음. 변경 후 orchestrator 재시작.</td>
+              <td><a href="../modules/project-registry.md">project-registry.md</a></td>
+            </tr>
+            <tr>
+              <td>WorkflowRegistry</td>
+              <td>`workflows.yaml`과 `intents.yaml`을 파싱하고 DSL 정적 검증.</td>
+              <td>inline prompt, direct agent/kind/harness 지정 금지.</td>
+              <td><a href="../modules/workflow-registry.md">workflow-registry.md</a></td>
+            </tr>
+            <tr>
+              <td>TaskStore</td>
+              <td>SQLite CRUD, project queue, active task lock, recovery index, event outbox.</td>
+              <td>prompt/output 본문은 파일 primary, DB는 path와 상태 중심.</td>
+              <td><a href="../modules/task-store.md">task-store.md</a></td>
+            </tr>
+            <tr>
+              <td>WorktreeManager</td>
+              <td>task별 branch/worktree 생성, `.forgeroom/` bootstrap, idempotent reuse.</td>
+              <td>main/default branch 직접 worktree와 project path 내부 worktree 금지.</td>
+              <td><a href="../modules/worktree-manager.md">worktree-manager.md</a></td>
+            </tr>
+            <tr>
+              <td>ForgeMap</td>
+              <td>canonical project context 생성, selection, staging, refresh planning.</td>
+              <td>Target repo에 기본 커밋하지 않음. Runtime Context에 snapshot copy.</td>
+              <td><a href="../modules/forgemap.md">forgemap.md</a></td>
+            </tr>
+            <tr>
+              <td>PipelineEngine</td>
+              <td>Workflow DSL 실행, 변수 보간, foreach/review_loop, pause/resume/cancel/recover.</td>
+              <td>임의 step id 실행 없음. skip이 필요하면 다른 workflow 선택.</td>
+              <td><a href="../modules/pipeline-engine.md">pipeline-engine.md</a></td>
+            </tr>
+            <tr>
+              <td>AgentRunner</td>
+              <td>provider-neutral run/resume 호출, file IO 검증, retry budget 관리.</td>
+              <td>provider-specific raw diagnostics는 log에 남기고 공통 failureKind만 노출.</td>
+              <td><a href="../modules/agent-runner.md">agent-runner.md</a></td>
+            </tr>
+            <tr>
+              <td>Conductor</td>
+              <td>summary 유지, prompt 보강, feedback 통합, `/ask` 응답.</td>
+              <td>코드 작성, commit, PR 생성 금지.</td>
+              <td><a href="../modules/conductor.md">conductor.md</a></td>
+            </tr>
+            <tr>
+              <td>CheckRunner</td>
+              <td>execute step 직후 project commands 실행, 실패 시 1회 자동 수정.</td>
+              <td>Agent runtime 호출이 아니라 ForgeRoom 직접 실행 품질 게이트.</td>
+              <td><a href="../modules/check-runner.md">check-runner.md</a></td>
+            </tr>
+            <tr>
+              <td>Reporter</td>
+              <td>ReporterEvent 생성, Discord/GitHub delivery, status surface 멱등 갱신.</td>
+              <td>status delivery 실패는 task 실패가 아님. PR 생성 실패는 workflow failure 가능.</td>
+              <td><a href="../modules/reporter.md">reporter.md</a></td>
+            </tr>
+            <tr>
+              <td>DiscordGateway</td>
+              <td>slash command 수신, allowlist 검증, TaskRequest 생성.</td>
+              <td>진행 보고는 Reporter 책임. Gateway는 라우팅만.</td>
+              <td><a href="../modules/discord-gateway.md">discord-gateway.md</a></td>
+            </tr>
+            <tr>
+              <td>GitHubGateway</td>
+              <td>GitHub.com Issue label polling, PR 생성, status comment marker 복구.</td>
+              <td>GitHub Enterprise는 Phase 2. MVP는 GitHub.com API 검증.</td>
+              <td><a href="../modules/github-gateway.md">github-gateway.md</a></td>
+            </tr>
+            <tr>
+              <td>ApprovalGate</td>
+              <td>위험 명령·경로·workflow를 시스템 레벨에서 거부.</td>
+              <td>MVP는 승인 없음, 거부만.</td>
+              <td><a href="../modules/approval-gate.md">approval-gate.md</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="adr">
+        <h2>12. ADR 지도</h2>
+        <table>
+          <thead><tr><th>ADR</th><th>결정</th><th>MVP에 미치는 영향</th></tr></thead>
+          <tbody>
+            <tr><td><a href="../decisions/2026-05-21-001-runtime-nodejs-typescript.md">ADR-001</a></td><td>Node.js + TypeScript</td><td>단일 local orchestrator 구현 언어를 확정.</td></tr>
+            <tr><td><a href="../decisions/2026-05-21-002-storage-sqlite.md">ADR-002</a></td><td>SQLite + Drizzle</td><td>로컬 단일 머신과 recovery/outbox 요구에 맞춘 저장소 선택.</td></tr>
+            <tr><td><a href="../decisions/2026-05-21-003-agent-runner-openclaw-delegation.md">ADR-003</a></td><td>AgentRunner 실행 위임</td><td>CLI runtime 차이를 OpenClawProvider 뒤로 숨김.</td></tr>
+            <tr><td><a href="../decisions/2026-05-21-004-file-based-prompt-passing.md">ADR-004</a></td><td>파일 기반 prompt 전달</td><td>prompt/output/log artifact를 재현 가능하게 보존.</td></tr>
+            <tr><td><a href="../decisions/2026-05-21-005-conductor-meta-agent.md">ADR-005</a></td><td>Conductor 옵션 B</td><td>headless + rolling summary로 context를 관리.</td></tr>
+            <tr><td><a href="../decisions/2026-05-21-006-workflow-library-model.md">ADR-006</a></td><td>Workflow library + invocation selection</td><td>기본 workflow와 custom workflow를 registry로 관리.</td></tr>
+            <tr><td><a href="../decisions/2026-05-21-007-desktop-app-phase-3.md">ADR-007</a></td><td>Desktop app 후순위</td><td>MVP UX는 Discord/GitHub 중심.</td></tr>
+            <tr><td><a href="../decisions/2026-05-21-008-tailscale-mvp-exclusion.md">ADR-008</a></td><td>Tailscale 제외</td><td>outbound only local process 유지.</td></tr>
+            <tr><td><a href="../decisions/2026-05-21-009-forge-phase-and-slice-terminology.md">ADR-009</a></td><td>Forge Phase와 Slice 용어 분리</td><td>제품 로드맵 단계와 task 내부 구현 단위를 혼동하지 않음.</td></tr>
+            <tr><td><a href="../decisions/2026-05-21-010-review-loop-dsl.md">ADR-010</a></td><td>review_loop DSL</td><td>code review/refine 반복을 명시적 control step으로 표현.</td></tr>
+            <tr><td><a href="../decisions/2026-05-21-011-checkrunner-execute-kind-trigger.md">ADR-011</a></td><td>CheckRunner execute 직후 실행</td><td>품질 게이트 트리거를 Intent Kind에 연결.</td></tr>
+            <tr><td><a href="../decisions/2026-05-22-012-agent-runtime-provider-boundary.md">ADR-012</a></td><td>AgentRuntimeProvider 경계</td><td>OpenClaw 외 provider는 Phase 2로 열어두되 MVP 구현체는 하나로 제한.</td></tr>
+            <tr><td><a href="../decisions/2026-05-22-013-task-source-and-reporter-boundaries.md">ADR-013</a></td><td>TaskSource / Reporter 분리</td><td>입력 정규화와 출력 delivery를 분리해 Phase 2 connector 확장 준비.</td></tr>
+            <tr><td><a href="../decisions/2026-05-22-014-forgemap-mvp-project-context.md">ADR-014</a></td><td>ForgeMap MVP 채택</td><td>project-aware context staging을 MVP 핵심 기능으로 둠.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="acceptance">
+        <h2>13. 완료 정의</h2>
+        <ol>
+          <li>프로젝트 1개 등록 후 Discord `/run`으로 풀 파이프라인 자동 실행.</li>
+          <li>`full`, `quick`, `hotfix` workflow 호출 정상 작동.</li>
+          <li>단계별 Discord 알림 도착.</li>
+          <li>`/ask &lt;task&gt;`로 task context 질문 응답.</li>
+          <li>`/feedback &lt;task&gt;`로 사용자 피드백을 다음 step prompt에 반영.</li>
+          <li>ForgeMap 최초 생성 후 task 시작 시 관련 context가 `.forgeroom/context/`에 staging.</li>
+          <li>PR 자동 생성, GitHub UI에서 merge 가능.</li>
+          <li>Orchestrator 재시작 후 진행 중 task 이력 복구와 다음 step resume.</li>
+          <li>위험 명령 거부 검증.</li>
+          <li>Step output 파일 미작성 시 자동 재시도.</li>
+          <li>Conductor scope 위반 시 git revert.</li>
+          <li>`/cancel &lt;task&gt;`로 active task를 canceled로 전환하고 같은 project queue 진행 가능.</li>
+        </ol>
+
+        <h3>마일스톤 슬라이스 후보</h3>
+        <table>
+          <thead><tr><th>Slice</th><th>내용</th></tr></thead>
+          <tbody>
+            <tr><td>1. Core skeleton</td><td>TaskStore + WorktreeManager + linear PipelineEngine.</td></tr>
+            <tr><td>2. Agent integration</td><td>AgentRegistry + OpenClawProvider + AgentRunner + file IO protocol.</td></tr>
+            <tr><td>3. DSL extension</td><td>변수 보간 + foreach + review_loop + max_iterations.</td></tr>
+            <tr><td>4. ForgeMap + Conductor</td><td>build/select/stage + update/refine/answer + scope defense.</td></tr>
+            <tr><td>5. TaskSource + Reporter</td><td>DiscordGateway + GitHubGateway + Reporter sinks.</td></tr>
+            <tr><td>6. CheckRunner + PR</td><td>end-to-end quality gate와 PR 생성.</td></tr>
+            <tr><td>7. Safety & recovery</td><td>ApprovalGate + recoverPending + idempotency 검증.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="open-questions">
+        <h2>14. Open Questions</h2>
+        <table>
+          <thead><tr><th>ID</th><th>질문</th><th>영향</th><th>상태</th></tr></thead>
+          <tbody>
+            <tr><td>OQ-002</td><td>foreach list expression이 markdown `- ` 추출만으로 충분한가?</td><td>DSL 표현력</td><td>pending</td></tr>
+            <tr><td>OQ-003</td><td>Conductor `update` 동기 호출이 latency를 얼마나 늘리는가?</td><td>사용성</td><td>pending</td></tr>
+            <tr><td>OQ-004</td><td>OpenClaw IPC 인터페이스는 HTTP, Unix socket, Node SDK 중 무엇인가?</td><td>AgentRunner 구현</td><td>pending</td></tr>
+            <tr><td>OQ-005</td><td>PR 본문 생성에 Conductor summary를 그대로 사용해도 되는가?</td><td>품질 vs 자동화</td><td>pending</td></tr>
+            <tr><td>OQ-007</td><td>step별 timeout 기본값은 무엇인가?</td><td>안정성</td><td>pending</td></tr>
+            <tr><td>OQ-008</td><td>worktree 정리 정책은 성공 후 얼마나 보존하는가?</td><td>디스크 사용</td><td>pending</td></tr>
+            <tr><td>OQ-009</td><td>Discord 메시지 길이 제한에 어떻게 대응하는가?</td><td>사용성</td><td>pending</td></tr>
+            <tr><td>OQ-012</td><td>OpenCodeProvider는 CLI headless와 server mode 중 무엇을 entrypoint로 삼는가?</td><td>Phase 2 provider</td><td>pending</td></tr>
+            <tr><td>OQ-013</td><td>ForgeMap refresh의 partial refresh와 rebuild 기준은 무엇인가?</td><td>정확도와 운영 비용</td><td>pending</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="review-guide">
+        <h2>15. 리뷰 체크리스트</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>Scope</h3>
+            <ul class="review-list">
+              <li>Discord/GitHub.com을 MVP TaskSource로 두는 것이 실제 검증 환경에 맞는가?</li>
+              <li>OpenCodeProvider와 Local CLI를 Phase 2로 미루는 것이 맞는가?</li>
+              <li>ForgeMap을 MVP 핵심 기능으로 넣는 것이 MVP 비용을 과도하게 키우지 않는가?</li>
+              <li>Desktop/Tailscale/multi-machine 제외가 충분히 명확한가?</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Execution</h3>
+            <ul class="review-list">
+              <li>1 task = 1 branch/worktree/PR 불변식이 모든 flow에 맞는가?</li>
+              <li>pause/resume/cancel semantics가 운영자가 기대하는 방식인가?</li>
+              <li>review_loop의 max_iterations 실패 처리가 충분히 진단 가능한가?</li>
+              <li>output-producing attempt budget과 check fix budget 분리가 이해하기 쉬운가?</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Context</h3>
+            <ul class="review-list">
+              <li>ForgeMap 파일 구성은 실제 target project를 설명하기에 충분한가?</li>
+              <li>ContextSelector의 1-hop 제한이 context 누락을 너무 자주 만들지 않는가?</li>
+              <li>dirty baseline과 pending rebuild block이 너무 보수적이거나 느슨하지 않은가?</li>
+              <li>Conductor가 canonical ForgeMap을 수정하지 않는 경계가 충분히 강한가?</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Operational Safety</h3>
+            <ul class="review-list">
+              <li>ApprovalGate의 MVP 거부 catalog가 실제 위험을 충분히 막는가?</li>
+              <li>Secret 접근 차단과 worktree 외부 write revert가 충분한가?</li>
+              <li>Reporter delivery failure가 task 실패와 분리되는 것이 맞는가?</li>
+              <li>PR 생성 실패를 task failed로 보는 기준이 적절한가?</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>리뷰 중 표시하면 좋은 항목</h3>
+        <ul>
+          <li><strong>범위 변경</strong>: MVP에 넣거나 빼야 하는 기능.</li>
+          <li><strong>경계 불명확</strong>: 어떤 모듈 책임인지 애매한 부분.</li>
+          <li><strong>운영 리스크</strong>: 실제 사용 중 막힐 가능성이 높은 흐름.</li>
+          <li><strong>ADR 필요</strong>: 기존 결정과 충돌하거나 새 결정이 필요한 변경.</li>
+          <li><strong>Phase 이동</strong>: Phase 1/2/3/4 배치가 어색한 항목.</li>
+        </ul>
+
+        <div class="note ok">
+          리뷰 결과가 설계 변경으로 이어지면 `Docs/rules/doc-rules.md`의 변경 워크플로우를 따른다.
+          의미 있는 변경은 ADR proposed에서 시작해 사용자 승인 후 decided로 전환하고, 영향을 받은 문서를 같은 변경 단위로 갱신한다.
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
