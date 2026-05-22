@@ -30,8 +30,8 @@ The business logic of ForgeRoom: workflow execution, agent orchestration, worktr
 | `task-store.ts` | TaskStore interface and create-task input contract | [Docs/modules/task-store.md](../../../../Docs/modules/task-store.md) |
 | `types.ts` | Exported task, step, check, and shared contract types | [Docs/concepts/data-model.md](../../../../Docs/concepts/data-model.md) |
 | `errors.ts` | Domain error classes with canonical failure codes | [Docs/concepts/data-model.md](../../../../Docs/concepts/data-model.md) |
+| `__tests__/` | Unit tests for core modules, separated from implementation files | [Docs/rules/testing-rules.md](../../../../Docs/rules/testing-rules.md) |
 | `test-support/` | Shared core test fakes and fixture builders | [Docs/rules/testing-rules.md](../../../../Docs/rules/testing-rules.md) |
-| `*.test.ts` | Unit tests for core contracts and modules | [Docs/rules/testing-rules.md](../../../../Docs/rules/testing-rules.md) |
 
 ## Import direction
 

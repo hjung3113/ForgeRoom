@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { WorkflowError } from './errors';
-import { parseReviewPassedOutput, parseSlicesOutput } from './output-selectors';
+import { WorkflowError } from '../errors';
+import { parseReviewPassedOutput, parseSlicesOutput } from '../output-selectors';
 
 describe('parseSlicesOutput', () => {
   it('parses top-level bullets from the Slices section', () => {

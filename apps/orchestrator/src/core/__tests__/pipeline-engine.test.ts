@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AgentRunRequest, AgentRunResult, AgentRunner, AgentRunnerResumeRequest } from './agent-runner';
-import { DefaultPipelineEngine, type PipelineArtifactStore } from './pipeline-engine';
-import type { ProjectMeta } from './project-registry';
-import type { CreateStepInput, CreateTaskInput, TaskStore } from './task-store';
-import type { Step, Task } from './types';
-import type { ParsedWorkflow } from './workflow-registry';
-import type { WorktreeHandle } from './worktree-manager';
+import type { AgentRunRequest, AgentRunResult, AgentRunner, AgentRunnerResumeRequest } from '../agent-runner';
+import { DefaultPipelineEngine, type PipelineArtifactStore } from '../pipeline-engine';
+import type { ProjectMeta } from '../project-registry';
+import type { CreateStepInput, CreateTaskInput, TaskStore } from '../task-store';
+import type { Step, Task } from '../types';
+import type { ParsedWorkflow } from '../workflow-registry';
+import type { WorktreeHandle } from '../worktree-manager';
 
 describe('DefaultPipelineEngine', () => {
   it('starts a task, prepares the worktree, writes the first prompt, and runs the first step', async () => {
