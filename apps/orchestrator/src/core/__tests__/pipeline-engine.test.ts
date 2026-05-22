@@ -58,6 +58,7 @@ describe('DefaultPipelineEngine', () => {
         },
       },
     ]);
+    expect(harness.taskStore.releaseLockRequests).toEqual([{ projectId: 'forge', taskId: 'task-1' }]);
   });
 
   it('runs CheckRunner only for execute steps after agent output is produced', async () => {
@@ -112,5 +113,6 @@ describe('DefaultPipelineEngine', () => {
     expect(harness.taskStore.taskStatusUpdates).toEqual([
       { id: 'task-1', status: 'failed', failureReason: 'agent_error' },
     ]);
+    expect(harness.taskStore.releaseLockRequests).toEqual([{ projectId: 'forge', taskId: 'task-1' }]);
   });
 });

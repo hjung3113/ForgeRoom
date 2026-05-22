@@ -30,7 +30,15 @@ export interface PipelineArtifactStore {
 export interface DefaultPipelineEngineOptions {
   projectRegistry: Pick<ProjectRegistryLike, 'get'>;
   workflowRegistry: Pick<WorkflowRegistryLike, 'get'>;
-  taskStore: Pick<TaskStore, 'createTask' | 'acquireProjectLock' | 'createStep' | 'updateStep' | 'updateTaskStatus'>;
+  taskStore: Pick<
+    TaskStore,
+    | 'createTask'
+    | 'acquireProjectLock'
+    | 'releaseProjectLock'
+    | 'createStep'
+    | 'updateStep'
+    | 'updateTaskStatus'
+  >;
   worktreeManager: WorktreeManagerLike;
   agentRunner: AgentRunner;
   checkRunner?: CheckRunnerLike;
@@ -60,7 +68,7 @@ export class DefaultPipelineEngine {
   private readonly workflowRegistry: Pick<WorkflowRegistryLike, 'get'>;
   private readonly taskStore: Pick<
     TaskStore,
-    'createTask' | 'acquireProjectLock' | 'createStep' | 'updateStep' | 'updateTaskStatus'
+    'createTask' | 'acquireProjectLock' | 'releaseProjectLock' | 'createStep' | 'updateStep' | 'updateTaskStatus'
   >;
   private readonly worktreeManager: WorktreeManagerLike;
   private readonly agentRunner: AgentRunner;
@@ -90,6 +98,7 @@ export class DefaultPipelineEngine {
 
     const firstStep = firstExecutableStep(workflow);
     await this.executeFirstStep(task, firstStep, project);
+    await this.taskStore.releaseProjectLock(project.id, task.id);
 
     return task.id;
   }

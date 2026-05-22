@@ -81,11 +81,15 @@ export function makePipelineHarness(
 
 export class FakeTaskStore
   implements
-    Pick<TaskStore, 'createTask' | 'acquireProjectLock' | 'createStep' | 'updateStep' | 'updateTaskStatus'>
+    Pick<
+      TaskStore,
+      'createTask' | 'acquireProjectLock' | 'releaseProjectLock' | 'createStep' | 'updateStep' | 'updateTaskStatus'
+    >
 {
   readonly createdTasks: CreateTaskInput[] = [];
   readonly createdSteps: CreateStepInput[] = [];
   readonly lockRequests: Array<{ projectId: string; taskId: string }> = [];
+  readonly releaseLockRequests: Array<{ projectId: string; taskId: string }> = [];
   readonly stepPatches: Array<{ id: string; patch: Partial<Step> }> = [];
   readonly taskStatusUpdates: Array<{ id: string; status: Task['status']; failureReason?: Task['failure_reason'] }> =
     [];
@@ -106,6 +110,11 @@ export class FakeTaskStore
   acquireProjectLock(projectId: string, taskId: string): Promise<boolean> {
     this.lockRequests.push({ projectId, taskId });
     return Promise.resolve(true);
+  }
+
+  releaseProjectLock(projectId: string, taskId: string): Promise<void> {
+    this.releaseLockRequests.push({ projectId, taskId });
+    return Promise.resolve();
   }
 
   createStep(input: CreateStepInput): Promise<Step> {
