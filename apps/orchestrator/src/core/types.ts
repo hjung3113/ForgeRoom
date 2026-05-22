@@ -70,6 +70,25 @@ export interface Check {
   created_at: Date;
 }
 
+export interface Event {
+  id: string;
+  task_id: string;
+  type: string;
+  payload: Record<string, unknown>;
+  created_at: Date;
+}
+
+export interface EventDelivery {
+  id: string;
+  event_id: string;
+  destination: 'discord' | 'github';
+  delivery_attempts: number;
+  next_delivery_at: Date | null;
+  last_delivery_error: string | null;
+  delivered_at: Date | null;
+  created_at: Date;
+}
+
 export interface CheckResult {
   commandName: string;
   command: string;

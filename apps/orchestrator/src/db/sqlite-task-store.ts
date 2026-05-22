@@ -1,13 +1,22 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import type { CreateCheckInput, CreateStepInput, CreateTaskInput, TaskStore } from '../core/task-store';
-import type { Check, Step, Task, TaskStatus } from '../core/types';
+import type {
+  CreateCheckInput,
+  CreateEventDeliveryInput,
+  CreateEventInput,
+  CreateStepInput,
+  CreateTaskInput,
+  MarkDeliveryFailedPatch,
+  TaskStore,
+} from '../core/task-store';
+import type { Check, Event, EventDelivery, Step, Task, TaskStatus } from '../core/types';
 import type { TaskStoreDatabase } from './client';
 import * as schema from './schema';
-import { checks, steps, tasks } from './schema';
+import { checks, eventDeliveries, events, steps, tasks } from './schema';
 
 type Database = BetterSQLite3Database<typeof schema>;
+type EventDeliveryRow = typeof eventDeliveries.$inferSelect;
 type StepRow = typeof steps.$inferSelect;
 type TaskRow = typeof tasks.$inferSelect;
 
@@ -150,6 +159,81 @@ export class SqliteTaskStore implements TaskStore {
 
     return Promise.resolve(check);
   }
+
+  enqueueEvent(input: CreateEventInput): Promise<Event> {
+    try {
+      this.db.insert(events).values(toEventRow(input)).run();
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+
+    return Promise.resolve(input);
+  }
+
+  enqueueEventDelivery(input: CreateEventDeliveryInput): Promise<EventDelivery> {
+    const delivery: EventDelivery = {
+      ...input,
+      delivery_attempts: input.delivery_attempts ?? 0,
+      next_delivery_at: input.next_delivery_at ?? null,
+      last_delivery_error: input.last_delivery_error ?? null,
+      delivered_at: input.delivered_at ?? null,
+      created_at: input.created_at ?? new Date(),
+    };
+
+    try {
+      this.db.insert(eventDeliveries).values(toEventDeliveryRow(delivery)).run();
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+
+    return Promise.resolve(delivery);
+  }
+
+  markDeliveryDelivered(id: string): Promise<void> {
+    try {
+      this.db
+        .update(eventDeliveries)
+        .set({ deliveredAt: new Date().toISOString() })
+        .where(eq(eventDeliveries.id, id))
+        .run();
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+    return Promise.resolve();
+  }
+
+  markDeliveryFailed(id: string, patch: MarkDeliveryFailedPatch): Promise<void> {
+    try {
+      this.db
+        .update(eventDeliveries)
+        .set({
+          deliveryAttempts: patch.delivery_attempts,
+          nextDeliveryAt: patch.next_delivery_at?.toISOString() ?? null,
+          lastDeliveryError: patch.last_delivery_error,
+        })
+        .where(eq(eventDeliveries.id, id))
+        .run();
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+    return Promise.resolve();
+  }
+
+  listDueUndeliveredDeliveries(now: Date): Promise<EventDelivery[]> {
+    const rows = this.db
+      .select()
+      .from(eventDeliveries)
+      .where(
+        and(
+          isNull(eventDeliveries.deliveredAt),
+          or(isNull(eventDeliveries.nextDeliveryAt), lte(eventDeliveries.nextDeliveryAt, now.toISOString())),
+        ),
+      )
+      .orderBy(asc(eventDeliveries.nextDeliveryAt), asc(eventDeliveries.createdAt), asc(eventDeliveries.id))
+      .all();
+
+    return Promise.resolve(rows.map(fromEventDeliveryRow));
+  }
 }
 
 export { SqliteTaskStore as SQLiteTaskStore };
@@ -275,6 +359,42 @@ function toCheckRow(check: Check): typeof checks.$inferInsert {
     stderrPath: check.stderr_path,
     durationMs: check.duration_ms,
     createdAt: check.created_at.toISOString(),
+  };
+}
+
+function toEventRow(event: Event): typeof events.$inferInsert {
+  return {
+    id: event.id,
+    taskId: event.task_id,
+    type: event.type,
+    payload: event.payload,
+    createdAt: event.created_at.toISOString(),
+  };
+}
+
+function toEventDeliveryRow(delivery: EventDelivery): typeof eventDeliveries.$inferInsert {
+  return {
+    id: delivery.id,
+    eventId: delivery.event_id,
+    destination: delivery.destination,
+    deliveryAttempts: delivery.delivery_attempts,
+    nextDeliveryAt: delivery.next_delivery_at?.toISOString() ?? null,
+    lastDeliveryError: delivery.last_delivery_error,
+    deliveredAt: delivery.delivered_at?.toISOString() ?? null,
+    createdAt: delivery.created_at.toISOString(),
+  };
+}
+
+function fromEventDeliveryRow(row: EventDeliveryRow): EventDelivery {
+  return {
+    id: row.id,
+    event_id: row.eventId,
+    destination: row.destination,
+    delivery_attempts: row.deliveryAttempts,
+    next_delivery_at: row.nextDeliveryAt === null ? null : new Date(row.nextDeliveryAt),
+    last_delivery_error: row.lastDeliveryError,
+    delivered_at: row.deliveredAt === null ? null : new Date(row.deliveredAt),
+    created_at: new Date(row.createdAt),
   };
 }
 

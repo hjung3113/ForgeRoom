@@ -356,6 +356,215 @@ describe('SqliteTaskStore', () => {
       },
     ]);
   });
+
+  it('persists event payload JSON and allows multiple destination deliveries for one event', async () => {
+    await store.createTask(taskInput('task-events', 'project-a', 'queued'));
+
+    const event = await store.enqueueEvent({
+      id: 'event-step-done',
+      task_id: 'task-events',
+      type: 'step_done',
+      payload: {
+        step_id: 'execute',
+        result: 'done',
+        nested: { changed_files: ['apps/orchestrator/src/db/sqlite-task-store.ts'] },
+      },
+      created_at: new Date('2026-05-22T13:00:00.000Z'),
+    });
+    const discordDelivery = await store.enqueueEventDelivery({
+      id: 'delivery-discord',
+      event_id: event.id,
+      destination: 'discord',
+      created_at: new Date('2026-05-22T13:00:01.000Z'),
+    });
+    const githubDelivery = await store.enqueueEventDelivery({
+      id: 'delivery-github',
+      event_id: event.id,
+      destination: 'github',
+      created_at: new Date('2026-05-22T13:00:02.000Z'),
+    });
+
+    expect(discordDelivery).toMatchObject({
+      id: 'delivery-discord',
+      event_id: 'event-step-done',
+      destination: 'discord',
+      delivery_attempts: 0,
+      next_delivery_at: null,
+      last_delivery_error: null,
+      delivered_at: null,
+    });
+    expect(githubDelivery).toMatchObject({
+      id: 'delivery-github',
+      event_id: 'event-step-done',
+      destination: 'github',
+    });
+    const deliveryPayloadRows = database.sqlite
+      .prepare(
+        `select d.id as delivery_id, d.destination, e.id as event_id, e.payload
+         from event_deliveries d
+         join events e on e.id = d.event_id
+         where e.id = ?
+         order by d.destination`,
+      )
+      .all('event-step-done') as Array<{
+      delivery_id: string;
+      destination: string;
+      event_id: string;
+      payload: string;
+    }>;
+
+    expect(
+      deliveryPayloadRows.map((row) => ({
+        ...row,
+        payload: JSON.parse(row.payload) as Record<string, unknown>,
+      })),
+    ).toEqual([
+      {
+        delivery_id: 'delivery-discord',
+        destination: 'discord',
+        event_id: 'event-step-done',
+        payload: {
+          step_id: 'execute',
+          result: 'done',
+          nested: { changed_files: ['apps/orchestrator/src/db/sqlite-task-store.ts'] },
+        },
+      },
+      {
+        delivery_id: 'delivery-github',
+        destination: 'github',
+        event_id: 'event-step-done',
+        payload: {
+          step_id: 'execute',
+          result: 'done',
+          nested: { changed_files: ['apps/orchestrator/src/db/sqlite-task-store.ts'] },
+        },
+      },
+    ]);
+  });
+
+  it('lists only due undelivered deliveries in a predictable order', async () => {
+    await store.createTask(taskInput('task-due-deliveries', 'project-a', 'queued'));
+    await store.enqueueEvent({
+      id: 'event-due',
+      task_id: 'task-due-deliveries',
+      type: 'task_started',
+      payload: { status: 'running' },
+      created_at: new Date('2026-05-22T14:00:00.000Z'),
+    });
+    await store.enqueueEventDelivery({
+      id: 'delivery-no-next',
+      event_id: 'event-due',
+      destination: 'discord',
+      created_at: new Date('2026-05-22T14:00:01.000Z'),
+    });
+    await store.enqueueEventDelivery({
+      id: 'delivery-past-next',
+      event_id: 'event-due',
+      destination: 'github',
+      next_delivery_at: new Date('2026-05-22T14:02:00.000Z'),
+      created_at: new Date('2026-05-22T14:00:02.000Z'),
+    });
+    await store.enqueueEventDelivery({
+      id: 'delivery-future-next',
+      event_id: 'event-due',
+      destination: 'discord',
+      next_delivery_at: new Date('2026-05-22T14:10:00.000Z'),
+      created_at: new Date('2026-05-22T14:00:03.000Z'),
+    });
+    await store.enqueueEventDelivery({
+      id: 'delivery-delivered',
+      event_id: 'event-due',
+      destination: 'github',
+      next_delivery_at: new Date('2026-05-22T14:01:00.000Z'),
+      delivered_at: new Date('2026-05-22T14:03:00.000Z'),
+      created_at: new Date('2026-05-22T14:00:04.000Z'),
+    });
+
+    await expect(
+      store.listDueUndeliveredDeliveries(new Date('2026-05-22T14:05:00.000Z')),
+    ).resolves.toMatchObject([
+      {
+        id: 'delivery-no-next',
+        event_id: 'event-due',
+        delivered_at: null,
+        next_delivery_at: null,
+      },
+      {
+        id: 'delivery-past-next',
+        event_id: 'event-due',
+        delivered_at: null,
+        next_delivery_at: new Date('2026-05-22T14:02:00.000Z'),
+      },
+    ]);
+  });
+
+  it('marks deliveries delivered and excludes them from due delivery lookup', async () => {
+    await store.createTask(taskInput('task-delivered', 'project-a', 'queued'));
+    await store.enqueueEvent({
+      id: 'event-delivered',
+      task_id: 'task-delivered',
+      type: 'task_started',
+      payload: { status: 'running' },
+      created_at: new Date('2026-05-22T15:00:00.000Z'),
+    });
+    await store.enqueueEventDelivery({
+      id: 'delivery-to-mark',
+      event_id: 'event-delivered',
+      destination: 'discord',
+      created_at: new Date('2026-05-22T15:00:01.000Z'),
+    });
+
+    await expect(
+      store.listDueUndeliveredDeliveries(new Date('2026-05-22T15:01:00.000Z')),
+    ).resolves.toHaveLength(1);
+    await store.markDeliveryDelivered('delivery-to-mark');
+
+    await expect(
+      store.listDueUndeliveredDeliveries(new Date('2026-05-22T15:01:00.000Z')),
+    ).resolves.toEqual([]);
+    const deliveredRow = database.sqlite
+      .prepare('select delivered_at from event_deliveries where id = ?')
+      .get('delivery-to-mark') as { delivered_at: string } | undefined;
+    expect(typeof deliveredRow?.delivered_at).toBe('string');
+  });
+
+  it('persists failed delivery retry fields', async () => {
+    await store.createTask(taskInput('task-failed-delivery', 'project-a', 'queued'));
+    await store.enqueueEvent({
+      id: 'event-failed-delivery',
+      task_id: 'task-failed-delivery',
+      type: 'task_failed',
+      payload: { failure_reason: 'check_failed_after_fix' },
+      created_at: new Date('2026-05-22T16:00:00.000Z'),
+    });
+    await store.enqueueEventDelivery({
+      id: 'delivery-failed',
+      event_id: 'event-failed-delivery',
+      destination: 'github',
+      created_at: new Date('2026-05-22T16:00:01.000Z'),
+    });
+
+    await store.markDeliveryFailed('delivery-failed', {
+      delivery_attempts: 2,
+      next_delivery_at: new Date('2026-05-22T16:05:00.000Z'),
+      last_delivery_error: 'GitHub API rate limit',
+    });
+
+    await expect(
+      store.listDueUndeliveredDeliveries(new Date('2026-05-22T16:04:59.000Z')),
+    ).resolves.toEqual([]);
+    await expect(
+      store.listDueUndeliveredDeliveries(new Date('2026-05-22T16:05:00.000Z')),
+    ).resolves.toMatchObject([
+      {
+        id: 'delivery-failed',
+        delivery_attempts: 2,
+        next_delivery_at: new Date('2026-05-22T16:05:00.000Z'),
+        last_delivery_error: 'GitHub API rate limit',
+        delivered_at: null,
+      },
+    ]);
+  });
 });
 
 function taskInput(id: string, projectId: string, status: 'queued' | 'running' | 'paused' | 'done') {

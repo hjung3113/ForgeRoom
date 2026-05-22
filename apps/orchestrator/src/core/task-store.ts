@@ -1,4 +1,4 @@
-import type { Check, ExternalRef, Step, Task, TaskStatus } from './types';
+import type { Check, Event, EventDelivery, ExternalRef, Step, Task, TaskStatus } from './types';
 
 export type CreateTaskInput = Omit<Task, 'created_at' | 'updated_at' | 'failure_reason'> & {
   failure_reason?: string | null;
@@ -11,6 +11,25 @@ export type CreateCheckInput = Omit<Check, 'created_at'> & {
   created_at?: Date;
 };
 
+export type CreateEventInput = Event;
+
+export type CreateEventDeliveryInput = Omit<
+  EventDelivery,
+  'delivery_attempts' | 'next_delivery_at' | 'last_delivery_error' | 'delivered_at' | 'created_at'
+> & {
+  delivery_attempts?: number;
+  next_delivery_at?: Date | null;
+  last_delivery_error?: string | null;
+  delivered_at?: Date | null;
+  created_at?: Date;
+};
+
+export interface MarkDeliveryFailedPatch {
+  delivery_attempts: number;
+  next_delivery_at: Date | null;
+  last_delivery_error: string | null;
+}
+
 export interface TaskStore {
   createTask(input: CreateTaskInput): Promise<Task>;
   updateTaskStatus(id: string, status: TaskStatus): Promise<void>;
@@ -22,4 +41,9 @@ export interface TaskStore {
   updateStep(id: string, patch: Partial<Step>): Promise<void>;
   listSteps(taskId: string): Promise<Step[]>;
   recordCheck(input: CreateCheckInput): Promise<Check>;
+  enqueueEvent(input: CreateEventInput): Promise<Event>;
+  enqueueEventDelivery(input: CreateEventDeliveryInput): Promise<EventDelivery>;
+  markDeliveryDelivered(id: string): Promise<void>;
+  markDeliveryFailed(id: string, patch: MarkDeliveryFailedPatch): Promise<void>;
+  listDueUndeliveredDeliveries(now: Date): Promise<EventDelivery[]>;
 }
