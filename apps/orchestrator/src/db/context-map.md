@@ -9,15 +9,16 @@ last_reviewed: 2026-05-21
 
 SQLite schema, migrations, and the `TaskStore` implementation satisfying the `core` interface.
 
-## Key files (planned)
+## Key files
 
 | File | Role |
 |---|---|
-| `schema.ts` | Drizzle table definitions (tasks, steps, checks, events, conductor_state) |
+| `schema.ts` | Drizzle table definitions for TaskStore persistence |
 | `client.ts` | better-sqlite3 + Drizzle bootstrap and PRAGMAs |
 | `migrate.ts` | Boot-time migration runner |
-| `migrations/` | Generated migration SQL (Drizzle CLI) |
+| `migrations/0001_initial.sql` | Initial SQLite schema migration |
 | `sqlite-task-store.ts` | TaskStore implementation |
+| `sqlite-task-store.test.ts` | SQLite-backed TaskStore unit tests |
 
 ## Related docs
 

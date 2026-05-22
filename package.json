@@ -12,6 +12,7 @@
     "test:integration": "vitest run --reporter=dot tests/integration"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.2",
     "eslint": "^9.17.0",
     "prettier": "^3.4.2",
@@ -20,6 +21,8 @@
     "vitest": "^2.1.8"
   },
   "dependencies": {
+    "better-sqlite3": "^12.10.0",
+    "drizzle-orm": "^0.45.2",
     "yaml": "^2.9.0"
   }
 }

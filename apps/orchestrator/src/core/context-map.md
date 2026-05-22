@@ -25,7 +25,7 @@ The business logic of ForgeRoom: workflow execution, agent orchestration, worktr
 | `intent-registry.ts` | Intent registry validation and lookup | [Docs/concepts/workflow-dsl.md](../../../../Docs/concepts/workflow-dsl.md) |
 | `agent-registry.ts` | Phase 1 OpenClaw agent registry validation and lookup | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
 | `harness-registry.ts` | Step Harness registry validation and lookup | [Docs/concepts/workflow-dsl.md](../../../../Docs/concepts/workflow-dsl.md) |
-| `task-store.ts` | TaskStore interface | [Docs/modules/task-store.md](../../../../Docs/modules/task-store.md) |
+| `task-store.ts` | TaskStore interface and create-task input contract | [Docs/modules/task-store.md](../../../../Docs/modules/task-store.md) |
 | `types.ts` | Exported task, step, check, and shared contract types | [Docs/concepts/data-model.md](../../../../Docs/concepts/data-model.md) |
 | `errors.ts` | Domain error classes with canonical failure codes | [Docs/concepts/data-model.md](../../../../Docs/concepts/data-model.md) |
 | `*.test.ts` | Unit tests for core contracts and modules | [Docs/rules/testing-rules.md](../../../../Docs/rules/testing-rules.md) |
