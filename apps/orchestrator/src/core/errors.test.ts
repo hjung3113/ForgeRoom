@@ -35,6 +35,6 @@ describe('OrchestratorError', () => {
 
     expect(error).toBeInstanceOf(OrchestratorError);
     expect(error.name).toBe('PathSafetyError');
-    expect(error.code).toBe('path_safety_violation');
+    expect(error.code).toBe('git_conflict');
   });
 });

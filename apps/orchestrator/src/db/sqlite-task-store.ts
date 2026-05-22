@@ -10,13 +10,16 @@ import type {
   MarkDeliveryFailedPatch,
   TaskStore,
 } from '../core/task-store';
-import type { Check, Event, EventDelivery, Step, Task, TaskStatus } from '../core/types';
+import { isOrchestratorFailureCode, type OrchestratorFailureCode } from '../core/errors';
+import type { Check, ConductorState, Event, EventDelivery, Step, Task, TaskStatus } from '../core/types';
 import type { TaskStoreDatabase } from './client';
 import * as schema from './schema';
-import { checks, eventDeliveries, events, steps, tasks } from './schema';
+import { checks, conductorState, eventDeliveries, events, steps, tasks } from './schema';
 
 type Database = BetterSQLite3Database<typeof schema>;
+type ConductorStateRow = typeof conductorState.$inferSelect;
 type EventDeliveryRow = typeof eventDeliveries.$inferSelect;
+type EventRow = typeof events.$inferSelect;
 type StepRow = typeof steps.$inferSelect;
 type TaskRow = typeof tasks.$inferSelect;
 
@@ -142,12 +145,11 @@ export class SqliteTaskStore implements TaskStore {
   }
 
   updateStep(id: string, patch: Partial<Step>): Promise<void> {
-    const rowPatch = toStepPatch(patch);
-    if (Object.keys(rowPatch).length === 0) {
-      return Promise.resolve();
-    }
-
     try {
+      const rowPatch = toStepPatch(patch);
+      if (Object.keys(rowPatch).length === 0) {
+        return Promise.resolve();
+      }
       this.db.update(steps).set(rowPatch).where(eq(steps.id, id)).run();
     } catch (error) {
       return Promise.reject(toTaskStoreError(error));
@@ -160,9 +162,8 @@ export class SqliteTaskStore implements TaskStore {
     patch: Partial<Step>,
     event: CreateEventInput,
   ): Promise<{ step: Step; event: Event }> {
-    const rowPatch = toStepPatch(patch);
-
     try {
+      const rowPatch = toStepPatch(patch);
       const step = this.db.transaction((transaction) => {
         if (Object.keys(rowPatch).length > 0) {
           transaction.update(steps).set(rowPatch).where(eq(steps.id, stepId)).run();
@@ -216,6 +217,74 @@ export class SqliteTaskStore implements TaskStore {
     }
 
     return Promise.resolve(input);
+  }
+
+  getEvent(id: string): Promise<Event | null> {
+    const row = this.db.select().from(events).where(eq(events.id, id)).get();
+    return Promise.resolve(row === undefined ? null : fromEventRow(row));
+  }
+
+  markUserFeedbackApplied(eventId: string, appliedAt: Date): Promise<void> {
+    try {
+      const event = this.db.select().from(events).where(eq(events.id, eventId)).get();
+      if (event === undefined) {
+        throw new Error(`event not found: ${eventId}`);
+      }
+      if (event.type !== 'user_feedback') {
+        throw new Error(`event is not user_feedback: ${eventId}`);
+      }
+
+      this.db
+        .update(events)
+        .set({ payload: { ...event.payload, applied_at: appliedAt.toISOString() } })
+        .where(eq(events.id, eventId))
+        .run();
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+
+    return Promise.resolve();
+  }
+
+  upsertConductorState(
+    taskId: string,
+    summary: string,
+    summaryPath: string,
+    lastStepId?: string | null,
+  ): Promise<void> {
+    const existing = this.db.select().from(conductorState).where(eq(conductorState.taskId, taskId)).get();
+    const row = {
+      taskId,
+      summary,
+      lastStepId: lastStepId === undefined ? (existing?.lastStepId ?? null) : lastStepId,
+      summaryPath,
+      lastUpdated: new Date().toISOString(),
+    };
+
+    try {
+      this.db
+        .insert(conductorState)
+        .values(row)
+        .onConflictDoUpdate({
+          target: conductorState.taskId,
+          set: {
+            summary: row.summary,
+            lastStepId: row.lastStepId,
+            summaryPath: row.summaryPath,
+            lastUpdated: row.lastUpdated,
+          },
+        })
+        .run();
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+
+    return Promise.resolve();
+  }
+
+  getConductorState(taskId: string): Promise<ConductorState | null> {
+    const row = this.db.select().from(conductorState).where(eq(conductorState.taskId, taskId)).get();
+    return Promise.resolve(row === undefined ? null : fromConductorStateRow(row));
   }
 
   cancelTask(taskId: string, eventId: string, payload: Record<string, unknown> = {}): Promise<void> {
@@ -326,7 +395,7 @@ function toTaskRow(task: Task): typeof tasks.$inferInsert {
     title: task.title,
     description: task.description,
     status: task.status,
-    failureReason: task.failure_reason,
+    failureReason: validateFailureReason(task.failure_reason),
     source: task.source,
     externalRef: task.external_ref,
     issueNumber: task.issue_number,
@@ -347,7 +416,7 @@ function fromTaskRow(row: TaskRow): Task {
     title: row.title,
     description: row.description,
     status: row.status,
-    failure_reason: row.failureReason,
+    failure_reason: parseFailureReason(row.failureReason),
     source: row.source,
     external_ref: row.externalRef,
     issue_number: row.issueNumber,
@@ -369,7 +438,7 @@ function toStepRow(step: Step): typeof steps.$inferInsert {
     iteration: step.iteration,
     agentId: step.agent_id,
     status: step.status,
-    failureReason: step.failure_reason,
+    failureReason: validateFailureReason(step.failure_reason),
     attempt: step.attempt,
     checkFixAttempt: step.check_fix_attempt,
     checkStatus: step.check_status,
@@ -391,7 +460,7 @@ function fromStepRow(row: StepRow): Step {
     iteration: row.iteration,
     agent_id: row.agentId,
     status: row.status,
-    failure_reason: row.failureReason,
+    failure_reason: parseFailureReason(row.failureReason),
     attempt: row.attempt,
     check_fix_attempt: row.checkFixAttempt,
     check_status: row.checkStatus,
@@ -413,7 +482,7 @@ function toStepPatch(patch: Partial<Step>): Partial<typeof steps.$inferInsert> {
   if (patch.iteration !== undefined) rowPatch.iteration = patch.iteration;
   if (patch.agent_id !== undefined) rowPatch.agentId = patch.agent_id;
   if (patch.status !== undefined) rowPatch.status = patch.status;
-  if (patch.failure_reason !== undefined) rowPatch.failureReason = patch.failure_reason;
+  if (patch.failure_reason !== undefined) rowPatch.failureReason = validateFailureReason(patch.failure_reason);
   if (patch.attempt !== undefined) rowPatch.attempt = patch.attempt;
   if (patch.check_fix_attempt !== undefined) rowPatch.checkFixAttempt = patch.check_fix_attempt;
   if (patch.check_status !== undefined) rowPatch.checkStatus = patch.check_status;
@@ -452,6 +521,26 @@ function toEventRow(event: Event): typeof events.$inferInsert {
   };
 }
 
+function fromEventRow(row: EventRow): Event {
+  return {
+    id: row.id,
+    task_id: row.taskId,
+    type: row.type,
+    payload: row.payload,
+    created_at: new Date(row.createdAt),
+  };
+}
+
+function fromConductorStateRow(row: ConductorStateRow): ConductorState {
+  return {
+    task_id: row.taskId,
+    summary: row.summary,
+    last_step_id: row.lastStepId,
+    summary_path: row.summaryPath,
+    last_updated: new Date(row.lastUpdated),
+  };
+}
+
 function toEventDeliveryRow(delivery: EventDelivery): typeof eventDeliveries.$inferInsert {
   return {
     id: delivery.id,
@@ -483,6 +572,17 @@ function toTaskStoreError(error: unknown): Error {
     return new Error('active task already exists for project');
   }
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function validateFailureReason(reason: OrchestratorFailureCode | null): OrchestratorFailureCode | null {
+  return parseFailureReason(reason);
+}
+
+function parseFailureReason(reason: string | null): OrchestratorFailureCode | null {
+  if (reason !== null && !isOrchestratorFailureCode(reason)) {
+    throw new Error(`invalid failure_reason: ${reason}`);
+  }
+  return reason;
 }
 
 function isActiveTaskConflict(error: unknown): boolean {

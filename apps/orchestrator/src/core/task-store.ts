@@ -1,7 +1,17 @@
-import type { Check, Event, EventDelivery, ExternalRef, Step, Task, TaskStatus } from './types';
+import type {
+  Check,
+  ConductorState,
+  Event,
+  EventDelivery,
+  ExternalRef,
+  Step,
+  Task,
+  TaskStatus,
+} from './types';
+import type { OrchestratorFailureCode } from './errors';
 
 export type CreateTaskInput = Omit<Task, 'created_at' | 'updated_at' | 'failure_reason'> & {
-  failure_reason?: string | null;
+  failure_reason?: OrchestratorFailureCode | null;
   external_ref: ExternalRef | null;
 };
 
@@ -48,6 +58,15 @@ export interface TaskStore {
   listSteps(taskId: string): Promise<Step[]>;
   recordCheck(input: CreateCheckInput): Promise<Check>;
   enqueueEvent(input: CreateEventInput): Promise<Event>;
+  getEvent(id: string): Promise<Event | null>;
+  markUserFeedbackApplied(eventId: string, appliedAt: Date): Promise<void>;
+  upsertConductorState(
+    taskId: string,
+    summary: string,
+    summaryPath: string,
+    lastStepId?: string | null,
+  ): Promise<void>;
+  getConductorState(taskId: string): Promise<ConductorState | null>;
   cancelTask(taskId: string, eventId: string, payload?: Record<string, unknown>): Promise<void>;
   enqueueEventDelivery(input: CreateEventDeliveryInput): Promise<EventDelivery>;
   markDeliveryDelivered(id: string): Promise<void>;

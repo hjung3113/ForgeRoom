@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TaskStore } from '../core/task-store';
+import type { OrchestratorFailureCode } from '../core/errors';
 import { createTaskStoreDatabase, migrateTaskStoreDatabase, type TaskStoreDatabase } from './client';
 import { SqliteTaskStore } from './sqlite-task-store';
 
@@ -15,6 +16,7 @@ describe('SqliteTaskStore', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     database.close();
   });
 
@@ -442,6 +444,140 @@ describe('SqliteTaskStore', () => {
     ]);
   });
 
+  it('upserts conductor state and refreshes the last updated timestamp', async () => {
+    await store.createTask(taskInput('task-conductor-state', 'project-a', 'queued'));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-22T13:20:00.000Z'));
+
+    await store.upsertConductorState(
+      'task-conductor-state',
+      'Initial summary',
+      '/tmp/forgeroom/context/summary.md',
+      null,
+    );
+    const inserted = await store.getConductorState('task-conductor-state');
+
+    expect(inserted).toMatchObject({
+      task_id: 'task-conductor-state',
+      summary: 'Initial summary',
+      summary_path: '/tmp/forgeroom/context/summary.md',
+      last_step_id: null,
+    });
+    expect(inserted?.last_updated).toEqual(new Date('2026-05-22T13:20:00.000Z'));
+
+    vi.setSystemTime(new Date('2026-05-22T13:21:00.000Z'));
+    await store.upsertConductorState(
+      'task-conductor-state',
+      'Updated summary',
+      '/tmp/forgeroom/context/summary-v2.md',
+      'step-conductor',
+    );
+
+    await expect(store.getConductorState('task-conductor-state')).resolves.toMatchObject({
+      task_id: 'task-conductor-state',
+      summary: 'Updated summary',
+      summary_path: '/tmp/forgeroom/context/summary-v2.md',
+      last_step_id: 'step-conductor',
+      last_updated: new Date('2026-05-22T13:21:00.000Z'),
+    });
+
+    vi.setSystemTime(new Date('2026-05-22T13:22:00.000Z'));
+    await store.upsertConductorState(
+      'task-conductor-state',
+      'Summary-only refresh',
+      '/tmp/forgeroom/context/summary-v3.md',
+    );
+
+    await expect(store.getConductorState('task-conductor-state')).resolves.toMatchObject({
+      task_id: 'task-conductor-state',
+      summary: 'Summary-only refresh',
+      summary_path: '/tmp/forgeroom/context/summary-v3.md',
+      last_step_id: 'step-conductor',
+      last_updated: new Date('2026-05-22T13:22:00.000Z'),
+    });
+  });
+
+  it('marks user feedback events as applied without losing payload fields', async () => {
+    await store.createTask(taskInput('task-user-feedback', 'project-a', 'queued'));
+    await store.enqueueEvent({
+      id: 'event-user-feedback',
+      task_id: 'task-user-feedback',
+      type: 'user_feedback',
+      payload: {
+        message: 'Please keep the local-only MVP boundary.',
+        author: 'hyojung',
+        channel_id: 'discord-channel-1',
+      },
+      created_at: new Date('2026-05-22T13:30:00.000Z'),
+    });
+
+    await store.markUserFeedbackApplied(
+      'event-user-feedback',
+      new Date('2026-05-22T13:45:00.000Z'),
+    );
+
+    await expect(store.getEvent('event-user-feedback')).resolves.toMatchObject({
+      id: 'event-user-feedback',
+      type: 'user_feedback',
+      payload: {
+        message: 'Please keep the local-only MVP boundary.',
+        author: 'hyojung',
+        channel_id: 'discord-channel-1',
+        applied_at: '2026-05-22T13:45:00.000Z',
+      },
+    });
+  });
+
+  it('persists canonical failure reasons and external status identifiers through public reads', async () => {
+    await store.createTask({
+      ...taskInput('task-status-persistence', 'project-a', 'failed'),
+      failure_reason: 'check_failed_after_fix',
+      external_ref: {
+        provider: 'github',
+        id: '42',
+        url: 'https://github.example.test/owner/repo/issues/42',
+        status_comment_id: 'comment-42',
+        status_message_id: 'message-42',
+      },
+    });
+    await store.createStep({
+      ...stepInput('step-status-persistence', 'task-status-persistence'),
+      status: 'failed',
+      failure_reason: 'check_failed_after_fix',
+    });
+
+    await expect(store.getTask('task-status-persistence')).resolves.toMatchObject({
+      id: 'task-status-persistence',
+      status: 'failed',
+      failure_reason: 'check_failed_after_fix',
+      external_ref: {
+        provider: 'github',
+        id: '42',
+        url: 'https://github.example.test/owner/repo/issues/42',
+        status_comment_id: 'comment-42',
+        status_message_id: 'message-42',
+      },
+    });
+    await expect(store.listSteps('task-status-persistence')).resolves.toMatchObject([
+      {
+        id: 'step-status-persistence',
+        status: 'failed',
+        failure_reason: 'check_failed_after_fix',
+      },
+    ]);
+    await expect(
+      store.createTask({
+        ...taskInput('task-invalid-failure', 'project-a', 'failed'),
+        failure_reason: 'not_canonical' as unknown as OrchestratorFailureCode,
+      }),
+    ).rejects.toThrow(/invalid failure_reason/i);
+    await expect(
+      store.updateStep('step-status-persistence', {
+        failure_reason: 'not_canonical' as unknown as OrchestratorFailureCode,
+      }),
+    ).rejects.toThrow(/invalid failure_reason/i);
+  });
+
   it('lists only due undelivered deliveries in a predictable order', async () => {
     await store.createTask(taskInput('task-due-deliveries', 'project-a', 'queued'));
     await store.enqueueEvent({
@@ -675,7 +811,7 @@ describe('SqliteTaskStore', () => {
 function taskInput(
   id: string,
   projectId: string,
-  status: 'queued' | 'running' | 'paused' | 'done' | 'canceled' = 'queued',
+  status: 'queued' | 'running' | 'paused' | 'done' | 'failed' | 'canceled' = 'queued',
 ) {
   return {
     id,

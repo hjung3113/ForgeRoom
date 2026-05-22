@@ -25,7 +25,7 @@ export interface Task {
   title: string;
   description: string;
   status: TaskStatus;
-  failure_reason: string | null;
+  failure_reason: OrchestratorFailureCode | null;
   source: TaskSource;
   external_ref: ExternalRef | null;
   issue_number: number | null;
@@ -45,7 +45,7 @@ export interface Step {
   iteration: number;
   agent_id: string;
   status: StepStatus;
-  failure_reason: string | null;
+  failure_reason: OrchestratorFailureCode | null;
   attempt: number;
   check_fix_attempt: number;
   check_status: CheckStatus;
@@ -76,6 +76,14 @@ export interface Event {
   type: string;
   payload: Record<string, unknown>;
   created_at: Date;
+}
+
+export interface ConductorState {
+  task_id: string;
+  summary: string;
+  last_step_id: string | null;
+  summary_path: string;
+  last_updated: Date;
 }
 
 export interface EventDelivery {
@@ -130,3 +138,4 @@ export interface ReporterSink {
 export function isTaskStatus(value: string): value is TaskStatus {
   return TASK_STATUSES.includes(value as TaskStatus);
 }
+import type { OrchestratorFailureCode } from './errors';

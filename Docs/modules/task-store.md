@@ -54,13 +54,21 @@ interface TaskStore {
   recordCheck(input: CreateCheckInput): Promise<Check>
 
   enqueueEvent(input: CreateEventInput): Promise<Event>
+  getEvent(id: EventId): Promise<Event | null>
+  markUserFeedbackApplied(eventId: EventId, appliedAt: Date): Promise<void>
   enqueueEventDelivery(input: CreateEventDeliveryInput): Promise<EventDelivery>
   markDeliveryDelivered(id: EventDeliveryId): Promise<void>
   markDeliveryFailed(id: EventDeliveryId, patch: MarkDeliveryFailedPatch): Promise<void>
   listDueUndeliveredDeliveries(now: Date): Promise<EventDelivery[]>
   cancelTask(taskId: TaskId, eventId: EventId, payload?: Record<string, unknown>): Promise<void>
 
-  upsertConductorState(taskId: TaskId, summary: string, summaryPath: string): Promise<void>
+  upsertConductorState(
+    taskId: TaskId,
+    summary: string,
+    summaryPath: string,
+    lastStepId?: StepId | null
+  ): Promise<void>
+  getConductorState(taskId: TaskId): Promise<ConductorState | null>
 }
 ```
 
