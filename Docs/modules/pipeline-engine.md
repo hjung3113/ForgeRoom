@@ -75,7 +75,7 @@ for each parsed_step in workflow.steps:
 
 ## Output selector 해석
 
-AgentRunner는 output 파일 존재 여부, 크기, 기본 거부 응답 같은 generic 파일 검증만 수행한다. `${<step_id>.output.slices}`처럼 workflow DSL 의미가 필요한 output selector는 PipelineEngine이 해석한다.
+AgentRunner는 output 파일 존재 여부, 크기, 기본 거부 응답 같은 generic 파일 검증만 수행한다. `${<step_id>.output.slices}`처럼 workflow DSL 의미가 필요한 output selector는 PipelineEngine이 해석한다. Selector 검증 실패도 같은 output-producing attempt budget을 사용하며, 최종 실패 시 `failure_reason=output_contract_failed`로 기록한다.
 
 MVP에서 `${<step_id>.output.slices}` 해석 규칙:
 
@@ -83,7 +83,7 @@ MVP에서 `${<step_id>.output.slices}` 해석 규칙:
 - nested bullet은 무시
 - slice가 0개면 selector 검증 실패
 - 검증 실패 시 해당 plan/refine step을 같은 session에 유효한 `## Slices` 섹션으로 다시 작성하라고 resume 요청
-- 이 재시도는 output 파일 미작성과 같은 resume budget(최대 2회)을 사용
+- 이 재시도는 AgentRunner의 output-producing attempt budget(`MAX_AGENT_ATTEMPTS`, 기본 3)을 사용
 
 MVP에서 `${<step_id>.passed}` 해석 규칙:
 
@@ -92,7 +92,7 @@ MVP에서 `${<step_id>.passed}` 해석 규칙:
 - output의 첫 non-empty line이 정확히 `Review Result: fail`이면 `false`
 - 헤더가 없거나 다른 값이면 selector 검증 실패
 - 검증 실패 시 해당 review step을 같은 session에 올바른 `Review Result` 헤더로 다시 작성하라고 resume 요청
-- 이 재시도는 output 파일 미작성과 같은 resume budget(최대 2회)을 사용
+- 이 재시도는 AgentRunner의 output-producing attempt budget(`MAX_AGENT_ATTEMPTS`, 기본 3)을 사용
 
 MVP에서 `task.final_slices` 갱신 규칙:
 
@@ -108,7 +108,7 @@ MVP에서 `task.final_slices` 갱신 규칙:
 - `write_plan`, `review`, 문서 보강용 `refine` step은 checks를 실행하지 않는다.
 - `review_loop.refine`이 `kind: execute`이면 각 refine iteration 뒤 checks를 실행하고, 통과한 뒤 다음 review로 넘어간다.
 - `slice_impl`과 `slice_refine`은 모두 `kind: execute`이므로 review 전에 checks를 통과해야 한다.
-- checks 자동 수정이 성공하면 같은 step row의 attempt/check 기록을 갱신하고, `diff_path`는 자동 수정 결과를 포함한 최신 diff로 저장한다.
+- checks 자동 수정은 workflow DSL의 새 step row가 아니다. 성공하면 같은 execute step row의 `check_fix_attempt`와 `check_status`를 갱신하고, `diff_path`는 자동 수정 결과를 포함한 최신 diff로 저장한다. Check fix는 AgentRunner output-producing attempt budget을 소비하지 않는다.
 
 ## Review input 전달
 
@@ -154,13 +154,13 @@ MVP에서 `task.final_slices` 갱신 규칙:
 
 | 케이스 | 처리 |
 |---|---|
-| Agent 실패 | step.attempt++, 1회 재시도. 또 실패 → failed |
-| output 파일 미작성 | resume 재시도(최대 2회) |
-| `${<step_id>.output.slices}` 파싱 실패 | resume 재시도(최대 2회). 또 실패 → failed |
-| `${<step_id>.passed}` 파싱 실패 | resume 재시도(최대 2회). 또 실패 → failed |
+| Agent 실패 | AgentRunner output-producing attempt budget 사용. 소진 시 failed |
+| output 파일 미작성 | AgentRunner output-producing attempt budget 사용. 소진 시 failed |
+| `${<step_id>.output.slices}` 파싱 실패 | AgentRunner output-producing attempt budget 사용. 소진 시 failed |
+| `${<step_id>.passed}` 파싱 실패 | AgentRunner output-producing attempt budget 사용. 소진 시 failed |
 | Conductor scope 위반 | git revert, 텍스트만 사용 |
-| Check 실패 | 1회 자동 수정 후 재실행 |
-| review_loop max_iterations 도달 | failed |
+| Check 실패 | 별도 check fix budget 1회. 실패 로그로 agent 수정 요청 후 모든 check 재실행. 또 실패 → `failure_reason=check_failed_after_fix` |
+| review_loop max_iterations 도달 | step.status=failed, task.status=failed, `failure_reason=review_loop_max_iterations` |
 | 변수 보간 누락 | fail-fast |
 
 상세는 [policies/error-retry.md](../policies/error-retry.md).

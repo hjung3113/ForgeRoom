@@ -50,6 +50,11 @@ claude_review:
 ```yaml
 <workflow_id>:
   description: <str>
+  effects:
+    worktree: read_only | modifies
+    external:
+      report: none | status | final
+      pr: none | draft | ready
   steps:
     - type: run
       id: <str>
@@ -82,6 +87,22 @@ claude_review:
         prompt_template: <file>
         input_refs: {...}
 ```
+
+`effects`는 workflow의 선언적 부작용 metadata다. WorkflowRegistry가 load 시 검증하며, PipelineEngine은 pending rebuild 상태에서 `effects.worktree`를 사용해 실행 가능 여부를 판단한다. `read_only` workflow만 warning artifact를 남기고 stale context에서 진행할 수 있고, `modifies` workflow는 maintainer approval 없이는 중단한다. `effects.external.report`는 Reporter status surface 반영 수준이고, `effects.external.pr`은 PR 생성 수준이다. `pr`은 `report`를 대체하지 않는다.
+
+`effects.external.report` 값:
+
+- `none`: ReporterSink 외부 status surface 갱신 없음
+- `status`: task status surface를 진행 중 계속 갱신
+- `final`: task 종료 시 최종 summary만 반영
+
+`report: none`은 task status surface를 만들지 않는다는 뜻이다. Slash command ack, 권한 없는 approval 거부, dirty baseline block 같은 즉시 command response까지 금지하지는 않는다.
+
+`effects.external.pr` 값:
+
+- `none`: PR 생성 없음
+- `draft`: draft PR 생성
+- `ready`: ready PR 생성
 
 `configs/workflows.yaml`도 최상위 key를 workflow id로 사용하는 registry다. 최상위 `workflows:` wrapper는 두지 않는다.
 
@@ -146,7 +167,7 @@ codex_execute:
 ```
 
 - Intent에 `harness`가 없으면 IntentRegistry validation 실패
-- `harness`는 ForgeRoom prompt/context 구성 개념이고, provider에 전달하는 `runtime_harness`와 구분
+- `harness`는 ForgeRoom Step Harness registry key다. MVP에는 provider-native `runtime_harness` 필드를 두지 않는다.
 
 ## CheckRunner 트리거
 
@@ -182,7 +203,7 @@ codex_execute:
 - plan review가 pass여도 `refine_plan.md` step은 실행한다. 이때 review 결과가 pass였다는 사실을 입력으로 전달하고, refine output의 `## Slices`가 최종 실행 대상이 된다.
 - MVP의 `implementation_plan.md`와 `refine_plan.md` prompt template은 출력 마지막에 `## Slices` 섹션을 반드시 생성해야 한다.
 - `## Slices` 아래의 top-level `- ` bullet만 slice로 인정하며, nested bullet은 무시한다.
-- slice가 0개면 PipelineEngine의 output selector 해석 단계에서 검증 실패로 처리하고, 해당 plan/refine step을 같은 session에 유효한 `## Slices` 섹션으로 다시 작성하라고 재요청한다.
+- slice가 0개면 PipelineEngine의 output selector 해석 단계에서 검증 실패로 처리하고, 해당 plan/refine step을 같은 session에 유효한 `## Slices` 섹션으로 다시 작성하라고 재요청한다. 이 재요청은 AgentRunner의 output-producing attempt budget(`MAX_AGENT_ATTEMPTS`, 기본 3)을 사용한다.
 - `as`는 현재 slice 문자열을 바인딩한다. MVP에서는 관례적으로 `as: slice`만 사용한다.
 - `steps`는 항목당 1회 순차 실행
 - 내부 step의 `id`는 외부에서 `${slices.<항목index>.<step_id>.output}` 같은 식 접근 X (MVP 미지원). 필요하면 가장 마지막 항목의 결과만 활용
@@ -232,7 +253,7 @@ Review Result: fail
 - `Review Result: pass` → `${<review_step>.passed}`는 `true`
 - `Review Result: fail` → `${<review_step>.passed}`는 `false`
 - 대소문자와 공백은 MVP에서 정확히 일치해야 한다.
-- 헤더가 없거나 다른 값이면 review output contract 실패로 간주하고, 같은 session에 올바른 헤더를 포함해 다시 작성하라고 resume 요청한다.
+- 헤더가 없거나 다른 값이면 review output contract 실패로 간주하고, 같은 session에 올바른 헤더를 포함해 다시 작성하라고 resume 요청한다. 이 재요청은 AgentRunner의 output-producing attempt budget을 사용한다.
 - review 본문은 헤더 아래에 자유롭게 작성하지만, `review_loop` 종료 조건은 이 헤더만 신뢰한다.
 - MVP에서 refine step은 `input_refs.review`로 review output 전체 파일을 받는다. findings/body를 구조화 파싱하지 않는다.
 

@@ -16,13 +16,13 @@ last_reviewed: 2026-05-21
 
 Conductor는 코드 작성 X, 커밋 X, PR 생성 X.
 
-Conductor는 task-local RAG + prompt compiler에 가깝다. 외부 지식베이스를 기본 검색하는 일반 RAG가 아니라, 현재 task의 summary, workflow 정의, step output, diff, 사용자 feedback을 모아 다음 agent가 실행할 프롬프트를 더 정확하게 만든다.
+Conductor는 task-local context compiler에 가깝다. 외부 지식베이스를 기본 검색하는 일반 RAG가 아니라, 현재 task의 staged ForgeMap subset, summary, workflow 정의, step output, diff, 사용자 feedback을 모아 다음 agent가 실행할 프롬프트를 더 정확하게 만든다.
 
-다음 step 지시 관점에서 PipelineEngine은 구조적 지시를 소유한다: workflow order, step id, intent, prompt template, vars, input_refs. Conductor는 context 보강을 소유한다: task summary, 직전 결과, 통합된 user feedback을 렌더링된 base prompt에 반영한다.
+다음 step 지시 관점에서 PipelineEngine은 구조적 지시를 소유한다: workflow order, step id, intent, prompt template, vars, input_refs. ForgeMap은 Target Project의 canonical project context를 소유한다. Conductor는 context 보강을 소유한다: staged ForgeMap subset, task summary, 직전 결과, 통합된 user feedback을 렌더링된 base prompt에 반영한다.
 
 Conductor는 workflow 순서, step 목적, intent, agent, harness, prompt template을 바꾸지 않는다.
 
-Forge Phase 2 이후에는 ContextProvider 계층을 추가해 Target Profile, project docs, context maps, ADR, issue/PR history, 공식 문서 같은 외부 지식을 검색·요약하고 Conductor 입력에 연결할 수 있다. MVP에서는 외부 RAG를 구현하지 않고 task-local context만 사용한다.
+Forge Phase 2 이후에는 ContextProvider 계층을 추가해 issue/PR history, 공식 문서, 사내 지식 저장소 같은 외부 지식을 검색·요약하고 Conductor 입력에 연결할 수 있다. MVP에서는 외부 RAG를 구현하지 않고 ForgeMap에서 선택된 task-local context만 사용한다.
 
 ## 동작 모델 (MVP: 옵션 B — Headless + 롤링 요약)
 
@@ -37,7 +37,7 @@ output: 갱신된 summary (마크다운, ≤4000 토큰)
 side effect: SQLite + summary.md 갱신
 
 [refine]
-input:  summary + feedback.md + 워크플로우 정의 + 직전 step output + 현재 step base_prompt
+input:  selected-forgemap.md + target-profile.md + summary + feedback.md + 워크플로우 정의 + 직전 step output + 현재 step base_prompt
 output: 보강된 프롬프트 텍스트
 side effect: 없음 (prompts/ 디렉토리에 PipelineEngine이 저장)
 
@@ -87,7 +87,7 @@ Conductor 호출 전 `git status` snapshot, 호출 후 비교.
     3. Conductor 응답 텍스트는 그대로 사용
 ```
 
-OpenClaw per-call permission profile이 지원되면 사전 차단으로 전환 (Forge Phase 2 검토 항목, [OQ-001](../open-questions.md)).
+MVP AgentRunRequest에는 provider별 per-call permission profile을 넣지 않는다. Conductor scope 방어는 post-run diff 검사와 revert를 기본으로 한다. Provider capability 기반 사전 차단은 Forge Phase 2에서 재검토한다.
 
 ## Conductor 에이전트 설정
 
@@ -120,4 +120,6 @@ conductor:
 ## 관련 문서
 
 - [modules/conductor.md](../modules/conductor.md)
+- [modules/forgemap.md](../modules/forgemap.md)
 - [ADR-005](../decisions/2026-05-21-005-conductor-meta-agent.md)
+- [ADR-014](../decisions/2026-05-22-014-forgemap-mvp-project-context.md)

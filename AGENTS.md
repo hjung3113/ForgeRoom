@@ -16,6 +16,7 @@ Required reading for anyone (human or agent) working in this repo.
 - **Never commit secrets.** Keep `.env` and similar in `.gitignore`.
 - **Never push directly to `main`.** PRs only.
 - **Never bypass hooks** (`--no-verify`). If a hook fails, fix the root cause.
+- **Keep context bounded.** During doc work, avoid broad raw reads; follow [Docs/rules/doc-rules.md](Docs/rules/doc-rules.md#context-budget).
 
 ## Rule documents (must read)
 
@@ -37,7 +38,7 @@ Required reading for anyone (human or agent) working in this repo.
 
 - Runtime: Node.js + TypeScript
 - Storage: SQLite + Drizzle
-- Agent execution: delegated to OpenClaw
+- Agent execution: through AgentRuntimeProvider; MVP provider is OpenClawProvider
 - Prompt passing: file-based (under worktree `.forgeroom/`)
 - Conductor meta-agent (option B: headless + rolling summary)
 - Workflows are a library; chosen at invocation time

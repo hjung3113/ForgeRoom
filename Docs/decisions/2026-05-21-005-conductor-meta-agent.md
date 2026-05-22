@@ -37,6 +37,8 @@ Conductor는 코드 작성 X, 커밋 X, PR 생성 X. 메타정보(요약, 보강
 - OpenClaw per-call permission profile 우선 ([OQ-001](../open-questions.md))
 - Fallback: git status snapshot + 사후 diff 검사 + revert
 
+후속 결정: [ADR-012](2026-05-22-012-agent-runtime-provider-boundary.md)는 MVP AgentRunRequest에 provider별 per-call permission profile을 넣지 않기로 결정했다. 따라서 MVP Conductor scope 방어는 post-run diff 검사와 revert가 기본이며, provider capability 기반 사전 차단은 Forge Phase 2에서 재검토한다.
+
 ## 결과
 
 - `configs/agents.yaml`에 `conductor:` 블록

@@ -13,11 +13,12 @@ last_reviewed: 2026-05-21
 | **Orchestrator** | ForgeRoom의 중앙 실행 프로세스. 단일 Node.js 프로세스 |
 | **PipelineEngine** | Orchestrator 내부 모듈. 워크플로우 DSL 해석·실행 담당 |
 | **Conductor** | Orchestrator 내부 메타 에이전트. task별 컨텍스트 유지, step 프롬프트 보강, `/ask` 응답 |
-| **AgentRunner** | OpenClaw에 CLI agent 호출을 위임하는 모듈. ForgeRoom 내부에서 CLI process를 직접 실행하지 않음 |
+| **AgentRunner** | AgentRuntimeProvider에 CLI agent 호출을 위임하는 모듈. ForgeRoom 내부에서 CLI process 실행 세부사항에 직접 결합하지 않음 |
 | **AgentRuntimeProvider** | CLI agent runtime gateway를 ForgeRoom에 연결하는 adapter interface. MVP 구현체는 OpenClawProvider 하나 |
 | **Step Harness** | step 실행에 적용할 사전 정의된 작업 환경 preset. prompt contract, hooks, skills, plugins, AGENTS.md/CLAUDE.md 계열 지침, 출력 규칙을 묶어 agent에 로드한다 |
 | **Runtime Harness** | OpenClaw/Hermes 같은 runtime provider가 CLI agent를 실행할 때 사용하는 provider-level harness 설정 |
 | **OpenClaw** | 외부 의존성. CLI agent runtime gateway. claude-cli, openai-codex, google-gemini-cli 등의 runtime/model/session/auth 차이를 흡수한다. Discord command/event handling은 ForgeRoom의 Gateway 책임 |
+| **OpenCodeProvider** | OpenCode CLI 또는 OpenCode server를 AgentRuntimeProvider 뒤에 붙이는 Forge Phase 2 후보 구현체 |
 | **Workflow** | 이름붙은 step 시퀀스 정의. `configs/workflows.yaml`에 보관 |
 | **Intent** | step에 배치되는 재사용 가능한 실행 구성 preset. Intent Kind, agent, Step Harness를 묶어 `configs/intents.yaml`에 보관하며, prompt template은 소유하지 않는다 |
 | **Intent Kind** | Intent의 동작 분류. 예: `write_plan`, `execute`, `review`, `refine`, `answer`. MVP에서는 검증·리포팅·Conductor 입력용 metadata이며, `execute` kind는 CheckRunner 실행 트리거로도 쓰인다 |
@@ -35,12 +36,15 @@ last_reviewed: 2026-05-21
 | **Slice** | 하나의 Task를 실행 가능한 작은 구현 단위로 나눈 것. MVP에서는 workflow의 `foreach: ${task.final_slices}` 에서 각 반복 항목 |
 | **Final Slice List** | 현재 task에서 실행 대상으로 최종 결정된 Slice 목록. `implementation_plan.md`의 `## Slices`로 초기화되고, MVP full workflow에서는 review 결과와 관계없이 항상 실행되는 `refine_plan.md`의 `## Slices`로 최종 갱신된다 |
 | **Target Project** | ForgeRoom이 작업을 수행하는 대상 소스 프로젝트 또는 repository |
-| **Target Profile** | ForgeRoom이 Target Project를 이해하고 다루기 위해 관리하는 canonical 문서. target repo에 기본 저장하지 않고, task 실행 시 Runtime Context로 staging한다 |
-| **Runtime Context** | 특정 task 실행을 위해 worktree 내부 `.forgeroom/context/`에 생성되는 파일 묶음. `summary.md`, `feedback.md`, `target-profile.md` 같은 task-local snapshot을 포함 |
+| **ForgeMap** | ForgeRoom이 Target Project를 이해하기 위해 관리하는 canonical project context. 한 장 요약이 아니라 목적별 markdown 문서와 구조화 index 묶음 |
+| **Target Profile** | ForgeMap에서 선택된 상위 project profile의 task-local snapshot. target repo에 기본 저장하지 않고 Runtime Context로 staging한다 |
+| **Runtime Context** | 특정 task 실행을 위해 worktree 내부 `.forgeroom/context/`에 생성되는 파일 묶음. `selected-forgemap.md`, `target-profile.md`, `summary.md`, `feedback.md` 같은 task-local snapshot을 포함 |
 | **Worktree** | git worktree. task 격리용 작업 디렉토리 |
 | **Check** | 코드 품질 게이트 (test, lint, typecheck 등) |
-| **Reporter** | Discord/GitHub 알림 발송 모듈 |
-| **Gateway** | 외부 인터페이스 수신 모듈. DiscordGateway, GitHubGateway |
+| **TaskSource** | 외부 입력을 ForgeRoom `TaskRequest`로 정규화하는 경계. MVP 구현체는 Discord command와 GitHub Issue label |
+| **Reporter** | ReporterEvent 생성과 delivery 멱등성을 관리하는 모듈 |
+| **ReporterSink** | ReporterEvent를 특정 destination으로 전달하는 구현체. MVP 구현체는 Discord와 GitHub |
+| **Gateway** | 외부 인터페이스 수신 모듈. MVP에서는 TaskSource 역할을 수행하는 DiscordGateway, GitHubGateway |
 | **ApprovalGate** | 위험 명령·경로·작업 거부 모듈 |
 | **ADR** | Architecture Decision Record. 한 결정 = 한 ADR |
 | **Override** | 호출 시 워크플로우 step의 agent 매핑을 임의 변경하는 옵션 |

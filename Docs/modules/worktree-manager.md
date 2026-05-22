@@ -43,6 +43,7 @@ interface WorktreeHandle {
 <worktree>/.forgeroom/
 ├── context/
 │   ├── task.md          # task 메타
+│   ├── docs/            # selected source docs snapshot copies
 │   ├── summary.md       # 빈 파일 (Conductor가 채움)
 │   └── workflow.md      # 워크플로우 스냅샷
 ├── prompts/
@@ -50,6 +51,8 @@ interface WorktreeHandle {
 ├── diffs/
 └── logs/
 ```
+
+`.forgeroom/context/docs/` snapshot은 task worktree가 보존되는 동안 함께 보존한다. `cleanup(task, 'remove')` 시 worktree와 함께 삭제하며, 장기 archive/export는 Forge Phase 2로 둔다.
 
 ## 위험 명령 차단
 
