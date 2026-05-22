@@ -97,7 +97,7 @@ Provider capability 검증은 AgentRegistry 책임이 아니다. OpenClaw가 특
 ```typescript
 interface AgentRunner {
   run(req: AgentRunRequest): Promise<AgentRunResult>
-  resume(req: AgentResumeRequest): Promise<AgentRunResult>
+  resume(req: AgentRunnerResumeRequest): Promise<AgentRunResult>
 }
 
 interface AgentRunRequest {
@@ -122,6 +122,13 @@ interface AgentResumeRequest {
   timeoutMs?: number
 }
 
+interface AgentRunnerResumeRequest extends AgentResumeRequest {
+  agentId: string
+  promptPath: string                    // 최초 prompt path, retry prompt naming 기준
+  sessionId: string | null              // null이면 addendum prompt로 신규 run fallback
+  attempt: number                       // 이번 continuation이 소비하는 output-producing attempt 번호
+}
+
 interface AgentRunResult {
   exitCode: number
   failureKind?: 'runtime_unavailable' | 'auth_failed' | 'timeout' | 'agent_error' | 'output_contract_failed'
@@ -137,6 +144,8 @@ interface AgentRunResult {
 `failureKind`는 ForgeRoom 공통 실패 분류다. Provider-specific raw code(예: gateway HTTP status, provider-local auth reason)는 `AgentRunResult` contract에 노출하지 않고 stdout/stderr/log에 남긴다. Reporter와 task 상태는 공통 `failureKind`만 사용한다.
 
 `output_contract_failed`는 agent가 valid step output을 만들지 못했다는 공통 분류다. AgentRunner는 파일 존재/크기/명백한 거부 응답 같은 generic contract만 검사한다. `## Slices`, `Review Result` 같은 workflow DSL selector 검증은 PipelineEngine이 수행하되, budget과 failure reason은 같은 output-producing attempt 흐름을 사용한다.
+
+PipelineEngine이 output selector 실패를 감지하면 `AgentRunner.resume`에 `AgentRunnerResumeRequest`를 전달해 같은 output-producing attempt budget을 이어 쓴다. AgentRunner는 selector 의미를 해석하지 않고, 전달받은 addendum prompt를 provider `resume` 또는 신규 `run` fallback으로 실행한다.
 
 `promptPath`, `outputPath`, `cwd`는 provider-specific 세부사항이 아니라 ForgeRoom의 파일 기반 실행 계약이다. AgentRunner는 이 경로들을 provider-neutral request로 전달하고, provider는 agent runtime이 해당 cwd에서 prompt 파일을 읽고 output 파일을 쓰도록 지시한다.
 
@@ -199,7 +208,7 @@ run 종료 후:
 ## 재시도 정책
 
 - AgentRunner는 valid step output을 만들기 위한 output-producing attempt budget 하나를 가진다. 기본값은 `MAX_AGENT_ATTEMPTS = 3`이다.
-- 이 budget에는 provider exit non-zero, timeout, output 파일 미작성/너무 작은 파일, output selector 실패(`## Slices`, `Review Result`)가 모두 포함된다.
+- 이 budget에는 retryable provider failure(`timeout`, `agent_error`), output 파일 미작성/너무 작은 파일, output selector 실패(`## Slices`, `Review Result`)가 모두 포함된다. Provider readiness failure(`runtime_unavailable`, `auth_failed`)는 같은 요청을 반복해도 output 생성 가능성이 없으므로 즉시 반환한다.
 - provider resume은 retry 결정을 하지 않는다. AgentRunner가 sessionId 유무와 mode에 따라 provider `resume` 또는 새 `run` fallback을 호출한다.
 - Budget 소진 시 step.status=failed로 기록하고 공통 `failureKind`를 남긴다.
 - CheckRunner 자동 수정은 별도 budget이다. AgentRunner retry는 valid step output 생성까지, CheckRunner retry는 생성된 코드 변경의 품질 게이트 통과까지를 책임진다.

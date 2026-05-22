@@ -19,6 +19,7 @@ This folder records implementation-level decisions settled during review so late
 | `2026-05-23-stage-4-worktree-bootstrap-boundary.md` | Stage 4 boundary between base worktree bootstrap and Stage 8 ForgeMap staging |
 | `2026-05-23-stage-4-approval-gate-worktree-seam.md` | Stage 4 ApprovalGate seam for worktree branch/path safety |
 | `2026-05-23-stage-5-openclaw-ipc-contract.md` | Stage 5 ForgeRoom-side OpenClaw IPC contract decision |
+| `2026-05-23-stage-5-agent-runner-retry-policy.md` | Stage 5 AgentRunner output-producing retry policy decision |
 
 ## Related Docs
 
