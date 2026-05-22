@@ -1,6 +1,7 @@
 import type { AgentRunner } from './agent-runner';
 import type { CheckRunnerRequest } from './check-runner';
 import { WorkflowError } from './errors';
+import { PipelineLifecycle } from './pipeline-lifecycle';
 import { pipelineBranchName, pipelineStepArtifactPaths, pipelineWorktreePath } from './pipeline-paths';
 import type { ProjectMeta } from './project-registry';
 import type { CreateTaskInput, TaskStore } from './task-store';
@@ -82,6 +83,7 @@ export class DefaultPipelineEngine {
   private readonly agentRunner: AgentRunner;
   private readonly checkRunner: CheckRunnerLike | null;
   private readonly artifactStore: PipelineArtifactStore;
+  private readonly lifecycle: PipelineLifecycle;
   private readonly createId: () => string;
   private readonly now: () => Date;
 
@@ -95,6 +97,7 @@ export class DefaultPipelineEngine {
     this.artifactStore = options.artifactStore;
     this.createId = options.createId ?? cryptoRandomId;
     this.now = options.now ?? (() => new Date());
+    this.lifecycle = new PipelineLifecycle({ taskStore: this.taskStore, createId: this.createId });
   }
 
   async runFull(projectId: string, input: TaskInput, opts: RunOpts = {}): Promise<string> {
@@ -112,29 +115,15 @@ export class DefaultPipelineEngine {
   }
 
   async cancel(taskId: string): Promise<void> {
-    const task = await this.taskStore.getTask(taskId);
-    if (task === null) return;
-
-    await this.taskStore.cancelTask(task.id, this.createId(), { reason: 'user_requested' });
-    await this.taskStore.releaseProjectLock(task.project_id, task.id);
+    await this.lifecycle.cancel(taskId);
   }
 
   async pause(taskId: string): Promise<void> {
-    const task = await this.taskStore.getTask(taskId);
-    if (task === null || task.status === 'canceled') return;
-
-    await this.taskStore.updateTaskStatus(task.id, 'paused');
+    await this.lifecycle.pause(taskId);
   }
 
   async resume(taskId: string): Promise<void> {
-    const task = await this.taskStore.getTask(taskId);
-    if (task === null) return;
-    if (task.status === 'canceled') {
-      throw new WorkflowError('output_contract_failed', `Canceled task cannot resume: ${task.id}`);
-    }
-
-    await this.taskStore.updateTaskStatus(task.id, 'running');
-    await this.taskStore.acquireProjectLock(task.project_id, task.id);
+    await this.lifecycle.resume(taskId);
   }
 
   private requireProject(projectId: string): ProjectMeta {
