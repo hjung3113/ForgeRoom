@@ -12,7 +12,7 @@ last_reviewed: 2026-05-21
 | OQ-001 | MVP OpenClawProvider에서 per-call permission profile을 사용할 수 있는가? | Conductor scope 사전 차단 가능 여부 | MVP 미사용, Forge Phase 2 provider capability로 재검토 | resolved by ADR-012 |
 | OQ-002 | foreach의 `list-expr` 평가가 마크다운 목록 추출(`- `)만으로 충분한가? | DSL 표현력 | MVP 가능, Forge Phase 2에서 JSON 출력 옵션 검토 | pending |
 | OQ-003 | Conductor `update` 동기 호출이 step 사이 latency 얼마나 늘리는가? | 사용성 | 측정 필요 | pending |
-| OQ-004 | OpenClaw IPC 인터페이스 (HTTP vs Unix socket vs Node SDK) | AgentRunner 구현 | 구현 단계 진입 시 확인 | pending |
+| OQ-004 | OpenClaw IPC 인터페이스 (HTTP vs Unix socket vs Node SDK) | AgentRunner 구현 | ForgeRoom core는 injected OpenClaw IPC client contract로 고정. `openclaw-provider.test.ts`와 `openclaw-provider.ts`가 endpoint/token/runtime health, run/resume request shape, and response mapping을 정의한다. 실제 OpenClaw transport 검증은 adapter/e2e 단계에서 별도 확인. | resolved by Stage 5 provider contract tests |
 | OQ-005 | PR 본문 생성에 Conductor의 summary를 그대로 사용해도 되는가? | 품질 vs 자동화 | Forge Phase 1 시도, Forge Phase 2에서 LLM judge 도입 가능 | pending |
 | OQ-006 | `agents.yaml`에서 모델 자동 선택(예: 토큰량 기준) 필요한가? | 비용 | Forge Phase 2 검토 | pending |
 | OQ-007 | step별 timeout 기본값? (agent run, check 별도) | 안정성 | 합리적 기본값 + 설정화 | pending |

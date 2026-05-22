@@ -97,7 +97,7 @@ Provider capability 검증은 AgentRegistry 책임이 아니다. OpenClaw가 특
 ```typescript
 interface AgentRunner {
   run(req: AgentRunRequest): Promise<AgentRunResult>
-  resume(sessionId: string, addendumPromptPath: string): Promise<AgentRunResult>
+  resume(req: AgentResumeRequest): Promise<AgentRunResult>
 }
 
 interface AgentRunRequest {
@@ -107,6 +107,17 @@ interface AgentRunRequest {
   stdoutPath: string                    // 절대경로 (worktree 내)
   stderrPath: string                    // 절대경로 (worktree 내)
   cwd: string                           // worktree
+  mode: 'headless' | 'pty'
+  timeoutMs?: number
+}
+
+interface AgentResumeRequest {
+  sessionId: string
+  addendumPromptPath: string
+  outputPath: string
+  stdoutPath: string
+  stderrPath: string
+  cwd: string
   mode: 'headless' | 'pty'
   timeoutMs?: number
 }
@@ -150,7 +161,7 @@ Output 검증, retry budget, resume prompt 문구, headless fallback 판단은 A
 ```typescript
 interface AgentRuntimeProvider {
   run(req: AgentRunRequest, agent: ResolvedAgent): Promise<AgentRunResult>
-  resume(sessionId: string, addendumPromptPath: string, agent: ResolvedAgent): Promise<AgentRunResult>
+  resume(req: AgentResumeRequest, agent: ResolvedAgent): Promise<AgentRunResult>
   health(): Promise<ProviderHealth>
 }
 
