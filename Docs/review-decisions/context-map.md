@@ -22,6 +22,8 @@ This folder records implementation-level decisions settled during review so late
 | `2026-05-23-stage-5-agent-runner-retry-policy.md` | Stage 5 AgentRunner output-producing retry policy decision |
 | `2026-05-23-stage-5-agent-timeout-policy.md` | Stage 5 AgentRunner timeout default policy decision |
 | `2026-05-23-stage-6-command-runner-utility-boundary.md` | Stage 6 command-runner utility IO boundary decision |
+| `2026-05-23-stage-6-check-fix-contract.md` | Stage 6 check-fix budget and artifact boundary decision |
+| `2026-05-23-stage-completion-file-size-policy.md` | Stage completion refactor policy for files over 300 lines |
 
 ## Related Docs
 

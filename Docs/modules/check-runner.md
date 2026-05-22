@@ -38,8 +38,8 @@ interface CheckResult {
 1. PipelineEngine은 Resolved Step의 `kind`가 `execute`인 step 직후에만 CheckRunner를 호출한다.
 2. `projects.yaml`의 `commands` 키를 정의된 순서대로 실행
 3. 하나라도 exit ≠ 0:
-   - 실패 로그(stdout+stderr 마지막 200줄)를 `.forgeroom/prompts/check_retry_<commandName>.md`에 작성
-   - `check_fix_attempt = 1`로 기록하고, 워크플로우에서 마지막 코드 작성 step의 agent에 resume 또는 신규 호출로 수정 요청
+   - 실패 로그(stdout+stderr 마지막 200줄)를 `.forgeroom/prompts/check_fix_<step_id>.md`에 작성
+   - `check_fix_attempt = 1`로 기록하고, 워크플로우에서 마지막 코드 작성 step의 agent에 `AgentRunner.resume`으로 수정 요청
    - 모든 check 재실행
 4. 재시도 후에도 실패 시 task.status=failed
 
@@ -50,6 +50,8 @@ CheckRunner는 ForgeRoom이 직접 실행한다. test/lint/typecheck는 agent ru
 CheckRunner 자동 수정은 AgentRunner의 output-producing attempt budget과 분리된 check fix budget이다. 자동 수정 요청은 AgentRunner를 호출하지만, 원래 execute step이 valid output을 만든 뒤 발생한 품질 게이트 실패를 보정하는 흐름이다. MVP의 check fix budget은 1회이며, 재실패 시 `failure_reason=check_failed_after_fix`로 task.status=failed를 기록한다. 최초 check 결과는 `checks.check_fix_attempt=0`, 자동 수정 후 재실행 결과는 `checks.check_fix_attempt=1`로 보존한다.
 
 자동 수정은 workflow DSL의 새 step row가 아니다. 원 execute step row 아래에 `check_fix_attempt`와 `check_status`로 기록하고, `diff_path`는 자동 수정 결과까지 포함한 최신 diff를 가리킨다. 자동 수정 agent 호출의 prompt/output/log는 별도 artifact로 남긴다.
+
+CheckRunner는 check-fix policy와 artifact path를 결정하지만, stdout/stderr tail 읽기와 check-fix prompt 쓰기 같은 파일 IO는 injected artifact interface 뒤에 둔다. `core`는 직접 `fs`를 호출하지 않는다.
 
 `check_status=passed`는 첫 check run에서 통과한 상태, `check_status=fixed`는 자동 수정 뒤 통과한 상태, `check_status=failed`는 최종 check 실패 상태다. `kind: execute`가 아닌 step은 `check_status=not_run`을 유지한다.
 
@@ -87,8 +89,8 @@ projects:
 
 ## 출력 경로
 
-- `<worktree>/.forgeroom/logs/check_<commandName>.stdout`
-- `<worktree>/.forgeroom/logs/check_<commandName>.stderr`
+- `<worktree>/.forgeroom/logs/check_<check_fix_attempt>_<commandName>.stdout`
+- `<worktree>/.forgeroom/logs/check_<check_fix_attempt>_<commandName>.stderr`
 
 ## 보안
 

@@ -1,71 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
-import { ApprovalGate } from './approval-gate';
-import { DefaultCheckRunner, type CheckRunnerCommandRunner } from './check-runner';
-import type { ProjectMeta } from './project-registry';
-import type { CreateCheckInput, TaskStore } from './task-store';
-import type { Check, Step, Task } from './types';
-
-class FakeCommandRunner implements CheckRunnerCommandRunner {
-  requests: Array<Parameters<CheckRunnerCommandRunner['run']>[0]> = [];
-  results: Array<{ exitCode: number; durationMs: number; timedOut?: boolean }> = [];
-
-  run(input: Parameters<CheckRunnerCommandRunner['run']>[0]) {
-    this.requests.push(input);
-    const result = this.results.shift();
-    if (!result) {
-      throw new Error('missing fake command result');
-    }
-
-    return Promise.resolve({
-      command: input.command,
-      exitCode: result.exitCode,
-      durationMs: result.durationMs,
-      stdoutPath: input.stdoutPath,
-      stderrPath: input.stderrPath,
-      timedOut: result.timedOut ?? false,
-    });
-  }
-}
-
-class FakeTaskStore implements Pick<TaskStore, 'recordCheck' | 'updateStep'> {
-  checks: Check[] = [];
-  stepPatches: Array<{ id: string; patch: Partial<Step> }> = [];
-
-  recordCheck(input: CreateCheckInput): Promise<Check> {
-    const check = { ...input, created_at: input.created_at ?? new Date() };
-    this.checks.push(check);
-    return Promise.resolve(check);
-  }
-
-  updateStep(id: string, patch: Partial<Step>): Promise<void> {
-    this.stepPatches.push({ id, patch });
-    return Promise.resolve();
-  }
-}
-
-function checkIds(): () => string {
-  let next = 0;
-  return () => {
-    next += 1;
-    return `check-${String(next)}`;
-  };
-}
+import {
+  agentResult,
+  checkRunnerHarness,
+  FakeArtifactStore,
+  numberedLines,
+  project,
+  step,
+  task,
+} from './test-support/check-runner-fixtures';
 
 describe('DefaultCheckRunner', () => {
   it('runs project commands in order, records attempt 0 checks, and marks the execute step passed', async () => {
-    const commandRunner = new FakeCommandRunner();
-    commandRunner.results = [
-      { exitCode: 0, durationMs: 10 },
-      { exitCode: 0, durationMs: 20 },
-    ];
-    const taskStore = new FakeTaskStore();
-    const runner = new DefaultCheckRunner({
-      commandRunner,
-      taskStore,
-      approvalGate: new ApprovalGate(),
+    const { commandRunner, taskStore, runner } = checkRunnerHarness({
+      commandResults: [
+        { exitCode: 0, durationMs: 10 },
+        { exitCode: 0, durationMs: 20 },
+      ],
       defaultTimeoutMs: 1_800_000,
-      createCheckId: checkIds(),
     });
 
     const result = await runner.run({ task: task(), step: step(), project: project() });
@@ -79,15 +31,15 @@ describe('DefaultCheckRunner', () => {
       {
         command: 'pnpm lint',
         cwd: '/tmp/forgeroom/worktrees/task-1',
-        stdoutPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_lint.stdout',
-        stderrPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_lint.stderr',
+        stdoutPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_0_lint.stdout',
+        stderrPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_0_lint.stderr',
         timeoutMs: 1_800_000,
       },
       {
         command: 'pnpm test:unit',
         cwd: '/tmp/forgeroom/worktrees/task-1',
-        stdoutPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_test.stdout',
-        stderrPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_test.stderr',
+        stdoutPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_0_test.stdout',
+        stderrPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_0_test.stderr',
         timeoutMs: 1_800_000,
       },
     ]);
@@ -114,19 +66,17 @@ describe('DefaultCheckRunner', () => {
     ]);
   });
 
-  it('records all command results after a failure and marks the execute step failed without invoking fix flow yet', async () => {
-    const commandRunner = new FakeCommandRunner();
-    commandRunner.results = [
-      { exitCode: 0, durationMs: 10 },
-      { exitCode: 127, durationMs: 5 },
-      { exitCode: 2, durationMs: 8 },
-    ];
-    const taskStore = new FakeTaskStore();
-    const runner = new DefaultCheckRunner({
-      commandRunner,
-      taskStore,
-      approvalGate: new ApprovalGate(),
-      createCheckId: checkIds(),
+  it('records all initial command results before invoking the check-fix flow', async () => {
+    const { taskStore, runner } = checkRunnerHarness({
+      commandResults: [
+        { exitCode: 0, durationMs: 10 },
+        { exitCode: 127, durationMs: 5 },
+        { exitCode: 2, durationMs: 8 },
+        { exitCode: 0, durationMs: 11 },
+        { exitCode: 0, durationMs: 12 },
+        { exitCode: 0, durationMs: 13 },
+      ],
+      agentResults: [agentResult()],
     });
 
     const result = await runner.run({
@@ -139,23 +89,129 @@ describe('DefaultCheckRunner', () => {
       }),
     });
 
-    expect(result.allPassed).toBe(false);
-    expect(result.results.map((check) => check.exitCode)).toEqual([0, 127, 2]);
-    expect(taskStore.checks.map((check) => check.id)).toEqual(['check-1', 'check-2', 'check-3']);
+    expect(result.allPassed).toBe(true);
+    expect(result.results.map((check) => check.exitCode)).toEqual([0, 0, 0]);
+    expect(taskStore.checks.map((check) => check.id)).toEqual([
+      'check-1',
+      'check-2',
+      'check-3',
+      'check-4',
+      'check-5',
+      'check-6',
+    ]);
+    expect(taskStore.checks.map((check) => check.check_fix_attempt)).toEqual([0, 0, 0, 1, 1, 1]);
     expect(taskStore.stepPatches).toEqual([
-      { id: 'step-row-1', patch: { check_status: 'failed', check_fix_attempt: 0 } },
+      { id: 'step-row-1', patch: { check_status: 'fixed', check_fix_attempt: 1 } },
+    ]);
+  });
+
+  it('runs one check-fix resume after initial command failure, records attempt 1 checks, and marks the original step fixed', async () => {
+    const artifactStore = new FakeArtifactStore();
+    artifactStore.files.set(
+      '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_0_lint.stdout',
+      numberedLines('stdout', 205),
+    );
+    artifactStore.files.set(
+      '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_0_lint.stderr',
+      numberedLines('stderr', 205),
+    );
+    const { commandRunner, taskStore, agentRunner, runner } = checkRunnerHarness({
+      commandResults: [
+        { exitCode: 2, durationMs: 10 },
+        { exitCode: 0, durationMs: 20 },
+        { exitCode: 0, durationMs: 30 },
+        { exitCode: 0, durationMs: 40 },
+      ],
+      agentResults: [agentResult()],
+      artifactStore,
+      defaultTimeoutMs: 1_800_000,
+    });
+
+    const result = await runner.run({ task: task(), step: step(), project: project() });
+
+    expect(result.allPassed).toBe(true);
+    expect(commandRunner.requests.map((request) => request.command)).toEqual([
+      'pnpm lint',
+      'pnpm test:unit',
+      'pnpm lint',
+      'pnpm test:unit',
+    ]);
+    expect(taskStore.checks.map((check) => check.check_fix_attempt)).toEqual([0, 0, 1, 1]);
+    expect(taskStore.checks.map((check) => check.stdout_path)).toEqual([
+      '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_0_lint.stdout',
+      '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_0_test.stdout',
+      '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_1_lint.stdout',
+      '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_1_test.stdout',
+    ]);
+    expect(taskStore.stepPatches).toEqual([
+      { id: 'step-row-1', patch: { check_status: 'fixed', check_fix_attempt: 1 } },
+    ]);
+    expect(taskStore.taskStatusPatches).toEqual([]);
+    expect(artifactStore.writes).toHaveLength(1);
+    expect(artifactStore.writes[0]?.path).toBe(
+      '/tmp/forgeroom/worktrees/task-1/.forgeroom/prompts/check_fix_execute.md',
+    );
+    expect(artifactStore.writes[0]?.content).toContain('stdout 006');
+    expect(artifactStore.writes[0]?.content).not.toContain('stdout 005');
+    expect(artifactStore.writes[0]?.content).toContain('stderr 006');
+    expect(artifactStore.writes[0]?.content).not.toContain('stderr 005');
+    expect(agentRunner.resumeRequests).toEqual([
+      {
+        agentId: 'implementer',
+        promptPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/prompts/01_execute.md',
+        addendumPromptPath:
+          '/tmp/forgeroom/worktrees/task-1/.forgeroom/prompts/check_fix_execute.md',
+        outputPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/outputs/check_fix_execute.md',
+        stdoutPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_fix_execute.stdout',
+        stderrPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_fix_execute.stderr',
+        cwd: '/tmp/forgeroom/worktrees/task-1',
+        mode: 'headless',
+        sessionId: null,
+        attempt: 1,
+        timeoutMs: 1_800_000,
+      },
+    ]);
+  });
+
+  it('fails the original step and task when checks still fail after one check-fix resume', async () => {
+    const { taskStore, agentRunner, runner } = checkRunnerHarness({
+      commandResults: [
+        { exitCode: 2, durationMs: 10 },
+        { exitCode: 0, durationMs: 20 },
+        { exitCode: 1, durationMs: 30 },
+        { exitCode: 0, durationMs: 40 },
+      ],
+      agentResults: [agentResult()],
+      defaultTimeoutMs: 1_800_000,
+    });
+
+    const result = await runner.run({ task: task(), step: step(), project: project() });
+
+    expect(result.allPassed).toBe(false);
+    expect(agentRunner.resumeRequests).toHaveLength(1);
+    expect(taskStore.checks.map((check) => check.check_fix_attempt)).toEqual([0, 0, 1, 1]);
+    expect(taskStore.stepPatches).toEqual([
+      {
+        id: 'step-row-1',
+        patch: {
+          check_status: 'failed',
+          check_fix_attempt: 1,
+          failure_reason: 'check_failed_after_fix',
+        },
+      },
+    ]);
+    expect(taskStore.taskStatusPatches).toEqual([
+      { id: 'task-1', status: 'failed', failureReason: 'check_failed_after_fix' },
     ]);
   });
 
   it('rejects unsafe project commands before command execution', async () => {
-    const commandRunner = new FakeCommandRunner();
-    commandRunner.results = [{ exitCode: 0, durationMs: 10 }];
-    const taskStore = new FakeTaskStore();
-    const runner = new DefaultCheckRunner({
-      commandRunner,
-      taskStore,
-      approvalGate: new ApprovalGate(),
-      createCheckId: checkIds(),
+    const { commandRunner, taskStore, runner } = checkRunnerHarness({
+      commandResults: [
+        { exitCode: 0, durationMs: 10 },
+        { exitCode: 0, durationMs: 20 },
+      ],
+      agentResults: [agentResult()],
     });
     const unsafeProject = project({ lint: 'rm -rf /', test: 'pnpm test:unit' });
 
@@ -165,8 +221,15 @@ describe('DefaultCheckRunner', () => {
       {
         command: 'pnpm test:unit',
         cwd: '/tmp/forgeroom/worktrees/task-1',
-        stdoutPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_test.stdout',
-        stderrPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_test.stderr',
+        stdoutPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_0_test.stdout',
+        stderrPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_0_test.stderr',
+        timeoutMs: 1_800_000,
+      },
+      {
+        command: 'pnpm test:unit',
+        cwd: '/tmp/forgeroom/worktrees/task-1',
+        stdoutPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_1_test.stdout',
+        stderrPath: '/tmp/forgeroom/worktrees/task-1/.forgeroom/logs/check_1_test.stderr',
         timeoutMs: 1_800_000,
       },
     ]);
@@ -184,66 +247,33 @@ describe('DefaultCheckRunner', () => {
         command: 'pnpm test:unit',
         exit_code: 0,
       },
+      {
+        id: 'check-3',
+        command_name: 'lint',
+        command: 'rm -rf /',
+        exit_code: 1,
+        check_fix_attempt: 1,
+      },
+      {
+        id: 'check-4',
+        command_name: 'test',
+        command: 'pnpm test:unit',
+        exit_code: 0,
+        check_fix_attempt: 1,
+      },
     ]);
     expect(taskStore.stepPatches).toEqual([
-      { id: 'step-row-1', patch: { check_status: 'failed', check_fix_attempt: 0 } },
+      {
+        id: 'step-row-1',
+        patch: {
+          check_status: 'failed',
+          check_fix_attempt: 1,
+          failure_reason: 'check_failed_after_fix',
+        },
+      },
+    ]);
+    expect(taskStore.taskStatusPatches).toEqual([
+      { id: 'task-1', status: 'failed', failureReason: 'check_failed_after_fix' },
     ]);
   });
 });
-
-function task(): Task {
-  return {
-    id: 'task-1',
-    project_id: 'project-a',
-    workflow_id: 'goal-feature',
-    title: 'Task 1',
-    description: 'Task 1 description',
-    status: 'running',
-    failure_reason: null,
-    source: 'discord-command',
-    external_ref: null,
-    issue_number: null,
-    branch_name: 'forgeroom/task-1',
-    worktree_path: '/tmp/forgeroom/worktrees/task-1',
-    pr_number: null,
-    vars: {},
-    created_at: new Date('2026-05-23T00:00:00.000Z'),
-    updated_at: new Date('2026-05-23T00:00:00.000Z'),
-  };
-}
-
-function step(): Step {
-  return {
-    id: 'step-row-1',
-    task_id: 'task-1',
-    step_id: 'execute',
-    parent_step_id: null,
-    iteration: 0,
-    agent_id: 'implementer',
-    status: 'done',
-    failure_reason: null,
-    attempt: 0,
-    check_fix_attempt: 0,
-    check_status: 'not_run',
-    prompt_path: '/tmp/forgeroom/worktrees/task-1/.forgeroom/prompts/01_execute.md',
-    output_path: '/tmp/forgeroom/worktrees/task-1/.forgeroom/outputs/01_execute.md',
-    diff_path: null,
-    exit_code: 0,
-    started_at: new Date('2026-05-23T00:00:00.000Z'),
-    finished_at: new Date('2026-05-23T00:01:00.000Z'),
-  };
-}
-
-function project(commands: Record<string, string> = { lint: 'pnpm lint', test: 'pnpm test:unit' }): ProjectMeta {
-  return {
-    id: 'project-a',
-    path: '/repo/project-a',
-    default_branch: 'main',
-    package_manager: 'pnpm',
-    default_workflow: 'goal-feature',
-    allowed_workflows: ['goal-feature'],
-    template_dir: null,
-    commands,
-    maintainers: { discord_user_ids: [], github_logins: [] },
-  };
-}
