@@ -14,6 +14,7 @@ Reusable test-only fakes and fixture builders for core module tests.
 | File | Role |
 |---|---|
 | `check-runner-fixtures.ts` | CheckRunner fake AgentRunner, CommandRunner, TaskStore, artifact store, and fixture builders |
+| `pipeline-engine-fixtures.ts` | PipelineEngine fake registries, task store, AgentRunner, CheckRunner, WorktreeManager, and artifact store |
 
 ## Dependencies
 
