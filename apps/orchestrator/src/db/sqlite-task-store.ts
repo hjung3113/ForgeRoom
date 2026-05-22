@@ -45,6 +45,27 @@ export class SqliteTaskStore implements TaskStore {
     return Promise.resolve(task);
   }
 
+  startTask(input: CreateTaskInput): Promise<Task> {
+    const now = new Date();
+    const task: Task = {
+      ...input,
+      status: 'running',
+      failure_reason: input.failure_reason ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+
+    try {
+      this.db.transaction((transaction) => {
+        transaction.insert(tasks).values(toTaskRow(task)).run();
+      });
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+
+    return Promise.resolve(task);
+  }
+
   updateTaskStatus(id: string, status: TaskStatus): Promise<void> {
     try {
       this.db
@@ -134,6 +155,33 @@ export class SqliteTaskStore implements TaskStore {
     return Promise.resolve();
   }
 
+  completeStepWithEvent(
+    stepId: string,
+    patch: Partial<Step>,
+    event: CreateEventInput,
+  ): Promise<{ step: Step; event: Event }> {
+    const rowPatch = toStepPatch(patch);
+
+    try {
+      const step = this.db.transaction((transaction) => {
+        if (Object.keys(rowPatch).length > 0) {
+          transaction.update(steps).set(rowPatch).where(eq(steps.id, stepId)).run();
+        }
+        transaction.insert(events).values(toEventRow(event)).run();
+
+        const row = transaction.select().from(steps).where(eq(steps.id, stepId)).get();
+        if (row === undefined) {
+          throw new Error(`step not found: ${stepId}`);
+        }
+        return fromStepRow(row);
+      });
+
+      return Promise.resolve({ step, event });
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+  }
+
   listSteps(taskId: string): Promise<Step[]> {
     const rows = this.db
       .select()
@@ -168,6 +216,38 @@ export class SqliteTaskStore implements TaskStore {
     }
 
     return Promise.resolve(input);
+  }
+
+  cancelTask(taskId: string, eventId: string, payload: Record<string, unknown> = {}): Promise<void> {
+    try {
+      this.db.transaction((transaction) => {
+        const task = transaction.select().from(tasks).where(eq(tasks.id, taskId)).get();
+        if (task === undefined) {
+          throw new Error(`task not found: ${taskId}`);
+        }
+
+        const now = new Date();
+        transaction
+          .update(tasks)
+          .set({ status: 'canceled', updatedAt: now.toISOString() })
+          .where(eq(tasks.id, taskId))
+          .run();
+        transaction
+          .insert(events)
+          .values({
+            id: eventId,
+            taskId,
+            type: 'task_canceled',
+            payload,
+            createdAt: now.toISOString(),
+          })
+          .run();
+      });
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+
+    return Promise.resolve();
   }
 
   enqueueEventDelivery(input: CreateEventDeliveryInput): Promise<EventDelivery> {

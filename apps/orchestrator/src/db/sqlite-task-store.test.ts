@@ -565,9 +565,118 @@ describe('SqliteTaskStore', () => {
       },
     ]);
   });
+
+  it('rolls back task creation when starting a task cannot acquire the project lock', async () => {
+    await store.startTask(taskInput('winner', 'project-a', 'queued'));
+
+    await expect(store.startTask(taskInput('loser', 'project-a', 'queued'))).rejects.toThrow(
+      /active task/i,
+    );
+
+    await expect(store.getTask('loser')).resolves.toBeNull();
+    expect(database.sqlite.prepare('select count(*) as count from tasks where id = ?').get('loser')).toEqual({
+      count: 0,
+    });
+  });
+
+  it('rolls back step completion when the step_done event cannot be inserted', async () => {
+    await store.createTask(taskInput('task-step-transaction', 'project-a', 'queued'));
+    await store.createStep(stepInput('step-transaction', 'task-step-transaction'));
+    await store.enqueueEvent({
+      id: 'duplicate-step-event',
+      task_id: 'task-step-transaction',
+      type: 'step_done',
+      payload: { step_id: 'existing' },
+      created_at: new Date('2026-05-22T17:00:00.000Z'),
+    });
+
+    await expect(
+      store.completeStepWithEvent(
+        'step-transaction',
+        {
+          status: 'done',
+          finished_at: new Date('2026-05-22T17:01:00.000Z'),
+          exit_code: 0,
+        },
+        {
+          id: 'duplicate-step-event',
+          task_id: 'task-step-transaction',
+          type: 'step_done',
+          payload: { step_id: 'execute', status: 'done' },
+          created_at: new Date('2026-05-22T17:01:00.000Z'),
+        },
+      ),
+    ).rejects.toThrow(/unique constraint/i);
+
+    await expect(store.listSteps('task-step-transaction')).resolves.toMatchObject([
+      {
+        id: 'step-transaction',
+        status: 'running',
+        finished_at: null,
+        exit_code: null,
+      },
+    ]);
+  });
+
+  it('cancels a task with a task_canceled event and releases the project lock', async () => {
+    await store.startTask(taskInput('task-cancel', 'project-a', 'queued'));
+    await store.createTask(taskInput('task-after-cancel', 'project-a', 'queued'));
+
+    await store.cancelTask('task-cancel', 'event-task-canceled', { reason: 'user_request' });
+
+    await expect(store.getTask('task-cancel')).resolves.toMatchObject({
+      id: 'task-cancel',
+      status: 'canceled',
+    });
+    expect(
+      database.sqlite
+        .prepare('select id, task_id, type, payload from events where id = ?')
+        .get('event-task-canceled'),
+    ).toEqual({
+      id: 'event-task-canceled',
+      task_id: 'task-cancel',
+      type: 'task_canceled',
+      payload: JSON.stringify({ reason: 'user_request' }),
+    });
+    await expect(store.acquireProjectLock('project-a', 'task-after-cancel')).resolves.toBe(true);
+    await expect(store.getTask('task-after-cancel')).resolves.toMatchObject({
+      id: 'task-after-cancel',
+      status: 'running',
+    });
+  });
+
+  it('rolls back task cancellation when the task_canceled event cannot be inserted', async () => {
+    await store.startTask(taskInput('task-cancel-rollback', 'project-a', 'queued'));
+    await store.createTask(taskInput('task-blocked-by-rollback', 'project-a', 'queued'));
+    await store.enqueueEvent({
+      id: 'duplicate-cancel-event',
+      task_id: 'task-cancel-rollback',
+      type: 'task_canceled',
+      payload: { reason: 'existing' },
+      created_at: new Date('2026-05-22T17:05:00.000Z'),
+    });
+
+    await expect(
+      store.cancelTask('task-cancel-rollback', 'duplicate-cancel-event', { reason: 'user_request' }),
+    ).rejects.toThrow(/unique constraint/i);
+
+    await expect(store.getTask('task-cancel-rollback')).resolves.toMatchObject({
+      id: 'task-cancel-rollback',
+      status: 'running',
+    });
+    await expect(store.acquireProjectLock('project-a', 'task-blocked-by-rollback')).resolves.toBe(false);
+    await expect(store.getTask('task-blocked-by-rollback')).resolves.toMatchObject({
+      id: 'task-blocked-by-rollback',
+      status: 'queued',
+    });
+  });
 });
 
-function taskInput(id: string, projectId: string, status: 'queued' | 'running' | 'paused' | 'done') {
+function taskInput(
+  id: string,
+  projectId: string,
+  status: 'queued' | 'running' | 'paused' | 'done' | 'canceled' = 'queued',
+) {
   return {
     id,
     project_id: projectId,
@@ -582,5 +691,27 @@ function taskInput(id: string, projectId: string, status: 'queued' | 'running' |
     worktree_path: `/tmp/forgeroom/${id}`,
     pr_number: null,
     vars: {},
+  };
+}
+
+function stepInput(id: string, taskId: string) {
+  return {
+    id,
+    task_id: taskId,
+    step_id: 'execute',
+    parent_step_id: null,
+    iteration: 0,
+    agent_id: 'implementer',
+    status: 'running' as const,
+    failure_reason: null,
+    attempt: 0,
+    check_fix_attempt: 0,
+    check_status: 'not_run' as const,
+    prompt_path: `/tmp/forgeroom/prompts/${id}.md`,
+    output_path: `/tmp/forgeroom/outputs/${id}.md`,
+    diff_path: null,
+    exit_code: null,
+    started_at: new Date('2026-05-22T17:00:00.000Z'),
+    finished_at: null,
   };
 }

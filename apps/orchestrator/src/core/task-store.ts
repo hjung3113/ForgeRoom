@@ -32,6 +32,7 @@ export interface MarkDeliveryFailedPatch {
 
 export interface TaskStore {
   createTask(input: CreateTaskInput): Promise<Task>;
+  startTask(input: CreateTaskInput): Promise<Task>;
   updateTaskStatus(id: string, status: TaskStatus): Promise<void>;
   getTask(id: string): Promise<Task | null>;
   listActiveTasks(projectId?: string): Promise<Task[]>;
@@ -39,9 +40,15 @@ export interface TaskStore {
   releaseProjectLock(projectId: string, taskId: string): Promise<void>;
   createStep(input: CreateStepInput): Promise<Step>;
   updateStep(id: string, patch: Partial<Step>): Promise<void>;
+  completeStepWithEvent(
+    stepId: string,
+    patch: Partial<Step>,
+    event: CreateEventInput,
+  ): Promise<{ step: Step; event: Event }>;
   listSteps(taskId: string): Promise<Step[]>;
   recordCheck(input: CreateCheckInput): Promise<Check>;
   enqueueEvent(input: CreateEventInput): Promise<Event>;
+  cancelTask(taskId: string, eventId: string, payload?: Record<string, unknown>): Promise<void>;
   enqueueEventDelivery(input: CreateEventDeliveryInput): Promise<EventDelivery>;
   markDeliveryDelivered(id: string): Promise<void>;
   markDeliveryFailed(id: string, patch: MarkDeliveryFailedPatch): Promise<void>;

@@ -35,6 +35,7 @@ last_reviewed: 2026-05-21
 ```typescript
 interface TaskStore {
   createTask(input: CreateTaskInput): Promise<Task>
+  startTask(input: CreateTaskInput): Promise<Task>
   updateTaskStatus(id: TaskId, status: TaskStatus): Promise<void>
   getTask(id: TaskId): Promise<Task | null>
   listActiveTasks(projectId?: string): Promise<Task[]>
@@ -43,6 +44,11 @@ interface TaskStore {
 
   createStep(input: CreateStepInput): Promise<Step>
   updateStep(id: StepId, patch: Partial<Step>): Promise<void>
+  completeStepWithEvent(
+    stepId: StepId,
+    patch: Partial<Step>,
+    event: CreateEventInput
+  ): Promise<{ step: Step, event: Event }>
   listSteps(taskId: TaskId): Promise<Step[]>
 
   recordCheck(input: CreateCheckInput): Promise<Check>
@@ -50,7 +56,9 @@ interface TaskStore {
   enqueueEvent(input: CreateEventInput): Promise<Event>
   enqueueEventDelivery(input: CreateEventDeliveryInput): Promise<EventDelivery>
   markDeliveryDelivered(id: EventDeliveryId): Promise<void>
+  markDeliveryFailed(id: EventDeliveryId, patch: MarkDeliveryFailedPatch): Promise<void>
   listDueUndeliveredDeliveries(now: Date): Promise<EventDelivery[]>
+  cancelTask(taskId: TaskId, eventId: EventId, payload?: Record<string, unknown>): Promise<void>
 
   upsertConductorState(taskId: TaskId, summary: string, summaryPath: string): Promise<void>
 }
