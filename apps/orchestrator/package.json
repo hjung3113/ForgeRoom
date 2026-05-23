@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "db:migrate": "tsc -p tsconfig.build.json && node dist/db/migrate.js",
     "lint": "eslint .",
     "dev:studio": "FORGEROOM_STUDIO=1 mastra dev --dir src/mastra"

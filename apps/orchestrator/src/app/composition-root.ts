@@ -85,7 +85,7 @@ import {
   TaskStoreContextLookup,
 } from './forgemap-adapters.js';
 import { OrchestratorGatewayPortImpl } from './gateway-port.js';
-import { NotWiredOpenClawIpcClient } from './openclaw-ipc.js';
+import { OpenClawCliClient, resolveOpenClawCliConfig } from './openclaw-ipc.js';
 import {
   GitCliWorktreeClient,
   NodeWorktreeFileSystem,
@@ -166,7 +166,14 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
   const log = options.log ?? ((line: string): void => void process.stderr.write(`${line}\n`));
 
   // --- AgentRunner over the real OpenClawProvider (ADR-012) ----------------
-  const ipcClient = overrides.openClawIpcClient ?? new NotWiredOpenClawIpcClient();
+  const ipcClient =
+    overrides.openClawIpcClient ??
+    new OpenClawCliClient({
+      config: resolveOpenClawCliConfig({
+        cliBin: env.openclaw.cliBin,
+        cliArgsJson: env.openclaw.cliArgsJson,
+      }),
+    });
   const provider = new OpenClawProvider({
     endpoint: env.openclaw.endpoint,
     token: env.openclaw.token,

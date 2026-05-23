@@ -28,7 +28,7 @@ Read [context-map.md](context-map.md) before editing this folder.
 | `config.ts` | Load + validate `configs/*.yaml` into registries; resolve runtime env (the isolated env place) |
 | `composition-root.ts` | `composeOrchestrator()` — wire every module into an `OrchestratorApp` with a `boot()` lifecycle |
 | `gateway-port.ts` | `OrchestratorGatewayPort` facade (maps slash commands / issue tasks onto PipelineEngine / Conductor / TaskStore) |
-| `openclaw-ipc.ts` | Boot-lifecycle OpenClaw IPC client (real subprocess wired in #31) |
+| `openclaw-ipc.ts` | Real OpenClaw IPC client — spawns the OpenClaw CLI subprocess, streams logs, parses the session marker, maps outcomes to `failureKind` (#31). See `Docs/dev/openclaw-e2e.md` |
 | `worktree-adapters.ts` | Git-CLI `WorktreeGitClient` + node-fs `WorktreeFileSystem` |
 | `worktree-naming.ts` | Branch + worktree path naming (encodes project id in the path) |
 | `forgemap-adapters.ts` | Git `RepoStateProbe`, SQLite `TaskContextLookup`, `BootstrapForgeMapStore` |
