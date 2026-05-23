@@ -11,3 +11,4 @@ worktrees/
 dist/
 *.tsbuildinfo
 .forgeroom/
+.mastra/
