@@ -7,6 +7,8 @@ last_reviewed: 2026-05-22
 
 Read [context-map.md](context-map.md) before editing this folder.
 
+> **Note:** Stage-N decisions in this folder predate ADR-015/016/017. Re-validate before applying to new (Mastra-based) implementation.
+
 ## Core Rules
 
 1. Record implementation review decisions that were settled during adversarial review.
