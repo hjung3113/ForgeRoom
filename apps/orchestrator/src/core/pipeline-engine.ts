@@ -14,7 +14,7 @@
  * `wf.createRun()` and BEFORE `run.start()`, so a crashed process can be
  * recovered (issue #9 completes the hybrid recovery).
  */
-import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -360,23 +360,98 @@ export class MastraPipelineEngine implements PipelineEngine {
   }
 
   // -------------------------------------------------------------------------
-  // recoverPending — MINIMAL placeholder. Issue #9 owns the full hybrid
-  // recovery (TaskStore-authoritative step pointer vs. Mastra snapshot, file
-  // authority reconciliation per ADR-017). Here we only enumerate the tasks
-  // that need recovery and log that recovery is deferred so a restart does not
-  // silently lose them.
+  // recoverPending — hybrid restart recovery (#9, ADR-017).
+  //
+  // TaskStore step rows are THE authority on what runs next; the Mastra run
+  // snapshot is auxiliary and consulted ONLY to choose between `run.resume()`
+  // and a FRESH reconstructed run. On startup we enumerate active
+  // (running/paused) tasks and, for each, pick a recovery branch:
+  //
+  //   1. Latest effective step state is `failed` -> leave for the user; no run.
+  //   2. mastra_run_id present, a durable snapshot exists, the snapshot is
+  //      `suspended`, and every output file the snapshot points at still exists
+  //      on disk (FILE-WINS pointer check) -> `run.resume()`. Mastra restores
+  //      control-flow/loop position; our adapter threads `iteration`, so
+  //      review_loop re-entry is handled by resume, not hand-driven here.
+  //   3. Otherwise (no run id, no/non-suspended snapshot, a `.forgeroom/outputs`
+  //      file the snapshot referenced is gone, or any inconsistency) -> discard
+  //      the snapshot and start a FRESH run from step 1. Worker bodies are
+  //      idempotent (re-render prompt -> re-run agent -> re-write output ->
+  //      re-run checks), so replay reconstructs the same state. The TaskStore
+  //      next-step pointer is never derived FROM the snapshot.
+  //
+  // The worktree `.forgeroom/` skeleton is re-bootstrapped first if missing, so
+  // recovery is idempotent even after a worktree was rebuilt.
   // -------------------------------------------------------------------------
 
   async recoverPending(): Promise<void> {
-    // #9: replace this with the hybrid resume-vs-fresh-run reconstruction.
     const active = await this.deps.taskStore.listActiveTasks();
     for (const task of active) {
-      this.log(
-        `recoverPending: task ${task.id} (status=${task.status}, mastra_run_id=${
-          task.mastra_run_id ?? 'null'
-        }) recovery deferred to #9`,
-      );
+      try {
+        await this.recoverTask(task);
+      } catch (error) {
+        // One task's recovery failure must not abort the rest. Record the
+        // failure on the task row (authoritative) and continue.
+        const reason = mapFailureReason(error);
+        this.log(`recoverPending: task ${task.id} recovery failed (${reason})`);
+        await this.deps.taskStore.updateTaskStatus(task.id, 'failed', reason);
+      }
     }
+  }
+
+  private async recoverTask(task: Task): Promise<void> {
+    const project = this.requireProject(task.project_id);
+
+    // The latest effective step state is authoritative for the failed guard.
+    const steps = await this.deps.taskStore.listSteps(task.id);
+    if (latestStepIsFailed(steps)) {
+      // Leave for the user; do NOT auto-restart (pipeline-engine.md).
+      this.log(`recoverPending: task ${task.id} last step failed; leaving for user`);
+      return;
+    }
+
+    // Re-bootstrap the worktree `.forgeroom/` skeleton if it vanished.
+    await this.ensureWorktreeBootstrapped(task);
+
+    const runId = await this.deps.taskStore.getMastraRunId(task.id);
+    if (runId !== null && (await this.canResumeSnapshot(runId))) {
+      this.log(`recoverPending: task ${task.id} resuming suspended Mastra run ${runId}`);
+      await this.resumeRun({ task, project, runId });
+      return;
+    }
+
+    // Fresh run: discard the auxiliary snapshot and replay from step 1.
+    this.log(`recoverPending: task ${task.id} starting fresh reconstructed run`);
+    await this.startRun({ task, project, opts: { vars: task.vars } });
+  }
+
+  /**
+   * A snapshot is resumable when it is durable, `suspended`, and every output
+   * file it references still exists on disk. The last clause is the FILE-WINS
+   * reconciliation: the on-disk `.forgeroom/outputs/NN_<step_id>.md` is the
+   * authority, and the snapshot only stores file PATHS (not content), so a
+   * missing referenced file means the snapshot is stale -> fresh run.
+   */
+  private async canResumeSnapshot(runId: string): Promise<boolean> {
+    const snapshot = await this.deps.snapshotBridge.load(runId);
+    if (snapshot === null || snapshot.status !== 'suspended') {
+      return false;
+    }
+    for (const outputPath of collectSnapshotOutputPaths(snapshot)) {
+      if (!(await fileExists(outputPath))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Re-create the `.forgeroom/` skeleton if the worktree lost it. */
+  private async ensureWorktreeBootstrapped(task: Task): Promise<void> {
+    const marker = path.join(task.worktree_path, '.forgeroom');
+    if (await dirExists(marker)) {
+      return;
+    }
+    await this.deps.worktreeManager.create(task);
   }
 
   // -------------------------------------------------------------------------
@@ -802,6 +877,81 @@ function makeReporterStep(
     started_at: now(),
     finished_at: now(),
   };
+}
+
+/**
+ * Whether the LATEST effective state of the most-recently-started step is
+ * `failed`. Step rows are read in started_at order (sparse: only kind:execute
+ * steps create rows). "Latest effective" means the last row per step_id, so a
+ * later successful re-attempt of a step supersedes an earlier failed row and
+ * the task is NOT treated as failed. Absence of any row is NOT a failure.
+ */
+function latestStepIsFailed(steps: Step[]): boolean {
+  // The most-recently-started step overall decides the guard. Rows arrive in
+  // started_at ascending order, and a later row for the same step_id supersedes
+  // an earlier one, so the final element already reflects the latest effective
+  // state of the latest step.
+  const last = steps.at(-1);
+  if (last === undefined) {
+    return false;
+  }
+  return last.status === 'failed';
+}
+
+/**
+ * Collect every `.forgeroom/outputs/...` path the snapshot's recorded step
+ * results reference. The snapshot stores StepExecution outputs (with an
+ * `outputPath`) under `context[mastraStepId].output`; we treat each as a
+ * pointer to a file the on-disk authority must still hold.
+ */
+function collectSnapshotOutputPaths(snapshot: WorkflowRunState): string[] {
+  const paths: string[] = [];
+  const context = snapshot.context as Record<string, unknown> | undefined;
+  if (context === undefined || context === null) {
+    return paths;
+  }
+  for (const [key, entry] of Object.entries(context)) {
+    if (key === 'input' || entry === null || typeof entry !== 'object') {
+      continue;
+    }
+    const output = (entry as { output?: unknown }).output;
+    collectOutputPathsFrom(output, paths);
+  }
+  return paths;
+}
+
+/** A step output may be a single StepExecution or an array (foreach item). */
+function collectOutputPathsFrom(output: unknown, into: string[]): void {
+  if (Array.isArray(output)) {
+    for (const element of output) {
+      collectOutputPathsFrom(element, into);
+    }
+    return;
+  }
+  if (output !== null && typeof output === 'object') {
+    const outputPath = (output as { outputPath?: unknown }).outputPath;
+    if (typeof outputPath === 'string' && outputPath.length > 0) {
+      into.push(outputPath);
+    }
+  }
+}
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    const s = await stat(p);
+    return s.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function dirExists(p: string): Promise<boolean> {
+  try {
+    const s = await stat(p);
+    return s.isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function mapFailureReason(error: unknown): OrchestratorFailureCode {

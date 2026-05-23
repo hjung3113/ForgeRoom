@@ -156,9 +156,20 @@ MVP에서 `task.final_slices` 갱신 규칙:
 
 TaskStore가 가리키는 다음 step이 정해지면:
 
-1. `tasks.mastra_run_id`가 not null이고 Mastra가 해당 run을 suspended로 인지하면 → Mastra `run.resume()` 호출. 단, snapshot의 다음 step과 TaskStore pointer가 일치해야 한다.
-2. 불일치하거나 `mastra_run_id` null이면 → TaskStore pointer로 **신규 Mastra run 시작**. yaml workflow + TaskStore step rows로 동일 상태를 재구성한다.
-3. `.forgeroom/outputs/NN_<step_id>.md` 파일이 Mastra snapshot 출력과 불일치하면 파일을 권위로 보고 snapshot을 폐기한 뒤 신규 run을 시작한다.
+1. `tasks.mastra_run_id`가 not null이고 durable snapshot이 `status: 'suspended'`이며, snapshot이 참조하는 모든 출력 파일이 디스크에 존재하면 → Mastra `run.resume()` 호출. resume이 control-flow/loop 위치(어댑터가 thread한 `iteration` 포함)를 복원하므로 review_loop 재진입을 손으로 계산하지 않는다.
+2. 불일치하거나 `mastra_run_id` null이면 → TaskStore pointer로 **신규 Mastra run 시작**. worker body는 멱등(prompt 재렌더 → agent 재실행 → output 재기록 → check 재실행)이므로 step 1부터 replay해 동일 상태를 재구성한다. 다음 step pointer는 절대 snapshot에서 유도하지 않는다.
+3. `.forgeroom/outputs/NN_<step_id>.md` 파일이 snapshot이 가리키는 출력 경로와 불일치(파일 부재)하면 파일을 권위로 보고 snapshot을 폐기한 뒤 신규 run을 시작한다. snapshot은 출력 경로만 저장하므로 "파일 부재 = stale"가 구체적 FILE-WINS 검사다.
+
+### recoverPending() 구현 (#9 완성)
+
+`recoverPending()`은 active task(running/paused)를 열거하고 task별로 분기를 고른다:
+
+1. 마지막 step row의 효과적 상태가 `failed` → 사용자 결정 대기, run하지 않음.
+2. `.forgeroom/` skeleton이 없으면 `worktreeManager.create`로 재부트스트랩(멱등).
+3. `mastra_run_id`가 있고 위 resume 조건을 만족 → `resumeRun()`.
+4. 그 외 → snapshot 폐기 후 `startRun()`로 신규 replay.
+
+한 task의 recovery 실패는 나머지를 중단시키지 않는다(해당 task만 `failed`로 기록하고 계속).
 
 ## Mastra runner 구현 메모 (#8)
 
@@ -170,7 +181,7 @@ TaskStore가 가리키는 다음 step이 정해지면:
 - `resume`은 `mastra_run_id`가 있고 durable snapshot이 존재하면 `run.resume()`, 아니면 TaskStore pointer로 신규 run을 시작한다(#9가 full hybrid를 완성).
 - snapshot 영속은 InMemoryStore + 디스크 JSON bridge(OQ-M01에서 검증한 패턴, `FileSnapshotBridge`)로 한다. 프로세스 재시작 후 새 engine/store 인스턴스가 같은 dir에서 resume한다.
 - `Reporter`/`ForgeMap`은 아직 미구현이므로 `ReporterSink`/`ForgeMapStager` 최소 seam으로 주입한다. 실제 구현은 별도 issue.
-- `recoverPending`은 #9가 완성한다. #8에서는 active task를 열거하고 recovery deferred를 로깅하는 최소 placeholder다.
+- `recoverPending`은 #9에서 hybrid resume-vs-fresh 분기로 완성됐다(위 "recoverPending() 구현" 참고).
 - foreach list 평가 follow-up: 어댑터가 `${task.final_slices}`를 build 시점에 평가해 배열 reference를 캡처하므로, engine은 같은 배열을 in-place로 splice해 runtime slices를 흘려보낸다. 이는 임시 bridge이며, 어댑터가 list step에서 lazy 평가하도록 바꾸는 것이 옳다(별도 follow-up).
 
 ## 의존
