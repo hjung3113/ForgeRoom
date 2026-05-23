@@ -9,23 +9,32 @@ last_reviewed: 2026-05-21
 
 The business logic of ForgeRoom: workflow execution, agent orchestration, worktree management, task state machine, and notifications. All external IO is reached through adapters in sibling folders.
 
-## Key files (planned)
+## Key files
 
 | File | Module | Spec |
 |---|---|---|
 | `pipeline-engine.ts` | PipelineEngine | [Docs/modules/pipeline-engine.md](../../../../Docs/modules/pipeline-engine.md) |
+| `pipeline-executor.ts` | PipelineEngine run/group/review_loop execution internals | [Docs/modules/pipeline-engine.md](../../../../Docs/modules/pipeline-engine.md) |
+| `pipeline-lifecycle.ts` | PipelineEngine pause, resume, and cancel state transitions | [Docs/modules/pipeline-engine.md](../../../../Docs/modules/pipeline-engine.md) |
 | `conductor.ts` | Conductor | [Docs/modules/conductor.md](../../../../Docs/modules/conductor.md) |
 | `agent-runner.ts` | AgentRunner (delegates to OpenClaw) | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
+| `openclaw-provider.ts` | MVP OpenClaw AgentRuntimeProvider implementation | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
 | `worktree-manager.ts` | WorktreeManager | [Docs/modules/worktree-manager.md](../../../../Docs/modules/worktree-manager.md) |
 | `check-runner.ts` | CheckRunner | [Docs/modules/check-runner.md](../../../../Docs/modules/check-runner.md) |
 | `reporter.ts` | Reporter | [Docs/modules/reporter.md](../../../../Docs/modules/reporter.md) |
 | `approval-gate.ts` | ApprovalGate | [Docs/modules/approval-gate.md](../../../../Docs/modules/approval-gate.md) |
 | `project-registry.ts` | ProjectRegistry | [Docs/modules/project-registry.md](../../../../Docs/modules/project-registry.md) |
 | `workflow-registry.ts` | WorkflowRegistry | [Docs/modules/workflow-registry.md](../../../../Docs/modules/workflow-registry.md) |
-| `openclaw-agent-registry.ts` | OpenClawAgentRegistry | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
-| `task-store.ts` | TaskStore interface | [Docs/modules/task-store.md](../../../../Docs/modules/task-store.md) |
-| `types.ts` | Exported types | — |
-| `errors.ts` | Domain error classes | — |
+| `output-selectors.ts` | PipelineEngine output selector parsing helpers | [Docs/modules/pipeline-engine.md](../../../../Docs/modules/pipeline-engine.md) |
+| `pipeline-paths.ts` | PipelineEngine task branch, worktree, and step artifact path builders | [Docs/concepts/prompt-file-protocol.md](../../../../Docs/concepts/prompt-file-protocol.md) |
+| `intent-registry.ts` | Intent registry validation and lookup | [Docs/concepts/workflow-dsl.md](../../../../Docs/concepts/workflow-dsl.md) |
+| `agent-registry.ts` | Phase 1 OpenClaw agent registry validation and lookup | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
+| `harness-registry.ts` | Step Harness registry validation and lookup | [Docs/concepts/workflow-dsl.md](../../../../Docs/concepts/workflow-dsl.md) |
+| `task-store.ts` | TaskStore interface and create-task input contract | [Docs/modules/task-store.md](../../../../Docs/modules/task-store.md) |
+| `types.ts` | Exported task, step, check, and shared contract types | [Docs/concepts/data-model.md](../../../../Docs/concepts/data-model.md) |
+| `errors.ts` | Domain error classes with canonical failure codes | [Docs/concepts/data-model.md](../../../../Docs/concepts/data-model.md) |
+| `__tests__/` | Unit tests for core modules, separated from implementation files | [Docs/rules/testing-rules.md](../../../../Docs/rules/testing-rules.md) |
+| `test-support/` | Shared core test fakes and fixture builders | [Docs/rules/testing-rules.md](../../../../Docs/rules/testing-rules.md) |
 
 ## Import direction
 

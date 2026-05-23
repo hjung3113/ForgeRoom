@@ -39,8 +39,18 @@ interface ProjectMeta {
   allowed_workflows: string[]
   template_dir: string | null       // MVP에서는 보존만 하고 prompt_template 해석에 사용하지 않음
   commands: Record<string, string>  // { test, lint, typecheck, ... }
+  maintainers: ProjectMaintainers
+}
+
+interface ProjectMaintainers {
+  discord_user_ids: string[]
+  github_logins: string[]
 }
 ```
+
+`maintainers`는 project-scoped allowlist다. Discord/GitHub Gateway는 dirty baseline approval 같은 project 상태 전환 승인 시 source identity를 `ProjectMeta.maintainers`와 대조한다.
+
+`maintainers`가 비어 있으면 Discord dirty baseline approval은 불가하다. GitHub는 repo write/maintain/admin collaborator 권한 확인이 가능할 때만 approval fallback을 허용한다.
 
 ## 의존
 

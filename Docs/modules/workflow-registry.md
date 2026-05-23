@@ -35,7 +35,18 @@ interface WorkflowRegistry {
 interface ParsedWorkflow {
   id: string
   description: string
+  effects: WorkflowEffects
   steps: ParsedStep[]
+}
+
+interface WorkflowEffects {
+  worktree: 'read_only' | 'modifies'
+  external: WorkflowExternalEffects
+}
+
+interface WorkflowExternalEffects {
+  report: 'none' | 'status' | 'final'
+  pr: 'none' | 'draft' | 'ready'
 }
 
 interface ParsedStep {
@@ -76,6 +87,10 @@ interface ResolvedStep extends ParsedStep {
 - [Workflow DSL 스펙](../concepts/workflow-dsl.md)
 
 ## 검증 항목 (load 시)
+
+- workflow는 `effects.worktree`, `effects.external.report`, `effects.external.pr`을 반드시 선언해야 한다.
+- `effects.external.report`는 `none | status | final`, `effects.external.pr`은 `none | draft | ready` 값만 허용한다.
+- pending rebuild 정책은 `effects.worktree`가 `modifies`인 workflow에 적용한다. `read_only` workflow만 warning artifact를 남기고 stale context에서 진행할 수 있다.
 
 1. 모든 step에 `id` 존재, 중복 없음
 2. executable step의 intent가 `intents.yaml`에 등록

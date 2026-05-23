@@ -23,14 +23,17 @@ MVP 위에 운영성·안전성·유연성 추가.
 - 차단 카탈로그 핫리로드
 - 토큰 자동 로테이션 가이드
 - 로그 로테이션 (30일)
+- 사내 환경 TaskSource/Reporter 구현체: Local CLI, GitHub Enterprise, git issue, 사내 chat/ticket
+- OpenCodeProvider, HermesProvider, 직접 CLI provider 구현체
+- ForgeMap 외부 ingestion: issue/PR history, 공식 문서, 사내 wiki/ticket
 
 ## 후보 기능 / Design Target
 
-- ContextProvider 계층: Target Profile, project docs, context-map, ADR, issue/PR history를 검색·요약해 Conductor 입력에 연결
+- ContextProvider 계층: ForgeMap을 기반으로 issue/PR history, 공식 문서, 사내 지식 저장소를 검색·요약해 Conductor 입력에 연결
 - Conductor를 task-local RAG에서 project-aware RAG로 확장하되, workflow 순서와 step 목적은 계속 PipelineEngine이 강제
 - 최초 `conductor_plan` 단계만 고정하고, 이후 실행 workflow는 Conductor가 승인된 workflow preset 목록 중에서 선택하는 모드
 - Interactive feedback session: Conductor가 피드백을 명확히 하기 위한 질문을 만들고, 사용자 답변 thread를 닫은 뒤 `feedback.md`에 통합
-- AgentRuntimeProvider 추상화: OpenClaw 외 Hermes 같은 다른 agent runtime gateway를 adapter로 선택 가능하게 검토
+- AgentRuntimeProvider 구현체 확장: OpenClaw 외 OpenCode, Hermes 같은 다른 agent runtime gateway를 adapter로 선택 가능하게 검토
 - target project에 이미 harness/provider-local 설정이 있을 때 ForgeRoom Step Harness와의 충돌·우선순위·merge 정책 정의
 - step-level Intent override: workflow step에서 `kind`, `agent`, `harness` 일부를 직접 override할지 검토
 - reusable Step Group Template: 반복 body를 `configs/step-groups.yaml` 같은 별도 registry로 분리하고 workflow에서 참조

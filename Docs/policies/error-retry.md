@@ -9,27 +9,30 @@ last_reviewed: 2026-05-21
 
 | 실패 지점 | 처리 |
 |---|---|
-| Agent 실행 실패 (timeout/exit≠0) | `step.attempt++`, 즉시 1회 재시도. 또 실패 → step.status=failed, task.status=failed |
-| Agent가 output 파일 미작성 | `step.attempt++`. attempt<2: resume으로 파일 작성 재요청. 초과 시 failed |
-| output selector 파싱 실패 (`## Slices`, `Review Result`) | output 파일 미작성과 같은 resume budget으로 재작성 요청. 초과 시 failed |
+| Agent 실행 실패 (timeout/exit≠0) | AgentRunner output-producing attempt budget 사용. 소진 시 step.status=failed, task.status=failed |
+| Agent가 output 파일 미작성 | AgentRunner output-producing attempt budget 사용. 가능하면 resume, 불가능하면 신규 headless run fallback. 소진 시 failed |
+| output selector 파싱 실패 (`## Slices`, `Review Result`) | AgentRunner output-producing attempt budget으로 재작성 요청. 소진 시 failed |
 | Conductor scope 위반 | 변경 파일 revert, 텍스트 응답은 사용. step 계속 |
 | Conductor 호출 실패 | 1회 재시도. 또 실패 시 graceful degradation (refine 생략, update 생략) |
-| Check 실패 | 1회 자동 수정: 실패 로그를 코드 작성 agent에 전달 → 수정 → 재실행. 또 실패 시 task.status=failed |
-| `review_loop` max_iterations 도달 | step.status=failed → task.status=failed |
+| Check 실패 | 별도 check fix budget 1회: 실패 로그를 코드 작성 agent에 전달 → 수정 → 모든 check 재실행. 또 실패 시 task.status=failed, `failure_reason=check_failed_after_fix` |
+| `review_loop` max_iterations 도달 | step.status=failed → task.status=failed, `failure_reason=review_loop_max_iterations` |
 | Git 충돌 (rebase 실패) | task.status=failed, 사람 개입 알림 |
-| PR 생성 실패 (GitHub API) | exponential backoff 3회. 다 실패 시 task.status=failed, branch 보존 |
-| Discord 발송 실패 | exponential backoff 5회. 발송 큐 (events 테이블)에 유지. task 진행 영향 없음 |
+| PR 생성 실패 (GitHub API) | exponential backoff 3회. 다 실패 시 task.status=failed, `failure_reason=pr_create_failed`, branch 보존 |
+| ReporterSink delivery 실패 (Discord/GitHub status surface) | exponential backoff 5회. 발송 큐(event_deliveries 테이블)에 유지. task 진행 영향 없음 |
 | Orchestrator 크래시 | 재시작 시 미완료 task 회복 |
 
 ## 재시도 카운트
 
-- `step.attempt`: 0부터 시작, 재시도마다 +1
-- 한도: 기본 `MAX_RETRY=2` (agent 호출 1차 + resume 2회 = 총 3회 시도)
+- `step.attempt`: 0부터 시작, output-producing attempt마다 +1
+- 한도: 기본 `MAX_AGENT_ATTEMPTS=3`
+- `MAX_AGENT_ATTEMPTS`에는 provider exit non-zero, timeout, output 파일 미작성/너무 작은 파일, output selector 실패(`## Slices`, `Review Result`)가 모두 포함된다.
+- CheckRunner 자동 수정 1회는 별도 check fix budget이다. AgentRunner를 호출하더라도 원 execute step의 output-producing attempt budget을 소비하지 않는다.
+- CheckRunner 자동 수정은 새 workflow step row가 아니라 원 execute step row의 `check_fix_attempt`/`check_status`로 기록한다.
 - Forge Phase 2에서 설정화
 
 ## 멱등성
 
-- **Events**: row 생성 → 발송 → `delivered_at` 갱신. 재시작 시 미발송 재발송
+- **Events**: domain event row 생성 → destination별 event_delivery row 생성 → 발송 → delivery `delivered_at` 갱신. 재시작 시 due delivery 재발송
 - **Worktree**: 이미 존재하면 재사용
 - **PR**: branch에 이미 PR 있으면 update, 없으면 create
 - **Step**: 같은 step_id에 대해 prompt/output 파일 덮어쓰기
@@ -51,7 +54,7 @@ last_reviewed: 2026-05-21
 ## 사용자 알림
 
 - agent/check 재시도 발생 시 Discord에 즉시 알림 (`step <id> retrying, attempt N`)
-- task.status=failed로 전환 시 reason + 진단 링크(`logs/`, `outputs/`, `diffs/`) 포함
+- task.status=failed로 전환 시 `failure_reason` + 진단 링크(`logs/`, `outputs/`, `diffs/`) 포함
 
 ## Forge Phase 2 강화
 

@@ -10,6 +10,7 @@ last_reviewed: 2026-05-21
 ## 책임
 
 - task별 누적 요약(`.forgeroom/context/summary.md`) 유지
+- staged ForgeMap context를 읽어 step 프롬프트 보강에 반영
 - step 시작 전 base prompt 보강
 - step 종료 후 summary 갱신
 - step 사이 사용자 피드백을 다음 step 프롬프트 보강에 반영
@@ -34,8 +35,10 @@ interface Conductor {
 옵션 B 채택: **Headless + 롤링 요약**. 결정: [ADR-005](../decisions/2026-05-21-005-conductor-meta-agent.md).
 
 - 매 호출 = 1회 headless 실행
-- 입력: summary + 직전 step의 prompt/output/diff 요약 + 사용자 피드백 또는 질문
+- 입력: selected ForgeMap context + summary + 직전 step의 prompt/output/diff 요약 + 사용자 피드백 또는 질문
 - 출력: 갱신된 summary, feedback.md, 보강 프롬프트, 또는 답변
+
+`Conductor.update`는 Mastra workflow run의 suspend 직전에 동기 완료되어야 한다 ([ADR-016](../decisions/2026-05-23-016-dsl-to-mastra-adapter.md)). 순서: agent 실행 → CheckRunner(kind:execute) → diff 저장 → **Conductor.update** → Reporter notify → (pauseAfterGate step에서) Mastra suspend. 이로써 resume 시점에 `.forgeroom/context/summary.md`와 `feedback.md`가 항상 디스크에 commit된 상태를 보장한다.
 
 ## 호출 입력 (구성)
 
@@ -43,6 +46,7 @@ interface Conductor {
 ```
 [CONTEXT]
 - task 메타 (task.md)
+- selected ForgeMap context (`selected-forgemap.md`, `target-profile.md`)
 - 누적 summary
 - 통합된 피드백 문서 (`feedback.md`, 존재하는 경우)
 - 워크플로우 정의
@@ -83,6 +87,7 @@ step이 성공적으로 완료됐으면 이번 step에 반영된 Pending feedbac
 ```
 [CONTEXT]
 - summary
+- selected ForgeMap context
 - 최근 N개 step output 경로
 - 사용자 질문
 
@@ -98,7 +103,7 @@ step이 성공적으로 완료됐으면 이번 step에 반영된 Pending feedbac
 2. `logs/conductor_scope_violation.log` 기록
 3. Conductor의 텍스트 응답은 그대로 사용
 
-OpenClaw per-call permission profile 지원 시 우선 활용 (Forge Phase 2 통합 검토).
+MVP AgentRunRequest에는 provider별 per-call permission profile을 넣지 않는다. Conductor scope 방어는 post-run diff 검사와 revert를 기본으로 한다. Provider capability 기반 사전 차단은 Forge Phase 2에서 재검토한다.
 
 ## 에이전트 슬롯
 
@@ -106,7 +111,8 @@ OpenClaw per-call permission profile 지원 시 우선 활용 (Forge Phase 2 통
 
 ```yaml
 conductor:
-  openclaw_runtime: claude-cli
+  provider: openclaw
+  runtime: claude-cli
   model: anthropic/claude-opus-4-7
 ```
 
@@ -126,4 +132,5 @@ conductor:
 ## 관련 결정
 
 - [ADR-005](../decisions/2026-05-21-005-conductor-meta-agent.md)
+- [ADR-014](../decisions/2026-05-22-014-forgemap-mvp-project-context.md)
 - [Conductor 모델 상세](../concepts/conductor-model.md)

@@ -16,6 +16,7 @@ Required reading for anyone (human or agent) working in this repo.
 - **Never commit secrets.** Keep `.env` and similar in `.gitignore`.
 - **Never push directly to `main`.** PRs only.
 - **Never bypass hooks** (`--no-verify`). If a hook fails, fix the root cause.
+- **Keep context bounded.** During doc work, avoid broad raw reads; follow [Docs/rules/doc-rules.md](Docs/rules/doc-rules.md#context-budget).
 
 ## Rule documents (must read)
 
@@ -37,7 +38,7 @@ Required reading for anyone (human or agent) working in this repo.
 
 - Runtime: Node.js + TypeScript
 - Storage: SQLite + Drizzle
-- Agent execution: delegated to OpenClaw
+- Agent execution: through AgentRuntimeProvider; MVP provider is OpenClawProvider
 - Prompt passing: file-based (under worktree `.forgeroom/`)
 - Conductor meta-agent (option B: headless + rolling summary)
 - Workflows are a library; chosen at invocation time
@@ -51,6 +52,20 @@ Required reading for anyone (human or agent) working in this repo.
 ## Term disambiguation
 
 Check [Docs/glossary.md](Docs/glossary.md) before assuming. Pay special attention to `Conductor` vs `Orchestrator` and the two meanings of `Phase`.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `hjung3113/ForgeRoom` via `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles with default strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — `CONTEXT.md` at repo root; ADRs at `Docs/decisions/` (non-standard path, not `docs/adr/`). See `docs/agents/domain.md`.
 
 ## Working loop (humans and agents)
 

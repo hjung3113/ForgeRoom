@@ -1,0 +1,14 @@
+claude_write_plan:
+  kind: write_plan
+  agent: claude
+  harness: planning
+
+codex_execute:
+  kind: execute
+  agent: codex
+  harness: implementation
+
+claude_review:
+  kind: review
+  agent: claude
+  harness: review

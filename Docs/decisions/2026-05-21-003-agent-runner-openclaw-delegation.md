@@ -1,6 +1,7 @@
 ---
-status: decided
+status: superseded
 date: 2026-05-21
+superseded_by: 2026-05-22-012-agent-runtime-provider-boundary.md
 ---
 
 # ADR-003: AgentRunner를 OpenClaw에 위임

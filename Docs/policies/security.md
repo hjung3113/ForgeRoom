@@ -10,7 +10,7 @@ last_reviewed: 2026-05-21
 - inbound 포트 0개. 외부 접근 전면 차단
 - Discord WebSocket: outbound only
 - GitHub API: outbound only, Octokit polling
-- OpenClaw: 로컬 IPC/loopback HTTP
+- AgentRuntimeProvider: MVP OpenClawProvider는 로컬 IPC/loopback HTTP
 - Tailscale: MVP 제외, Forge Phase 4에서 데스크탑 앱과 함께
 
 ## 시크릿
@@ -30,7 +30,11 @@ last_reviewed: 2026-05-21
   - guild ID 매치 추가 확인
   - 명령 수신 시 user.id 체크
 - GitHub: token 스코프 최소 (`repo`만)
+- GitHub dirty baseline approval은 write/maintain/admin collaborator 또는 project maintainer allowlist 사용자만 허용
 - 등록되지 않은 owner/repo 호출 차단
+- Dirty baseline approval은 task requester 또는 project maintainer allowlist 권한이 있는 사용자만 허용
+- Project maintainer allowlist는 `configs/projects.yaml`의 ProjectMeta.maintainers에 저장한다. Discord allowlist는 명령 사용 권한이고, project maintainer allowlist는 project 상태 전환 승인 권한이다.
+- ProjectMeta.maintainers가 비어 있으면 Discord dirty baseline approval은 불가하다. GitHub는 repo write/maintain/admin collaborator 권한 확인이 가능할 때만 approval fallback을 허용한다.
 
 ## 프로젝트 격리
 
@@ -67,11 +71,12 @@ last_reviewed: 2026-05-21
 - 모든 명령·차단·시크릿 접근 시도는 `logs/audit_<date>.log`에 기록
 - 로테이션: 30일 (Forge Phase 2)
 
-## OpenClaw 의존성 보안
+## AgentRuntimeProvider 의존성 보안
 
-- OpenClaw 자체 인증 토큰은 `.env`
+- MVP OpenClaw 자체 인증 토큰은 `.env`
 - OpenClaw가 노출하는 게이트웨이 포트는 loopback 바인딩 확인
-- 가능하면 per-call permission profile 활용 (OQ-001)
+- MVP AgentRunRequest에는 provider별 per-call permission profile을 넣지 않는다. Provider capability 기반 permission profile은 Forge Phase 2에서 provider별 의미가 정리된 뒤 추가한다.
+- OpenCodeProvider, HermesProvider 같은 추가 provider의 인증·권한 정책은 Forge Phase 2에서 provider별로 정의
 
 ## Forge Phase 2/4 강화
 

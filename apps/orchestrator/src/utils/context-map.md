@@ -16,9 +16,12 @@ Domain-independent helpers: logger, secret masking, path builders, environment v
 | `logger.ts` | pino JSON logger + per-module child loggers |
 | `secret-mask.ts` | Token / key pattern masking |
 | `paths.ts` | Standard worktree-internal path builders (prompts, outputs, diffs) |
+| `path-safety.ts` | Root-boundary and secret-path checks for adapters and core seams |
+| `command-runner.ts` | Injectable command execution contract and Node child-process implementation |
 | `env.ts` | zod schema for environment variables + validation |
 | `errors.ts` | `OrchestratorError` base class |
 | `time.ts` | Time utilities (sleep, withTimeout, etc.) |
+| `*.test.ts` | Unit tests for utility helpers |
 
 ## Related docs
 
@@ -28,6 +31,7 @@ Domain-independent helpers: logger, secret masking, path builders, environment v
 ## Dependencies
 
 - External: `pino`, `zod`
+- Node built-ins: `child_process`, `fs`, `path`, `stream`
 - Internal: none (one-way)
 
 ## Entry guide

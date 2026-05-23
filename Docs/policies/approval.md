@@ -16,7 +16,9 @@ last_reviewed: 2026-05-21
 
 1. **`pause_after: true` step**: 워크플로우 정의에서 명시한 경우 정지. `/resume`으로 재개
 2. **`/pause <task>`**: 사용자가 임의로 정지
-3. **PR 머지**: GitHub UI
+3. **Dirty baseline approval**: task requester 또는 project maintainer allowlist 권한이 있는 사용자만 승인. GitHub에서는 write/maintain/admin collaborator도 승인자로 인정
+4. **Pending rebuild stale-context approval**: modification workflow는 기본 중단. Maintainer approval이 있을 때만 stale context 진행 허용. read-only ask/investigation workflow는 warning artifact를 남기고 진행 가능
+5. **PR 머지**: GitHub UI
 
 ## 자동 거부 (승인 흐름 X)
 

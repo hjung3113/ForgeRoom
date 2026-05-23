@@ -1,0 +1,8 @@
+planning:
+  source: .forgeroom/harnesses/planning
+
+implementation:
+  source: .forgeroom/harnesses/implementation
+
+review:
+  source: .forgeroom/harnesses/review

@@ -22,7 +22,7 @@ last_reviewed: 2026-05-21
 |---|---|---|
 | 변수·함수 | `camelCase` | `taskStore`, `createWorktree` |
 | 클래스·인터페이스·타입 | `PascalCase` | `PipelineEngine`, `TaskMeta` |
-| 상수 | `SCREAMING_SNAKE_CASE` | `MAX_RETRY`, `MIN_OUTPUT_BYTES` |
+| 상수 | `SCREAMING_SNAKE_CASE` | `MAX_AGENT_ATTEMPTS`, `MIN_OUTPUT_BYTES` |
 | 환경변수 | `SCREAMING_SNAKE_CASE` | `DISCORD_BOT_TOKEN` |
 | Enum 멤버 | `PascalCase` | `TaskStatus.Running` |
 | 파일·디렉토리 경로 변수 | suffix `Path` | `worktreePath`, `outputPath` |

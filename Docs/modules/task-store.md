@@ -35,23 +35,41 @@ last_reviewed: 2026-05-21
 ```typescript
 interface TaskStore {
   createTask(input: CreateTaskInput): Promise<Task>
+  startTask(input: CreateTaskInput): Promise<Task>
   updateTaskStatus(id: TaskId, status: TaskStatus): Promise<void>
   getTask(id: TaskId): Promise<Task | null>
   listActiveTasks(projectId?: string): Promise<Task[]>
+  updateTaskFinalSlices(id: TaskId, finalSlices: string[]): Promise<void>
   acquireProjectLock(projectId: string, taskId: TaskId): Promise<boolean>
   releaseProjectLock(projectId: string, taskId: TaskId): Promise<void>
 
   createStep(input: CreateStepInput): Promise<Step>
   updateStep(id: StepId, patch: Partial<Step>): Promise<void>
+  completeStepWithEvent(
+    stepId: StepId,
+    patch: Partial<Step>,
+    event: CreateEventInput
+  ): Promise<{ step: Step, event: Event }>
   listSteps(taskId: TaskId): Promise<Step[]>
 
   recordCheck(input: CreateCheckInput): Promise<Check>
 
   enqueueEvent(input: CreateEventInput): Promise<Event>
-  markEventDelivered(id: EventId): Promise<void>
-  listUndeliveredEvents(): Promise<Event[]>
+  getEvent(id: EventId): Promise<Event | null>
+  markUserFeedbackApplied(eventId: EventId, appliedAt: Date): Promise<void>
+  enqueueEventDelivery(input: CreateEventDeliveryInput): Promise<EventDelivery>
+  markDeliveryDelivered(id: EventDeliveryId): Promise<void>
+  markDeliveryFailed(id: EventDeliveryId, patch: MarkDeliveryFailedPatch): Promise<void>
+  listDueUndeliveredDeliveries(now: Date): Promise<EventDelivery[]>
+  cancelTask(taskId: TaskId, eventId: EventId, payload?: Record<string, unknown>): Promise<void>
 
-  upsertConductorState(taskId: TaskId, summary: string, summaryPath: string): Promise<void>
+  upsertConductorState(
+    taskId: TaskId,
+    summary: string,
+    summaryPath: string,
+    lastStepId?: StepId | null
+  ): Promise<void>
+  getConductorState(taskId: TaskId): Promise<ConductorState | null>
 }
 ```
 
@@ -66,13 +84,13 @@ interface TaskStore {
 - 작업 시작 시 `tasks.insert` + `acquireProjectLock` 한 트랜잭션
 - step 단계 종료 시 `updateStep` + `events.insert` 한 트랜잭션
 - cancel 처리 시 `tasks.status='canceled'` + `events.insert(type='task_canceled')` + project lock release를 한 트랜잭션으로 처리
-- 멱등성 핵심: event 발송 전 row 생성, 발송 후 `delivered_at` 갱신
+- 멱등성 핵심: domain event row 생성 후 destination별 event_delivery row를 만든다. 발송 후 delivery의 `delivered_at`을 갱신한다. 발송 실패 시 delivery의 `delivery_attempts`, `next_delivery_at`, `last_delivery_error`를 갱신한다.
 
 ## 인덱스
 
 - `tasks(project_id, status)`: 락 검사, 진행 중 task 조회
 - `steps(task_id, started_at)`: 시퀀스 조회
-- `events(delivered_at) WHERE delivered_at IS NULL`: 미발송 이벤트
+- `event_deliveries(delivered_at, next_delivery_at) WHERE delivered_at IS NULL`: 재발송 대상 delivery
 
 ## 관련 결정
 
