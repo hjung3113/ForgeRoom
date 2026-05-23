@@ -11,7 +11,7 @@ Goal: Build the ForgeRoom Phase 1 MVP orchestrator so a task request can flow th
 
 Architecture: The initial implementation keeps business logic in `apps/orchestrator/src/core`, pure DSL parsing in `apps/orchestrator/src/dsl`, SQLite persistence in `apps/orchestrator/src/db`, and external adapters in `apps/orchestrator/src/gateway`. The first production runtime uses dependency injection and fakeable interfaces so the Phase 1 acceptance scenarios can be covered by unit and integration tests before real Discord, GitHub, and OpenClaw credentials are used. The implementation follows ADR-001, ADR-002, ADR-004, ADR-006, ADR-011, ADR-012, ADR-013, and ADR-014.
 
-Tech Stack: Node.js 20+, TypeScript, Vitest, ESLint, Prettier, SQLite with `better-sqlite3` and Drizzle, `yaml`, `zod`, `discord.js`, and Octokit.
+Tech Stack: Node.js 22.13+, TypeScript, Vitest, ESLint, Prettier, SQLite with `better-sqlite3` and Drizzle, `yaml`, `zod`, `discord.js`, and Octokit.
 
 ## Source Documents
 
