@@ -217,6 +217,11 @@ dirty baseline으로 진행한 task는 `selected-forgemap.md`에 source revision
 - issue/PR history RAG 없음
 - 자동 대규모 rewrite 없음
 
+## 구현
+
+- MVP `ForgeMapStager`는 `apps/orchestrator/src/core/forgemap.ts`의 `ForgeMapStagerImpl`이 구현한다. PipelineEngine의 `ForgeMapStager` seam(`stage({ taskId, worktreePath, projectId })`)을 그대로 채우며, canonical store / target-repo state probe / per-task selection signal은 생성자 DI로 주입한다.
+- stale/dirty 차단은 `Promise<void>` seam 위에서 typed error로 신호한다: dirty baseline 미승인은 `ForgeMapStaleError`, pending rebuild에서 미승인 modification workflow는 `ForgeMapPendingRebuildError`.
+
 ## 관련 결정
 
 - [ADR-014](../decisions/2026-05-22-014-forgemap-mvp-project-context.md)
