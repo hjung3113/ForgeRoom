@@ -16,6 +16,7 @@ references the throwaway spike code that produced it.
 | File | Role |
 |---|---|
 | `2026-05-23-oq-m01-dountil-iteration.md` | OQ-M01: Mastra `.dountil()` iteration index + resume |
+| `2026-05-23-oq-m02-foreach-suspend.md` | OQ-M02: Mastra `.foreach()` mid-iteration suspend/resume |
 
 ## Related docs
 
