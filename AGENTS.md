@@ -53,6 +53,20 @@ Required reading for anyone (human or agent) working in this repo.
 
 Check [Docs/glossary.md](Docs/glossary.md) before assuming. Pay special attention to `Conductor` vs `Orchestrator` and the two meanings of `Phase`.
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `hjung3113/ForgeRoom` via `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles with default strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — `CONTEXT.md` at repo root; ADRs at `Docs/decisions/` (non-standard path, not `docs/adr/`). See `docs/agents/domain.md`.
+
 ## Working loop (humans and agents)
 
 1. Read the plan or task
