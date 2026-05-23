@@ -184,6 +184,15 @@ TaskStore + yaml workflow.
 | 2026-05-23 | Reject Mastra Memory replacing Conductor file artifacts | codex review #2 (DB vs file = product contract violation) |
 | 2026-05-23 | Mastra Studio adoption is the largest single ROI of the change | codex review #2 |
 | 2026-05-23 | Mastra workflow execution primitives in; Conductor + file protocol out of scope | codex review #2 + user direction |
+| 2026-05-23 | Output selector parser runs inside Mastra step body (not PipelineEngine wrapper) | grill Q3, confidence 90 → ADR-016 |
+| 2026-05-23 | CheckRunner called inside execute step body, not as separate Mastra step | grill Q5, confidence 92 → ADR-016 |
+| 2026-05-23 | Conductor.update fires BEFORE Mastra suspend snapshot; pauseAfterGate gate step hosts suspend | grill Q6, confidence 88 → ADR-016 |
+| 2026-05-23 | ApprovalGate placed at two levels: pre-Mastra admission + in-step dynamic check | grill Q7, confidence 85 → ADR-016 |
+| 2026-05-23 | TaskSource still enters via PipelineEngine.runFull(); does not know Mastra exists | grill Q8, confidence 97 → ADR-015 |
+| 2026-05-23 | TaskStore step row = authoritative restart pointer; Mastra snapshot is auxiliary; recoverPending is hybrid | grill Q2+Q10, confidence 90/86 → ADR-017 |
+| 2026-05-23 | Glossary `resume` now has 3 distinct meanings (AgentRunner / PipelineEngine / Mastra run) | grill Q1, confidence 95 → CONTEXT.md + glossary |
+| 2026-05-23 | OQ-M01 opened: .dountil() iteration index exposure unclear; adapter threads `{iteration, passed}` via step input/output until spike confirms | grill Q4, confidence 78 (<80, surfaced) |
+| 2026-05-23 | OQ-M02 opened: foreach mid-iteration Mastra suspend semantics unknown; pause_after inside foreach undecided pending spike | grill Q9, confidence 72 (<80, surfaced) |
 
 ## Related Docs
 

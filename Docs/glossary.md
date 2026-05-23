@@ -49,7 +49,9 @@ last_reviewed: 2026-05-21
 | **ADR** | Architecture Decision Record. 한 결정 = 한 ADR |
 | **Override** | 호출 시 워크플로우 step의 agent 매핑을 임의 변경하는 옵션 |
 | **input_refs** | 워크플로우 step에 다른 step의 output 파일 경로를 주입하는 필드 |
-| **resume** | (a) AgentRunner: 같은 세션 이어서 호출. (b) PipelineEngine: paused task 재개 |
+| **resume** | (a) AgentRunner: 같은 OpenClaw 세션 이어서 호출. (b) PipelineEngine: paused task 재개 (사용자 향). (c) Mastra workflow run resume: 어댑터 내부 framework-level resume. 문서에서는 항상 "Mastra run resume" 또는 "workflow-run resume"으로 표기 |
+| **Mastra workflow run** | Mastra가 yaml DSL → 어댑터 변환 후 실행하는 workflow 인스턴스. snapshot은 TaskStore 권위 상태의 보조 (ADR-017) |
+| **DSL→Mastra adapter** | `apps/orchestrator/src/dsl/to-mastra.ts`. parsed workflow + Intent Catalog → Mastra `createWorkflow()` 결과 객체. 단일 책임: ForgeRoom DSL을 Mastra primitives로 매핑 (ADR-016) |
 | **scope 위반** | Conductor가 허용된 파일(`summary.md`) 외 worktree를 수정한 경우 |
 | **fail-fast** | 잘못된 상태 발견 시 즉시 중단, 다음 단계 실행 X |
 | **graceful degradation** | 일부 기능 실패 시 핵심 기능은 유지 (예: Conductor 실패 시 base prompt 그대로) |

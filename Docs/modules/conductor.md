@@ -38,6 +38,8 @@ interface Conductor {
 - 입력: selected ForgeMap context + summary + 직전 step의 prompt/output/diff 요약 + 사용자 피드백 또는 질문
 - 출력: 갱신된 summary, feedback.md, 보강 프롬프트, 또는 답변
 
+`Conductor.update`는 Mastra workflow run의 suspend 직전에 동기 완료되어야 한다 ([ADR-016](../decisions/2026-05-23-016-dsl-to-mastra-adapter.md)). 순서: agent 실행 → CheckRunner(kind:execute) → diff 저장 → **Conductor.update** → Reporter notify → (pauseAfterGate step에서) Mastra suspend. 이로써 resume 시점에 `.forgeroom/context/summary.md`와 `feedback.md`가 항상 디스크에 commit된 상태를 보장한다.
+
 ## 호출 입력 (구성)
 
 `refine`의 경우:

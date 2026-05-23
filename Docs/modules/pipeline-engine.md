@@ -75,7 +75,7 @@ for each parsed_step in workflow.steps:
 
 ## Output selector 해석
 
-AgentRunner는 output 파일 존재 여부, 크기, 기본 거부 응답 같은 generic 파일 검증만 수행한다. `${<step_id>.output.slices}`처럼 workflow DSL 의미가 필요한 output selector는 PipelineEngine이 해석한다. Selector 검증 실패도 같은 output-producing attempt budget을 사용하며, 최종 실패 시 `failure_reason=output_contract_failed`로 기록한다.
+AgentRunner는 output 파일 존재 여부, 크기, 기본 거부 응답 같은 generic 파일 검증만 수행한다. `${<step_id>.output.slices}`처럼 workflow DSL 의미가 필요한 output selector는 **Mastra step body 내부에서 ForgeRoom selector parser**가 해석한다 (ADR-016). 파싱 결과는 Mastra step output으로 반환되어 `.dountil()` condition과 다음 step input에 흐른다. Selector 검증 실패도 같은 output-producing attempt budget을 사용하며, 최종 실패 시 `failure_reason=output_contract_failed`로 기록한다.
 
 MVP에서 `${<step_id>.output.slices}` 해석 규칙:
 
@@ -130,6 +130,8 @@ MVP에서 `task.final_slices` 갱신 규칙:
 
 ## 재시작 회복
 
+`recoverPending()`은 TaskStore step row를 권위로 본다. Mastra snapshot은 보조이며 권위 비교에 사용하지 않는다 (ADR-017).
+
 - `recoverPending()`: `status IN ('running','paused')` task 조회
 - task별 `steps` 마지막 row의 status 검사
   - `done`: 다음 step부터
@@ -137,6 +139,14 @@ MVP에서 `task.final_slices` 갱신 규칙:
   - `failed`: 사용자 결정 대기
 - 마지막 row가 control step이면 child rows의 마지막 상태와 `iteration`을 함께 보고 다음 review/refine 실행 지점을 복원한다.
 - worktree의 `.forgeroom/` 디렉토리 존재 검증, 없으면 부트스트랩 재실행
+
+### Mastra run resume 분기 (hybrid, ADR-017)
+
+TaskStore가 가리키는 다음 step이 정해지면:
+
+1. `tasks.mastra_run_id`가 not null이고 Mastra가 해당 run을 suspended로 인지하면 → Mastra `run.resume()` 호출. 단, snapshot의 다음 step과 TaskStore pointer가 일치해야 한다.
+2. 불일치하거나 `mastra_run_id` null이면 → TaskStore pointer로 **신규 Mastra run 시작**. yaml workflow + TaskStore step rows로 동일 상태를 재구성한다.
+3. `.forgeroom/outputs/NN_<step_id>.md` 파일이 Mastra snapshot 출력과 불일치하면 파일을 권위로 보고 snapshot을 폐기한 뒤 신규 run을 시작한다.
 
 ## 의존
 

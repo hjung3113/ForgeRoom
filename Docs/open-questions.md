@@ -22,6 +22,11 @@ last_reviewed: 2026-05-21
 | OQ-011 | GitHub Enterprise Issue/PR API가 MVP GitHubGateway contract와 얼마나 호환되는가? | 사내 TaskSource/Reporter 구현 범위 | Forge Phase 2 | pending |
 | OQ-012 | OpenCodeProvider는 CLI headless 실행과 server mode 중 무엇을 기본 entrypoint로 삼는가? | 사내 AgentRuntimeProvider 구현 | Forge Phase 2 | pending |
 | OQ-013 | ForgeMap refresh에서 자동 부분 갱신과 사용자 확인이 필요한 구조 변경의 기준은 무엇인가? | ForgeMap 정확도와 운영 비용 | MVP 기본 휴리스틱, Forge Phase 2 정교화 | pending |
+| OQ-M01 | Mastra `.dountil()` step body가 iteration index를 직접 노출하는가? 노출 안 되면 어댑터가 input/output으로 thread해야 함 | review_loop iteration 추적, 파일명 규칙 (`07_slice_review.0.md`) 유지 | Mastra adoption spike 단계에서 검증 | pending (claude+codex grill 2026-05-23, confidence 78) |
+| OQ-M02 | Mastra가 `.foreach()` mid-iteration에서 suspend 시 snapshot이 깔끔히 복구되는가? | `pause_after`가 foreach 내부 step에서 트리거될 때 동작 | Mastra adoption spike 단계에서 검증. 안 되면 (a) foreach를 explicit sequential chain으로 lowering 또는 (b) pause_after를 nested step에서 unsupported로 선언 | pending (claude+codex grill 2026-05-23, confidence 72) |
+| OQ-M03 | Mastra 버전 안정성 (1.0 이전이면 minor pin + 회귀 테스트 전략) | upgrade 비용, MVP stability | Mastra 버전 확정 시점에 lock strategy 결정 | pending |
+| OQ-M04 | Mastra Studio 트레이스가 외부 CLI agent process (OpenClaw subprocess) I/O를 포함하는가? 포함 안 되면 step linkage만 가능 | Studio가 실제 디버깅에 얼마나 유용한지 | Mastra adoption spike 시 확인 | pending |
+| OQ-M05 | Reporter event ordering: TaskStore commit 직후 vs Mastra step boundary 중 어디서 emit | timeline 일관성 | ADR-013 (Reporter boundary) 재해석 + adoption 시 결정 | pending |
 
 ## 작성 규칙
 
