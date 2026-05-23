@@ -20,7 +20,7 @@ MVP 구현체:
 - `DiscordTaskSource`: Discord slash command를 `TaskRequest`로 변환
 - `GitHubIssueTaskSource`: GitHub.com Issue label polling을 `TaskRequest`로 변환
 - `DiscordReporterSink`: task/step 알림 전송
-- `GitHubReporterSink`: PR 생성과 PR comment/body 갱신
+- `GitHubReporterSink`: PR comment/body/status surface 갱신만 (PR **생성**은 PipelineEngine external effect — [ADR-019](2026-05-23-019-pr-creation-external-effect.md) 참조)
 
 MVP dirty baseline approval은 task source의 원 채널에서 받는다. Discord task는 원 slash command thread/channel, GitHub task는 원 Issue comment 또는 approval label을 사용한다. 승인 event는 TaskStore events에 기록한다.
 

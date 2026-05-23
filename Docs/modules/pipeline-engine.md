@@ -13,6 +13,7 @@ last_reviewed: 2026-05-21
 - AgentRunner / CheckRunner 호출
 - 일시정지·재개·취소 명령 처리
 - 재시작 후 미완료 task 재개
+- workflow/check 성공 후 task done 전 **external-effect phase** 실행 (PR 생성 등). `effects.external.pr != none`이면 `PullRequestCreator`로 PR을 생성하며, 이는 best-effort delivery가 아니라 task-critical effect다 — 최종 실패 시 `failure_reason=pr_create_failed`로 task 실패 ([ADR-019](../decisions/2026-05-23-019-pr-creation-external-effect.md))
 
 ## 인터페이스
 
