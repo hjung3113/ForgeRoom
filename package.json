@@ -1,0 +1,27 @@
+{
+  "name": "forgeroom",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "packageManager": "pnpm@11.1.1",
+  "scripts": {
+    "typecheck": "pnpm -F orchestrator typecheck",
+    "test": "pnpm -F orchestrator test",
+    "test:unit": "pnpm -F orchestrator test:unit",
+    "test:integration": "pnpm -F orchestrator test:integration",
+    "lint": "pnpm -F orchestrator lint",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "build": "pnpm -F orchestrator build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.0",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.4"
+  }
+}

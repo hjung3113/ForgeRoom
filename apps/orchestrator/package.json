@@ -1,0 +1,39 @@
+{
+  "name": "orchestrator",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@mastra/core": "1.36.0",
+    "better-sqlite3": "^12.10.0",
+    "discord.js": "^14.26.4",
+    "drizzle-orm": "^0.45.2",
+    "octokit": "^5.0.5",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.9.1",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^10.4.0",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.4",
+    "vite": "^8.0.14",
+    "vitest": "^4.1.7"
+  }
+}

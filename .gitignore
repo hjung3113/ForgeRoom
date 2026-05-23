@@ -10,3 +10,4 @@ worktrees/
 *.log
 dist/
 *.tsbuildinfo
+.forgeroom/
