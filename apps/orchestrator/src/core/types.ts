@@ -148,14 +148,60 @@ export type ReporterEvent =
   | { type: 'task_canceled'; task: Task }
   | { type: 'ask_response'; task: Task; question: string; answer: string };
 
+/** The delivery destinations a ReporterSink can target (ADR-013). */
+export type ReporterDestination = 'discord' | 'github';
+
+/**
+ * Opaque provider id of the single per-task status surface (ADR-013): a Discord
+ * status message id, or a GitHub status-comment id. Persisted in
+ * `tasks.external_ref` so re-delivery edits the same surface (idempotency).
+ */
+export interface StatusSurfaceRef {
+  id: string;
+}
+
+/**
+ * What a sink reports back after delivering an event. `surface` is the
+ * (possibly newly created) status-surface id the Reporter must persist so the
+ * NEXT delivery edits the same surface instead of creating a duplicate. A sink
+ * that touches no durable status surface for an event (e.g. `report: none`)
+ * returns the surface it was given unchanged (or null).
+ */
+export interface DeliveryOutcome {
+  surface: StatusSurfaceRef | null;
+}
+
+/**
+ * Input handed to a per-destination sink for one delivery attempt. `surface` is
+ * the current persisted surface id for the task (null on first delivery); the
+ * sink edits it when present and creates-then-returns one when absent.
+ */
+export interface DeliveryRequest {
+  event: ReporterEvent;
+  surface: StatusSurfaceRef | null;
+}
+
+/**
+ * Reporter facade (ADR-013). The PipelineEngine fires `notify(event)` AFTER the
+ * authoritative TaskStore commit; `flushUndelivered()` re-attempts due, not-yet
+ * delivered outbox rows on restart. Delivery is best-effort and never fails the
+ * task.
+ */
 export interface Reporter {
   notify(event: ReporterEvent): Promise<void>;
   flushUndelivered(): Promise<void>;
 }
 
+/**
+ * Per-destination delivery sink (ADR-013). Real impls (DiscordReporterSink /
+ * GitHubReporterSink) talk to discord.js / Octokit behind interface adapters.
+ * `deliver` is idempotent on the surface: given a non-null surface it edits it;
+ * given null it creates one and returns its id. Reporter never creates PRs —
+ * `pr_created` is consumed to update the PR comment/body (ADR-019).
+ */
 export interface ReporterSink {
-  destination: 'discord' | 'github';
-  deliver(event: ReporterEvent): Promise<void>;
+  destination: ReporterDestination;
+  deliver(request: DeliveryRequest): Promise<DeliveryOutcome>;
 }
 
 /**

@@ -20,10 +20,18 @@ interface Reporter {
   flushUndelivered(): Promise<void>     // 재시작 시 호출
 }
 
+// PipelineEngine은 Reporter facade(notify)만 소비한다. 과거 pipeline-engine.ts에
+// 있던 별도 `ReporterSink {notify}` seam은 제거되고 이 Reporter로 통합되었다 (#25).
+
 interface ReporterSink {
   destination: 'discord' | 'github'
-  deliver(event: ReporterEvent): Promise<void>
+  // 한 번의 delivery 시도. surface는 현재 task의 status surface id (최초엔 null);
+  // 있으면 edit, 없으면 새로 만들고 새 id를 outcome.surface로 돌려준다 (멱등성).
+  deliver(request: { event: ReporterEvent; surface: StatusSurfaceRef | null }):
+    Promise<{ surface: StatusSurfaceRef | null }>
 }
+
+interface StatusSurfaceRef { id: string }   // Discord message id 또는 GitHub comment id
 
 type ReporterEvent =
   | { type: 'task_started', task: Task }
