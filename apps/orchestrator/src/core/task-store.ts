@@ -10,9 +10,15 @@ import type {
 } from './types.js';
 import type { OrchestratorFailureCode } from './errors.js';
 
-export type CreateTaskInput = Omit<Task, 'created_at' | 'updated_at' | 'failure_reason'> & {
+export type CreateTaskInput = Omit<
+  Task,
+  'created_at' | 'updated_at' | 'failure_reason' | 'mastra_run_id'
+> & {
   failure_reason?: OrchestratorFailureCode | null;
   external_ref: ExternalRef | null;
+  // ADR-017: optional at creation. New tasks have no Mastra run yet, so this
+  // defaults to null; the value is set later via setMastraRunId.
+  mastra_run_id?: string | null;
 };
 
 export type CreateStepInput = Step;
@@ -50,6 +56,11 @@ export interface TaskStore {
   ): Promise<void>;
   getTask(id: string): Promise<Task | null>;
   listActiveTasks(projectId?: string): Promise<Task[]>;
+  // ADR-017: recoverPending() reads/writes the Mastra run pointer to pick
+  // resume vs. fresh-run. Read path is normally getTask(); these accessors give
+  // recoverPending a focused write/read without round-tripping the whole row.
+  getMastraRunId(taskId: string): Promise<string | null>;
+  setMastraRunId(taskId: string, mastraRunId: string | null): Promise<void>;
   updateTaskFinalSlices(id: string, finalSlices: string[]): Promise<void>;
   acquireProjectLock(projectId: string, taskId: string): Promise<boolean>;
   releaseProjectLock(projectId: string, taskId: string): Promise<void>;

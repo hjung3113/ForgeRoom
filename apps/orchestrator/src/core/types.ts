@@ -34,6 +34,10 @@ export interface Task {
   pr_number: number | null;
   final_slices: string[];
   vars: Record<string, string>;
+  // ADR-017: nullable pointer to the auxiliary Mastra workflow run. The
+  // TaskStore step rows remain authoritative; recoverPending() reads this to
+  // pick Mastra run resume vs. a fresh reconstructed run. Null = fresh run.
+  mastra_run_id: string | null;
   created_at: Date;
   updated_at: Date;
 }

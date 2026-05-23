@@ -148,6 +148,7 @@ export function task(): Task {
     pr_number: null,
     final_slices: [],
     vars: {},
+    mastra_run_id: null,
     created_at: new Date('2026-05-23T00:00:00.000Z'),
     updated_at: new Date('2026-05-23T00:00:00.000Z'),
   };
