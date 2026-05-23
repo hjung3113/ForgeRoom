@@ -116,5 +116,5 @@ Delivery destination은 TaskSource를 기준으로 선택한다. Discord command
 ## 에러
 
 - ReporterSink delivery 오류 → backoff 재시도. 5회 실패 시 delivery row는 undelivered 상태로 남기고 로컬 로그에 기록한다. Status message/comment delivery 실패는 task 진행을 실패시키지 않는다.
-- PR 생성은 Reporter delivery가 아니라 workflow external effect다. `effects.external.pr != none`인 workflow에서 PR 생성이 3회 실패하면 `failure_reason=pr_create_failed`로 task failed 처리한다.
+- PR 생성은 Reporter delivery가 아니라 **PipelineEngine이 소유하는 workflow external effect**다 ([ADR-019](../decisions/2026-05-23-019-pr-creation-external-effect.md)). Reporter/ReporterSink는 PR을 생성하지 않고 `pr_created` event를 소비해 comment/body/status만 갱신한다. `effects.external.pr != none`인 workflow에서 PR 생성이 3회 실패하면 `failure_reason=pr_create_failed`로 task failed 처리한다.
 - 토큰 만료 → fatal 알림 (콘솔 + 로컬 알림 디렉토리)

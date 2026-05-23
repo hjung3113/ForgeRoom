@@ -7,10 +7,10 @@ last_reviewed: 2026-05-21
 
 ## 책임
 
-- MVP GitHub.com Issue label TaskSource
+- MVP GitHub.com Issue label TaskSource (`GitHubIssueTaskSource`)
 - 등록된 프로젝트 레포에서 Issue 라벨 polling
 - 라벨 매치(예: `agent`) 시 TaskRequest 생성
-- PR 생성·업데이트
+- GitHub API primitive 제공 (`GitHubPullRequestClient`: `createPR`/`updatePR`). **PR 생성의 orchestration·retry·실패 의미는 PipelineEngine external effect가 소유**한다 ([ADR-019](../decisions/2026-05-23-019-pr-creation-external-effect.md)). 이 모듈은 API 호출 primitive만 노출.
 - inbound webhook 없음 (outbound only)
 
 ## 인터페이스
