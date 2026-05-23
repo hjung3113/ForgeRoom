@@ -38,7 +38,7 @@ interface RunOpts {
 ```
 for each parsed_step in workflow.steps:
   if foreach:
-    list = evaluate(foreach.list_expr)
+    list = evaluate(foreach.list_expr)   # runtime (iteration bind time), not build (ADR-016, #20)
     for each item in list:
       sub_step = bind(parsed_step, item)
       execute_step(sub_step)        # 재귀
@@ -182,7 +182,7 @@ TaskStore가 가리키는 다음 step이 정해지면:
 - snapshot 영속은 InMemoryStore + 디스크 JSON bridge(OQ-M01에서 검증한 패턴, `FileSnapshotBridge`)로 한다. 프로세스 재시작 후 새 engine/store 인스턴스가 같은 dir에서 resume한다.
 - `Reporter`/`ForgeMap`은 아직 미구현이므로 `ReporterSink`/`ForgeMapStager` 최소 seam으로 주입한다. 실제 구현은 별도 issue.
 - `recoverPending`은 #9에서 hybrid resume-vs-fresh 분기로 완성됐다(위 "recoverPending() 구현" 참고).
-- foreach list 평가 follow-up: 어댑터가 `${task.final_slices}`를 build 시점에 평가해 배열 reference를 캡처하므로, engine은 같은 배열을 in-place로 splice해 runtime slices를 흘려보낸다. 이는 임시 bridge이며, 어댑터가 list step에서 lazy 평가하도록 바꾸는 것이 옳다(별도 follow-up).
+- foreach list 평가(#20): 어댑터가 `foreach` list step에서 list 표현식을 **runtime(iteration bind time)에 lazy 평가**한다(ADR-016). engine은 plan/review step 완료 시 `interpolation.task.final_slices`를 **재할당(reassign)**하기만 하면 되고, build 시점 배열 reference를 in-place로 splice하던 임시 bridge는 제거됐다. list step이 build-time snapshot을 들고 있지 않으므로 캐시된(`buildMastraWorkflowCached`) workflow를 재사용해도 run 간 slice가 누수되지 않는다.
 
 ## 의존
 

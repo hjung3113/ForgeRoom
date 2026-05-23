@@ -481,22 +481,31 @@ function buildPauseGate(resolved: ResolvedStep, ctx: AdapterContext): ReturnType
 // ---------------------------------------------------------------------------
 
 function appendForeach(wf: AnyWf, step: ParsedGroupStep, ctx: AdapterContext, resolve: ResolveFn): AnyWf {
-  // Resolve the foreach list expression at bind time. MVP only supports
-  // `${task.final_slices}`.
+  // The foreach list expression is RESOLVED LAZILY at iteration bind time
+  // (ADR-016 "bind time" = step input bind at runtime, NOT workflow build).
+  // MVP only supports `${task.final_slices}` and `${<step>.output.slices}`.
+  // We capture only the expression (HOW to get the list), never a build-time
+  // array snapshot (WHAT it currently is): the prior plan/review step fills the
+  // runtime interpolation source, and the list step reads it when it executes.
   const listExpr = step.foreach.trim();
-  const items = evaluateForeachList(listExpr, ctx, step);
+  // Fail fast at build time on an unsupported expression SHAPE, while the VALUE
+  // is still resolved lazily at runtime (the shape is run-independent).
+  assertForeachExprSupported(listExpr, step);
 
   // Compose the group's inner steps (worker + optional pause gate per item)
   // into a single nested committed workflow, which `.foreach()` accepts as a
   // Step (codex-verified for @mastra/core 1.36).
   const innerStep = buildForeachItemStep(step, ctx, resolve);
 
-  // Bind the item list as the input to .foreach via a small mapping step.
+  // The list step resolves the array at RUNTIME from the (current) runtime
+  // interpolation source, then `.foreach()` iterates that returned array.
+  // Reading lazily here means a cached/reused built workflow never carries a
+  // stale build-time array between runs (issue #20).
   const listStep = createStep({
     id: `${step.id}:items`,
     inputSchema: z.unknown(),
     outputSchema: z.array(z.string()),
-    execute: async (): Promise<string[]> => items,
+    execute: async (): Promise<string[]> => evaluateForeachList(listExpr, ctx, step),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any;
 
@@ -542,21 +551,38 @@ function buildForeachItemStep(
   }) as any;
 }
 
+const FOREACH_STEP_SLICES_RE = /^\$\{(\w+)\.output\.slices\}$/;
+
+/**
+ * Build-time guard: reject an unsupported foreach expression SHAPE up front, so
+ * a malformed workflow still fails at adapter build (ADR-016 validation), not
+ * mid-run. The VALUE behind a supported shape is resolved lazily at runtime by
+ * {@link evaluateForeachList}.
+ */
+function assertForeachExprSupported(expr: string, step: ParsedGroupStep): void {
+  if (expr === '${task.final_slices}' || FOREACH_STEP_SLICES_RE.test(expr)) {
+    return;
+  }
+  throw new AdapterValidationError(`unsupported foreach expression: ${expr}`, step.id, 'foreach');
+}
+
+/**
+ * Resolve the foreach list at RUNTIME from the current interpolation source.
+ * Called from the list step's `execute()` (iteration bind time), so it always
+ * reads the run's own slices — never a build-time snapshot. MVP supports
+ * `${task.final_slices}` and `${<step>.output.slices}`.
+ */
 function evaluateForeachList(expr: string, ctx: AdapterContext, step: ParsedGroupStep): string[] {
   if (expr === '${task.final_slices}') {
     return ctx.interpolation.task.final_slices;
   }
-  // Other `${<step>.output.slices}` forms read from prior step outputs.
-  const m = /^\$\{(\w+)\.output\.slices\}$/.exec(expr);
+  const m = FOREACH_STEP_SLICES_RE.exec(expr);
   if (m) {
     const view = ctx.interpolation.stepOutputs[m[1] as string];
-    if (view?.slices) return view.slices;
+    return view?.slices ?? [];
   }
-  throw new AdapterValidationError(
-    `unsupported foreach expression: ${expr}`,
-    step.id,
-    'foreach',
-  );
+  // Unreachable: assertForeachExprSupported rejects unsupported shapes at build.
+  throw new AdapterValidationError(`unsupported foreach expression: ${expr}`, step.id, 'foreach');
 }
 
 // ---------------------------------------------------------------------------
