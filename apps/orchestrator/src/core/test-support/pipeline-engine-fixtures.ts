@@ -5,11 +5,18 @@ import { DefaultPipelineEngine, type PipelineArtifactStore } from '../pipeline-e
 import type { ProjectMeta } from '../project-registry';
 import type { CreateStepInput, CreateTaskInput, TaskStore } from '../task-store';
 import type { Step, Task } from '../types';
-import type { ParsedWorkflow } from '../workflow-registry';
+import type { ParsedWorkflow, ResolvedStep } from '../workflow-registry';
 import type { WorktreeHandle } from '../worktree-manager';
 
 export function makePipelineHarness(
-  options: { firstStepKind?: string; checksPass?: boolean; agentFailureKind?: AgentRunFailureKind } = {},
+  options: {
+    firstStepKind?: string;
+    checksPass?: boolean;
+    agentFailureKind?: AgentRunFailureKind;
+    workflowSteps?: ResolvedStep[];
+    templates?: Array<[string, string]>;
+    agentOutputs?: string[];
+  } = {},
 ) {
   const now = new Date('2026-05-23T00:00:00.000Z');
   const project: ProjectMeta = {
@@ -37,7 +44,7 @@ export function makePipelineHarness(
       worktree: 'modifies',
       external: { report: 'status', pr: 'ready' },
     },
-    steps: [
+    steps: options.workflowSteps ?? [
       {
         type: 'run',
         id: 'plan',
@@ -60,8 +67,10 @@ export function makePipelineHarness(
     ],
   };
   const taskStore = new FakeTaskStore(now);
-  const artifactStore = new FakeArtifactStore([['plan.md', 'Plan ${task.title}\n\n${task.description}\n']]);
-  const agentRunner = new FakeAgentRunner(options.agentFailureKind);
+  const artifactStore = new FakeArtifactStore(
+    options.templates ?? [['plan.md', 'Plan ${task.title}\n\n${task.description}\n']],
+  );
+  const agentRunner = new FakeAgentRunner(artifactStore, options.agentFailureKind, options.agentOutputs);
   const checkRunner = new FakeCheckRunner(options.checksPass ?? true);
   const worktreeManager = new FakeWorktreeManager();
   const engine = new DefaultPipelineEngine({
@@ -72,7 +81,7 @@ export function makePipelineHarness(
     agentRunner,
     checkRunner,
     artifactStore,
-    createId: makeIdFactory(['task-1', 'step-1', 'event-1']),
+    createId: makeIdFactory(['task-1', 'step-1', 'step-2', 'step-3', 'step-4', 'step-5', 'event-1']),
     now: () => now,
   });
 
@@ -90,6 +99,7 @@ export class FakeTaskStore
       | 'createStep'
       | 'updateStep'
       | 'updateTaskStatus'
+      | 'updateTaskFinalSlices'
       | 'cancelTask'
     >
 {
@@ -101,6 +111,7 @@ export class FakeTaskStore
   readonly stepPatches: Array<{ id: string; patch: Partial<Step> }> = [];
   readonly taskStatusUpdates: Array<{ id: string; status: Task['status']; failureReason?: Task['failure_reason'] }> =
     [];
+  readonly finalSliceUpdates: Array<{ id: string; finalSlices: string[] }> = [];
   readonly cancelRequests: Array<{ taskId: string; eventId: string; payload?: Record<string, unknown> }> = [];
 
   constructor(private readonly now: Date) {}
@@ -153,6 +164,15 @@ export class FakeTaskStore
     return Promise.resolve();
   }
 
+  updateTaskFinalSlices(id: string, finalSlices: string[]): Promise<void> {
+    this.finalSliceUpdates.push({ id, finalSlices });
+    const task = this.tasks.get(id);
+    if (task !== undefined) {
+      this.tasks.set(id, { ...task, final_slices: finalSlices });
+    }
+    return Promise.resolve();
+  }
+
   cancelTask(taskId: string, eventId: string, payload?: Record<string, unknown>): Promise<void> {
     this.cancelRequests.push({
       taskId,
@@ -181,6 +201,12 @@ export class FakeArtifactStore implements PipelineArtifactStore {
     return Promise.resolve(template);
   }
 
+  readFile(path: string): Promise<string> {
+    const content = this.files.get(path);
+    if (content === undefined) throw new Error(`Missing file: ${path}`);
+    return Promise.resolve(content);
+  }
+
   writeFile(path: string, content: string): Promise<void> {
     this.files.set(path, content);
     return Promise.resolve();
@@ -190,10 +216,15 @@ export class FakeArtifactStore implements PipelineArtifactStore {
 export class FakeAgentRunner implements AgentRunner {
   readonly runs: AgentRunRequest[] = [];
 
-  constructor(private readonly failureKind?: AgentRunFailureKind) {}
+  constructor(
+    private readonly artifactStore: FakeArtifactStore,
+    private readonly failureKind?: AgentRunFailureKind,
+    private readonly outputs: string[] = ['Agent output\n'],
+  ) {}
 
   run(req: AgentRunRequest): Promise<AgentRunResult> {
     this.runs.push(req);
+    void this.artifactStore.writeFile(req.outputPath, this.outputs.shift() ?? 'Agent output\n');
 
     return Promise.resolve({
       exitCode: this.failureKind === undefined ? 0 : 1,

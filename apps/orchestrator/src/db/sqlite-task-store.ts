@@ -95,6 +95,18 @@ export class SqliteTaskStore implements TaskStore {
     return Promise.resolve(row === undefined ? null : fromTaskRow(row));
   }
 
+  updateTaskFinalSlices(id: string, finalSlices: string[]): Promise<void> {
+    this.db
+      .update(tasks)
+      .set({
+        finalSlices,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(tasks.id, id))
+      .run();
+    return Promise.resolve();
+  }
+
   listActiveTasks(projectId?: string): Promise<Task[]> {
     const activeStatuses = ['running', 'paused'] as const;
     const rows =
@@ -410,6 +422,7 @@ function toTaskRow(task: Task): typeof tasks.$inferInsert {
     branchName: task.branch_name,
     worktreePath: task.worktree_path,
     prNumber: task.pr_number,
+    finalSlices: task.final_slices,
     vars: task.vars,
     createdAt: task.created_at.toISOString(),
     updatedAt: task.updated_at.toISOString(),
@@ -431,6 +444,7 @@ function fromTaskRow(row: TaskRow): Task {
     branch_name: row.branchName,
     worktree_path: row.worktreePath,
     pr_number: row.prNumber,
+    final_slices: row.finalSlices,
     vars: row.vars,
     created_at: new Date(row.createdAt),
     updated_at: new Date(row.updatedAt),

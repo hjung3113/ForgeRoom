@@ -41,6 +41,7 @@ describe('SqliteTaskStore', () => {
       branch_name: 'forgeroom/task-json',
       worktree_path: '/tmp/forgeroom/task-json',
       pr_number: null,
+      final_slices: ['Initial slice'],
       vars: {
         priority: 'high',
         requester: 'hyojung',
@@ -71,6 +72,19 @@ describe('SqliteTaskStore', () => {
         priority: 'high',
         requester: 'hyojung',
       },
+      final_slices: ['Initial slice'],
+    });
+  });
+
+  it('updates final slices independently of task status changes', async () => {
+    await store.createTask(taskInput('task-final-slices', 'project-a', 'queued'));
+
+    await store.updateTaskFinalSlices('task-final-slices', ['Refined slice A', 'Refined slice B']);
+
+    await expect(store.getTask('task-final-slices')).resolves.toMatchObject({
+      id: 'task-final-slices',
+      final_slices: ['Refined slice A', 'Refined slice B'],
+      status: 'queued',
     });
   });
 
@@ -845,6 +859,7 @@ function taskInput(
     branch_name: `forgeroom/${id}`,
     worktree_path: `/tmp/forgeroom/${id}`,
     pr_number: null,
+    final_slices: [],
     vars: {},
   };
 }

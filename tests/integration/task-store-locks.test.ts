@@ -57,6 +57,7 @@ function taskInput(id: string, projectId: string) {
     branch_name: `forgeroom/${id}`,
     worktree_path: `/tmp/forgeroom/${id}`,
     pr_number: null,
+    final_slices: [],
     vars: {},
   };
 }

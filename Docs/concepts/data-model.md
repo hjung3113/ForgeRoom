@@ -26,6 +26,7 @@ tasks {
   branch_name: string
   worktree_path: string            // absolute
   pr_number: number | null
+  final_slices: json               // PipelineEngine이 확정한 현재 slice list
   vars: json                       // 호출 시 vars
   created_at: timestamp
   updated_at: timestamp

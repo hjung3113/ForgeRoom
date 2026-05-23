@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN final_slices TEXT NOT NULL DEFAULT '[]';

@@ -39,6 +39,7 @@ interface TaskStore {
   updateTaskStatus(id: TaskId, status: TaskStatus): Promise<void>
   getTask(id: TaskId): Promise<Task | null>
   listActiveTasks(projectId?: string): Promise<Task[]>
+  updateTaskFinalSlices(id: TaskId, finalSlices: string[]): Promise<void>
   acquireProjectLock(projectId: string, taskId: TaskId): Promise<boolean>
   releaseProjectLock(projectId: string, taskId: TaskId): Promise<void>
 

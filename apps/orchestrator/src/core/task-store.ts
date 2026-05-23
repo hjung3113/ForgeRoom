@@ -50,6 +50,7 @@ export interface TaskStore {
   ): Promise<void>;
   getTask(id: string): Promise<Task | null>;
   listActiveTasks(projectId?: string): Promise<Task[]>;
+  updateTaskFinalSlices(id: string, finalSlices: string[]): Promise<void>;
   acquireProjectLock(projectId: string, taskId: string): Promise<boolean>;
   releaseProjectLock(projectId: string, taskId: string): Promise<void>;
   createStep(input: CreateStepInput): Promise<Step>;

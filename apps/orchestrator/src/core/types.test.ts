@@ -94,6 +94,7 @@ function makeTask() {
     branch_name: 'agent/project-task',
     worktree_path: '/tmp/worktree',
     pr_number: null,
+    final_slices: [] as string[],
     vars: {},
     created_at: new Date('2026-05-22T00:00:00.000Z'),
     updated_at: new Date('2026-05-22T00:00:00.000Z'),

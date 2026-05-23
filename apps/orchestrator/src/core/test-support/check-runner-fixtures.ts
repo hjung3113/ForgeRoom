@@ -146,6 +146,7 @@ export function task(): Task {
     branch_name: 'forgeroom/task-1',
     worktree_path: '/tmp/forgeroom/worktrees/task-1',
     pr_number: null,
+    final_slices: [],
     vars: {},
     created_at: new Date('2026-05-23T00:00:00.000Z'),
     updated_at: new Date('2026-05-23T00:00:00.000Z'),

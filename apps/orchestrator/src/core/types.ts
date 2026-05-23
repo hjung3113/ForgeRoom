@@ -32,6 +32,7 @@ export interface Task {
   branch_name: string;
   worktree_path: string;
   pr_number: number | null;
+  final_slices: string[];
   vars: Record<string, string>;
   created_at: Date;
   updated_at: Date;

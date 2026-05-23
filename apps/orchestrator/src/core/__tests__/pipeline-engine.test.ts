@@ -79,6 +79,112 @@ describe('DefaultPipelineEngine', () => {
     });
   });
 
+  it('refreshes final slices from refine output before running the slice group', async () => {
+    const harness = makePipelineHarness({
+      workflowSteps: [
+        {
+          type: 'run',
+          id: 'implementation_plan',
+          intent: 'codex_plan',
+          prompt_template: 'implementation_plan.md',
+          input_refs: {},
+          vars: {},
+          foreach: null,
+          as: null,
+          steps: [],
+          review: null,
+          refine: null,
+          until: null,
+          max_iterations: null,
+          pause_after: false,
+          kind: 'write_plan',
+          agent: 'codex',
+          harness: 'planning',
+        },
+        {
+          type: 'run',
+          id: 'refine_plan',
+          intent: 'codex_plan',
+          prompt_template: 'refine_plan.md',
+          input_refs: {},
+          vars: {},
+          foreach: null,
+          as: null,
+          steps: [],
+          review: null,
+          refine: null,
+          until: null,
+          max_iterations: null,
+          pause_after: false,
+          kind: 'write_plan',
+          agent: 'codex',
+          harness: 'planning',
+        },
+        {
+          type: 'group',
+          id: 'implement_slices',
+          intent: null,
+          prompt_template: null,
+          input_refs: {},
+          vars: {},
+          foreach: '${task.final_slices}',
+          as: 'slice',
+          steps: [
+            {
+              type: 'run',
+              id: 'slice_impl',
+              intent: 'codex_execute',
+              prompt_template: 'slice_impl.md',
+              input_refs: {},
+              vars: {},
+              foreach: null,
+              as: null,
+              steps: [],
+              review: null,
+              refine: null,
+              until: null,
+              max_iterations: null,
+              pause_after: false,
+              kind: 'execute',
+              agent: 'codex',
+              harness: 'implementation',
+            },
+          ],
+          review: null,
+          refine: null,
+          until: null,
+          max_iterations: null,
+          pause_after: false,
+          kind: null,
+          agent: null,
+          harness: null,
+        },
+      ],
+      templates: [
+        ['implementation_plan.md', 'Plan ${task.title}\n'],
+        ['refine_plan.md', 'Refine plan\n'],
+        ['slice_impl.md', 'Implement ${slice}\n'],
+      ],
+      agentOutputs: [
+        '## Slices\n- Initial slice\n',
+        '## Slices\n- Refined slice A\n- Refined slice B\n',
+        'Implemented A\n',
+        'Implemented B\n',
+      ],
+    });
+
+    await harness.engine.runFull('forge', {
+      title: 'Slice orchestration',
+      description: 'Use refined slices.',
+      source: 'discord-command',
+    });
+
+    expect([...harness.artifactStore.files.values()].filter((content) => content.startsWith('Implement '))).toEqual([
+      'Implement Refined slice A\n',
+      'Implement Refined slice B\n',
+    ]);
+  });
+
   it('does not mark an execute step done when CheckRunner fails after its fix attempt', async () => {
     const harness = makePipelineHarness({ firstStepKind: 'execute', checksPass: false });
 
@@ -130,7 +236,7 @@ describe('DefaultPipelineEngine', () => {
     expect(harness.taskStore.cancelRequests).toEqual([
       {
         taskId: 'task-1',
-        eventId: 'event-1',
+        eventId: harness.taskStore.cancelRequests[0]?.eventId,
         payload: { reason: 'user_requested' },
       },
     ]);

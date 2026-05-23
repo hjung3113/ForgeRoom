@@ -26,6 +26,7 @@ export const tasks = sqliteTable(
     branchName: text('branch_name').notNull(),
     worktreePath: text('worktree_path').notNull(),
     prNumber: integer('pr_number'),
+    finalSlices: text('final_slices', { mode: 'json' }).$type<string[]>().notNull(),
     vars: text('vars', { mode: 'json' }).$type<Record<string, string>>().notNull(),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),

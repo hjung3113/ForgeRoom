@@ -167,6 +167,7 @@ function makeTask(): Task {
     branch_name: 'agent/forgeroom-task-123',
     worktree_path: '/tmp/forgeroom/worktrees/task-123',
     pr_number: null,
+    final_slices: [],
     vars: {},
     created_at: new Date('2026-05-22T00:00:00.000Z'),
     updated_at: new Date('2026-05-22T00:00:00.000Z'),
