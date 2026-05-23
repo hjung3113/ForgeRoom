@@ -14,7 +14,7 @@ Adapters for the external surfaces (Discord, GitHub). Receive and validate exter
 | File | Role | Spec |
 |---|---|---|
 | `discord-gateway.ts` | Slash command intake, allowlist, routing into `core` | [Docs/modules/discord-gateway.md](../../../../Docs/modules/discord-gateway.md) |
-| `github-gateway.ts` | Issue label polling, PR creation | [Docs/modules/github-gateway.md](../../../../Docs/modules/github-gateway.md) |
+| `github-gateway.ts` | `GitHubIssueTaskSource` (issue-label polling → TaskRequest) + `GitHubPullRequestClient` (thin PR create/update primitive) | [Docs/modules/github-gateway.md](../../../../Docs/modules/github-gateway.md) |
 | `types.ts` | Exported gateway types | — |
 
 ## Related docs
