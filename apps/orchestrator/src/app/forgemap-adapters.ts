@@ -42,20 +42,21 @@ export class GitCliRepoStateProbe implements RepoStateProbe {
 }
 
 export interface TaskStoreContextLookupDeps {
-  taskStore: Pick<TaskStore, 'getTask'>;
+  taskStore: Pick<TaskStore, 'getTask' | 'getDirtyBaselineApprover'>;
   projectRegistry: ProjectRegistry;
   workflowRegistry: WorkflowRegistry;
 }
 
 /**
  * Resolves the per-task selection signals from the authoritative task row plus
- * the workflow's worktree effect. MVP signals available now: title/description
- * and worktree kind. Dirty-baseline / pending-rebuild approvals are recorded as
- * events elsewhere; until that lookup exists they default to "not approved"
- * (so a dirty target repo blocks, matching forgemap.md).
+ * the workflow's worktree effect. MVP signals: title/description, worktree kind,
+ * and the dirty-baseline approver read back from the recorded
+ * `dirty_baseline_approved` event (ADR-013, #42) — so an approved dirty baseline
+ * proceeds and an unapproved one blocks (forgemap.md). Pending-rebuild approval
+ * has no recording path yet, so it stays null (its event source is a later issue).
  */
 export class TaskStoreContextLookup implements TaskContextLookup {
-  private readonly taskStore: Pick<TaskStore, 'getTask'>;
+  private readonly taskStore: Pick<TaskStore, 'getTask' | 'getDirtyBaselineApprover'>;
   private readonly workflowRegistry: WorkflowRegistry;
 
   constructor(deps: TaskStoreContextLookupDeps) {
@@ -70,11 +71,12 @@ export class TaskStoreContextLookup implements TaskContextLookup {
     }
     const workflow = this.workflowRegistry.get(task.workflow_id);
     const worktreeKind: WorktreeKind = workflow?.effects.worktree === 'read_only' ? 'read_only' : 'modifies';
+    const dirtyBaselineApprovedBy = await this.taskStore.getDirtyBaselineApprover(taskId);
     return {
       title: task.title,
       description: task.description,
       worktreeKind,
-      dirtyBaselineApprovedBy: null,
+      dirtyBaselineApprovedBy,
       pendingRebuildApprovedBy: null,
       changedPaths: [],
     };

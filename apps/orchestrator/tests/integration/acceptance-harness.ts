@@ -691,11 +691,11 @@ function defaultLookup(store: SqliteTaskStore, workflowRegistry: WorkflowRegistr
 }
 
 /**
- * The TaskContextLookup the production wiring SHOULD have: it reflects a recorded
- * `dirty_baseline_approved` (here surfaced via the shared approvals map the
- * gateway writes) so an approved task proceeds (#32 e2e of the ADR-013
- * engine/stager flow). The composition root's TaskStoreContextLookup still
- * hardcodes null — flagged as a known gap in the PR.
+ * Models the ADR-013 dirty-baseline read-back for the #32 engine/stager e2e: it
+ * reflects a recorded approval (here via the shared approvals map the gateway
+ * writes) so an approved task proceeds. The production `TaskStoreContextLookup`
+ * now performs the equivalent read from TaskStore events (#42); its real
+ * read-back path is covered by `dirty-baseline-real-lookup.test.ts`.
  */
 export function approvalAwareLookup(input: {
   store: SqliteTaskStore;

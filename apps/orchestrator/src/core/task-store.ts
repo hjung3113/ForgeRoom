@@ -89,6 +89,13 @@ export interface TaskStore {
   recordCheck(input: CreateCheckInput): Promise<Check>;
   enqueueEvent(input: CreateEventInput): Promise<Event>;
   getEvent(id: string): Promise<Event | null>;
+  /**
+   * Read back the maintainer who approved a dirty baseline for this task
+   * (ADR-013: recorded as a `dirty_baseline_approved` event via the originating
+   * channel). Returns the latest approver's id, or null if none was recorded.
+   * Consumed by the ForgeMap stager's TaskStoreContextLookup (#42).
+   */
+  getDirtyBaselineApprover(taskId: string): Promise<string | null>;
   markUserFeedbackApplied(eventId: string, appliedAt: Date): Promise<void>;
   upsertConductorState(
     taskId: string,

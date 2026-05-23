@@ -311,6 +311,22 @@ export class SqliteTaskStore implements TaskStore {
     return Promise.resolve(row === undefined ? null : fromEventRow(row));
   }
 
+  getDirtyBaselineApprover(taskId: string): Promise<string | null> {
+    const rows = this.db
+      .select()
+      .from(events)
+      .where(and(eq(events.taskId, taskId), eq(events.type, 'dirty_baseline_approved')))
+      .orderBy(asc(events.createdAt))
+      .all();
+    // The latest recorded approval wins (events are append-only; ADR-013).
+    const latest = rows.at(-1);
+    if (latest === undefined) {
+      return Promise.resolve(null);
+    }
+    const approvedBy = latest.payload['approvedBy'];
+    return Promise.resolve(typeof approvedBy === 'string' ? approvedBy : null);
+  }
+
   markUserFeedbackApplied(eventId: string, appliedAt: Date): Promise<void> {
     try {
       const event = this.db.select().from(events).where(eq(events.id, eventId)).get();
