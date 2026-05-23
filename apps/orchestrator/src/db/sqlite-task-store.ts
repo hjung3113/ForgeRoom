@@ -159,6 +159,21 @@ export class SqliteTaskStore implements TaskStore {
     return Promise.resolve();
   }
 
+  // ADR-013: the Reporter persists the per-task status-surface id here so a
+  // later re-delivery edits the same Discord message / GitHub comment.
+  setExternalRef(id: string, externalRef: Task['external_ref']): Promise<void> {
+    try {
+      this.db
+        .update(tasks)
+        .set({ externalRef, updatedAt: new Date().toISOString() })
+        .where(eq(tasks.id, id))
+        .run();
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+    return Promise.resolve();
+  }
+
   listActiveTasks(projectId?: string): Promise<Task[]> {
     const activeStatuses = ['running', 'paused'] as const;
     const rows =

@@ -68,6 +68,14 @@ export interface TaskStore {
    * it instead of creating a duplicate.
    */
   setPrNumber(id: string, prNumber: number): Promise<void>;
+  /**
+   * Persist the per-task status-surface ids (ADR-013) back onto
+   * `tasks.external_ref`. The Reporter mints the surface id on first delivery
+   * and re-uses it so re-delivery edits the same Discord message / GitHub
+   * comment instead of creating a duplicate. The composition root adapts the
+   * full TaskStore to the narrow {@link ReporterStore} via this method.
+   */
+  setExternalRef(id: string, externalRef: ExternalRef | null): Promise<void>;
   acquireProjectLock(projectId: string, taskId: string): Promise<boolean>;
   releaseProjectLock(projectId: string, taskId: string): Promise<void>;
   createStep(input: CreateStepInput): Promise<Step>;
