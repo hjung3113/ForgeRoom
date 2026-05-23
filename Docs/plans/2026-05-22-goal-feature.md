@@ -156,18 +156,18 @@ Tests:
 - `apps/orchestrator/src/utils/path-safety.test.ts`
 
 Tasks:
-- [ ] Write failing tests for typed errors, safe worktree path checks, and exported task/step/check/reporter types.
-- [ ] Run `pnpm test:unit -- --run apps/orchestrator/src/core/errors.test.ts apps/orchestrator/src/utils/path-safety.test.ts`; expected red: missing modules.
-- [ ] Add the minimal TypeScript toolchain and implementation files.
-- [ ] Run the same command; expected green.
-- [ ] Run `pnpm lint && pnpm typecheck && pnpm test:unit`; expected green.
+- [x] Write failing tests for typed errors, safe worktree path checks, and exported task/step/check/reporter types.
+- [x] Run `pnpm test:unit -- --run apps/orchestrator/src/core/errors.test.ts apps/orchestrator/src/utils/path-safety.test.ts`; expected red: missing modules.
+- [x] Add the minimal TypeScript toolchain and implementation files.
+- [x] Run the same command; expected green.
+- [x] Run `pnpm lint && pnpm typecheck && pnpm test:unit`; expected green.
 
 Acceptance checklist:
-- [ ] No production code exists without a preceding failing test.
-- [ ] TypeScript strict mode is enabled.
-- [ ] `core` does not import from `db`, `dsl`, or `gateway`.
-- [ ] Generated source, configs, and docs contain no incomplete planning language.
-- [ ] Context maps for touched folders list the new files accurately.
+- [x] No production code exists without a preceding failing test.
+- [x] TypeScript strict mode is enabled.
+- [x] `core` does not import from `db`, `dsl`, or `gateway`.
+- [x] Generated source, configs, and docs contain no incomplete planning language.
+- [x] Context maps for touched folders list the new files accurately.
 - [ ] Stage adversarial review completed and refinements applied.
 
 ## Stage 2: DSL, Intent, Agent, Harness, and Registry Validation
@@ -200,18 +200,18 @@ Tests:
 - `apps/orchestrator/src/core/harness-registry.test.ts`
 
 Tasks:
-- [ ] Red: tests reject intent config without `kind`, `agent`, or `harness`; agent config without `provider: openclaw`, `runtime`, `model`, or harness reference; harness config without an existing source.
-- [ ] Green: implement IntentRegistry, AgentRegistry, HarnessRegistry, and default config templates.
-- [ ] Red: tests reject workflow steps with direct `agent`, `kind`, `harness`, inline `prompt`, missing `effects`, invalid `review_loop.until`, unsafe `prompt_template`, unknown intent, and non-`${task.final_slices}` MVP foreach.
-- [ ] Green: implement parser and validation with clear error messages.
-- [ ] Refactor: keep parser, interpolation, foreach, and until logic in separate files.
+- [x] Red: tests reject intent config without `kind`, `agent`, or `harness`; agent config without `provider: openclaw`, `runtime`, `model`, or harness reference; harness config without an existing source.
+- [x] Green: implement IntentRegistry, AgentRegistry, HarnessRegistry, and default config templates.
+- [x] Red: tests reject workflow steps with direct `agent`, `kind`, `harness`, inline `prompt`, missing `effects`, invalid `review_loop.until`, unsafe `prompt_template`, unknown intent, and non-`${task.final_slices}` MVP foreach.
+- [x] Green: implement parser and validation with clear error messages.
+- [x] Refactor: keep parser, interpolation, foreach, and until logic in separate files.
 
 Acceptance checklist:
-- [ ] DSL behavior matches `Docs/concepts/workflow-dsl.md`.
-- [ ] `ResolvedStep` is derived from workflow step plus intent plus agent plus harness.
-- [ ] Output selectors are not implemented in `dsl/`; they are deferred to Stage 7 `PipelineEngine`.
-- [ ] WorkflowRegistry disables only unreferenced invalid workflows and fails startup for referenced invalid workflows.
-- [ ] ProjectRegistry validates `default_workflow`, `allowed_workflows`, absolute path, commands, and maintainers.
+- [x] DSL behavior matches `Docs/concepts/workflow-dsl.md`.
+- [x] `ResolvedStep` is derived from workflow step plus intent plus agent plus harness.
+- [x] Output selectors are not implemented in `dsl/`; they are deferred to Stage 7 `PipelineEngine`.
+- [x] WorkflowRegistry disables only unreferenced invalid workflows and fails startup for referenced invalid workflows.
+- [x] ProjectRegistry validates `default_workflow`, `allowed_workflows`, absolute path, commands, and maintainers.
 - [ ] Stage adversarial review completed and refinements applied.
 
 ## Stage 3: SQLite TaskStore and Domain Events
@@ -231,27 +231,27 @@ Tests:
 - `tests/integration/task-store-locks.test.ts`
 
 Tasks:
-- [ ] Red: tests prove one active task per project is enforced in SQLite.
-- [ ] Green: create schema, migration, and task CRUD.
-- [ ] Red: tests prove check rows are append-only by `check_fix_attempt`.
-- [ ] Green: implement check and step updates.
-- [ ] Red: tests prove event delivery retry fields persist and due deliveries are listed.
-- [ ] Green: implement event outbox methods.
-- [ ] Red: tests prove `createTask` plus project lock acquisition is atomic.
-- [ ] Green: wrap task start in a transaction.
-- [ ] Red: tests prove `updateStep` plus `step_done` event insertion is atomic.
-- [ ] Green: wrap step completion in a transaction.
-- [ ] Red: tests prove cancel updates task status, records `task_canceled`, and releases the project lock in one transaction.
-- [ ] Green: implement transactional cancel.
-- [ ] Red: tests prove conductor_state upsert, user_feedback `applied_at` markers, canonical failure reasons, `external_ref.status_comment_id`, and `external_ref.status_message_id` persist and reload.
-- [ ] Green: implement the missing persistence methods and JSON serialization.
-- [ ] Refactor: keep transaction boundaries explicit around task start, step completion, cancel, and lock release.
+- [x] Red: tests prove one active task per project is enforced in SQLite.
+- [x] Green: create schema, migration, and task CRUD.
+- [x] Red: tests prove check rows are append-only by `check_fix_attempt`.
+- [x] Green: implement check and step updates.
+- [x] Red: tests prove event delivery retry fields persist and due deliveries are listed.
+- [x] Green: implement event outbox methods.
+- [x] Red: tests prove `createTask` plus project lock acquisition is atomic.
+- [x] Green: wrap task start in a transaction.
+- [x] Red: tests prove `updateStep` plus `step_done` event insertion is atomic.
+- [x] Green: wrap step completion in a transaction.
+- [x] Red: tests prove cancel updates task status, records `task_canceled`, and releases the project lock in one transaction.
+- [x] Green: implement transactional cancel.
+- [x] Red: tests prove conductor_state upsert, user_feedback `applied_at` markers, canonical failure reasons, `external_ref.status_comment_id`, and `external_ref.status_message_id` persist and reload.
+- [x] Green: implement the missing persistence methods and JSON serialization.
+- [ ] Refactor: keep transaction boundaries explicit around task start, step completion, cancel, and lock release. Implemented, but DB file-size/role split remains open under the 300-line policy.
 
 Acceptance checklist:
-- [ ] Schema matches `Docs/concepts/data-model.md`.
-- [ ] TaskStore interface matches `Docs/modules/task-store.md`.
-- [ ] Integration tests use temporary SQLite files or `:memory:` only.
-- [ ] Transaction tests prove the invariants `PipelineEngine` depends on.
+- [x] Schema matches `Docs/concepts/data-model.md`.
+- [x] TaskStore interface matches `Docs/modules/task-store.md`.
+- [x] Integration tests use temporary SQLite files or `:memory:` only.
+- [x] Transaction tests prove the invariants `PipelineEngine` depends on.
 - [ ] Stage adversarial review completed and refinements applied.
 
 ## Stage 4: Worktree, Filesystem Seams, and ApprovalGate Safety
@@ -272,18 +272,18 @@ Tests:
 - `apps/orchestrator/src/utils/path-safety.test.ts`
 
 Tasks:
-- [ ] Red: worktree tests require idempotent `.forgeroom/` bootstrap with `context`, `context/docs`, `prompts`, `outputs`, `diffs`, and `logs`.
-- [ ] Green: implement WorktreeManager with injected git and file-system adapters.
-- [ ] Red: tests reject worktree creation on `main`, inside the target project path, outside allowed roots, or with secret paths.
-- [ ] Green: implement ApprovalGate file and workflow safety checks.
-- [ ] Red: tests reject dangerous commands including `git push --force`, `git reset --hard origin/...`, `rm -rf /`, secret path access, migration/reset commands, and `curl | sh`.
-- [ ] Green: implement command safety checks.
-- [ ] Refactor: keep filesystem and git operations outside direct `core` imports.
+- [x] Red: worktree tests require idempotent `.forgeroom/` bootstrap with `context`, `context/docs`, `prompts`, `outputs`, `diffs`, and `logs`.
+- [x] Green: implement WorktreeManager with injected git and file-system adapters.
+- [x] Red: tests reject worktree creation on `main`, inside the target project path, outside allowed roots, or with secret paths.
+- [x] Green: implement ApprovalGate file and workflow safety checks.
+- [x] Red: tests reject dangerous commands including `git push --force`, `git reset --hard origin/...`, `rm -rf /`, secret path access, migration/reset commands, and `curl | sh`.
+- [x] Green: implement command safety checks.
+- [x] Refactor: keep filesystem and git operations outside direct `core` imports.
 
 Acceptance checklist:
-- [ ] `core` consumes injected interfaces for git and filesystem behavior.
-- [ ] `.forgeroom/` bootstrap matches `Docs/concepts/prompt-file-protocol.md`.
-- [ ] Dangerous commands and secret paths are rejected before execution.
+- [x] `core` consumes injected interfaces for git and filesystem behavior.
+- [x] `.forgeroom/` bootstrap matches `Docs/concepts/prompt-file-protocol.md`.
+- [x] Dangerous commands and secret paths are rejected before execution.
 - [ ] Stage adversarial review completed and refinements applied.
 
 ## Stage 5: AgentRunner, OpenClawProvider, and Output Contract
