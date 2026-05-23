@@ -14,7 +14,8 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "db:migrate": "tsc -p tsconfig.build.json && node dist/db/migrate.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "dev:studio": "FORGEROOM_STUDIO=1 mastra dev --dir src/mastra"
   },
   "dependencies": {
     "@mastra/core": "1.36.0",
@@ -31,6 +32,7 @@
     "@types/node": "^25.9.1",
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.4.0",
+    "mastra": "1.10.0",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.4",
