@@ -700,18 +700,12 @@ export class MastraPipelineEngine implements PipelineEngine {
         };
         if (slices !== null) {
           // task.final_slices is initialised/updated from plan/refine slices.
-          //
-          // FOLLOW-UP (adapter, ADR-016): the adapter evaluates the `foreach`
-          // list expression at workflow BUILD time and captures the array
-          // reference into its list step. We therefore mutate the SAME array in
-          // place (splice) rather than reassigning, so the foreach list step
-          // (which executes at runtime, after the plan step) reads the
-          // runtime-populated slices. This array-identity coupling is a
-          // tactical bridge, NOT a durable seam: the adapter should evaluate the
-          // foreach list lazily in its list step instead. Flagged for a
-          // follow-up adapter change (and clashes with build-result caching).
+          // The adapter's foreach list step reads `interpolation.task.final_slices`
+          // LAZILY at iteration time (ADR-016 bind-time = runtime), so the engine
+          // simply reassigns the runtime list here. No in-place array mutation is
+          // needed: the list step holds no build-time snapshot to keep in sync.
           await this.deps.taskStore.updateTaskFinalSlices(task.id, slices);
-          interpolation.task.final_slices.splice(0, interpolation.task.final_slices.length, ...slices);
+          interpolation.task.final_slices = slices;
         }
 
         // Reporter notify fires AFTER the TaskStore/Conductor commit (ADR-013).
