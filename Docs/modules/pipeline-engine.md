@@ -160,6 +160,19 @@ TaskStore가 가리키는 다음 step이 정해지면:
 2. 불일치하거나 `mastra_run_id` null이면 → TaskStore pointer로 **신규 Mastra run 시작**. yaml workflow + TaskStore step rows로 동일 상태를 재구성한다.
 3. `.forgeroom/outputs/NN_<step_id>.md` 파일이 Mastra snapshot 출력과 불일치하면 파일을 권위로 보고 snapshot을 폐기한 뒤 신규 run을 시작한다.
 
+## Mastra runner 구현 메모 (#8)
+
+`apps/orchestrator/src/core/pipeline-engine.ts`의 `MastraPipelineEngine`이 위 인터페이스를 구현한다. 내부는 #6 어댑터(`toMastraWorkflow`)가 만든 Mastra workflow run을 감싼다.
+
+- `runFull`은 TaskSource의 유일한 진입점이다: task row 생성 → ApprovalGate admission(pre-Mastra) → WorktreeManager bootstrap → ForgeMap staging → 어댑터로 Mastra workflow build → `wf.createRun()` → `setMastraRunId`(run.start 이전, ADR-017) → `run.start()`.
+- ApprovalGate는 이중 배치다: pre-Mastra(workflow/worktree admission)와 in-step(AgentRunner 호출 직전 명령 검사, step body에서 fail). 둘 다 테스트로 커버한다.
+- `pause`는 협조적(cooperative)이다. 실행 중인 `run.start()`를 임의 step 사이에서 외부에서 선점할 수 없으므로(Mastra run이 실행 제어권을 가짐), pause는 의도를 기록하고 run이 실제 suspend(pauseAfterGate)로 resolve된 뒤에만 `status='paused'`로 전환한다. `paused`는 요청이 아니라 실제 suspension을 반영한다.
+- `resume`은 `mastra_run_id`가 있고 durable snapshot이 존재하면 `run.resume()`, 아니면 TaskStore pointer로 신규 run을 시작한다(#9가 full hybrid를 완성).
+- snapshot 영속은 InMemoryStore + 디스크 JSON bridge(OQ-M01에서 검증한 패턴, `FileSnapshotBridge`)로 한다. 프로세스 재시작 후 새 engine/store 인스턴스가 같은 dir에서 resume한다.
+- `Reporter`/`ForgeMap`은 아직 미구현이므로 `ReporterSink`/`ForgeMapStager` 최소 seam으로 주입한다. 실제 구현은 별도 issue.
+- `recoverPending`은 #9가 완성한다. #8에서는 active task를 열거하고 recovery deferred를 로깅하는 최소 placeholder다.
+- foreach list 평가 follow-up: 어댑터가 `${task.final_slices}`를 build 시점에 평가해 배열 reference를 캡처하므로, engine은 같은 배열을 in-place로 splice해 runtime slices를 흘려보낸다. 이는 임시 bridge이며, 어댑터가 list step에서 lazy 평가하도록 바꾸는 것이 옳다(별도 follow-up).
+
 ## 의존
 
 - WorkflowRegistry

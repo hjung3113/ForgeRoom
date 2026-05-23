@@ -1,0 +1,820 @@
+/**
+ * PipelineEngine — Mastra runner (#8).
+ *
+ * Public lifecycle (runFull/runNextStep/pause/resume/cancel/recoverPending) is
+ * stable; internally each task runs as a Mastra workflow built by the #6 adapter
+ * ({@link toMastraWorkflow}). The engine owns the collaborator seam the adapter's
+ * step bodies call (renderPrompt -> runAgent -> selector validation ->
+ * CheckRunner -> diff save -> Conductor.update -> Reporter), wiring the real
+ * AgentRunner / CheckRunner / Conductor / ApprovalGate / WorktreeManager and
+ * fakes for not-yet-built modules (Reporter / ForgeMap) behind small interfaces.
+ *
+ * Authority: SQLite TaskStore is authoritative; the Mastra run snapshot is
+ * auxiliary (ADR-017). `mastra_run_id` is recorded on the task row right after
+ * `wf.createRun()` and BEFORE `run.start()`, so a crashed process can be
+ * recovered (issue #9 completes the hybrid recovery).
+ */
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+
+import { Mastra } from '@mastra/core';
+import { InMemoryStore } from '@mastra/core/storage';
+import type { WorkflowRunState } from '@mastra/core/workflows';
+
+import type { AgentRunner } from './agent-runner.js';
+import type { ApprovalGate } from './approval-gate.js';
+import type { Conductor, ReporterEvent, StepResult, Task } from './types.js';
+import type { TaskStore, CreateTaskInput } from './task-store.js';
+import type { ProjectRegistry, ProjectMeta } from './project-registry.js';
+import type { IntentRegistry } from './intent-registry.js';
+import type { WorktreeManager } from './worktree-manager.js';
+import type { CheckRunnerRequest } from './check-runner.js';
+import type { CheckRunResult, Step } from './types.js';
+import { parseSlicesOutput, parseReviewPassedOutput } from './output-selectors.js';
+import { OrchestratorError, type OrchestratorFailureCode } from './errors.js';
+import {
+  parseForgeWorkflow,
+  toMastraWorkflow,
+  ReviewLoopMaxIterationsError,
+  type AdapterContext,
+  type AgentRunResult as AdapterAgentRunResult,
+  type InterpolatedInputs,
+  type InterpolationSource,
+  type ResolvedStep as AdapterResolvedStep,
+  type StepOutputView,
+} from '../dsl/to-mastra.js';
+import { AdapterValidationError } from '../dsl/dsl-errors.js';
+
+// ---------------------------------------------------------------------------
+// Public interface
+// ---------------------------------------------------------------------------
+
+export type TaskId = string;
+
+export interface TaskInput {
+  title: string;
+  description: string;
+  source: Task['source'];
+  externalRef?: Task['external_ref'];
+  issueNumber?: number | null;
+}
+
+export interface RunOpts {
+  workflowId?: string;
+  agentOverrides?: Record<string, string>;
+  vars?: Record<string, string>;
+}
+
+export interface PipelineEngine {
+  runFull(projectId: string, input: TaskInput, opts?: RunOpts): Promise<TaskId>;
+  runNextStep(taskId: TaskId): Promise<void>;
+  pause(taskId: TaskId): Promise<void>;
+  resume(taskId: TaskId): Promise<void>;
+  cancel(taskId: TaskId): Promise<void>;
+  recoverPending(): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Seams for not-yet-built modules (Reporter / ForgeMap) — issues own the real
+// implementations; tests inject fakes (per the #8 task brief).
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal Reporter seam. The real Reporter (separate issue) persists events to
+ * the events table and delivers to Discord/GitHub; here the engine only needs
+ * to fire notifications AFTER the TaskStore commit (ADR-013 ordering).
+ */
+export interface ReporterSink {
+  notify(event: ReporterEvent): Promise<void>;
+}
+
+/**
+ * Minimal ForgeMap seam. The real ForgeMap/ContextSelector (separate issue)
+ * stages selected-forgemap.md / target-profile.md / docs into the worktree
+ * `.forgeroom/context/`. Here the engine only needs the staging hook to run
+ * after worktree bootstrap and before the Mastra run starts.
+ */
+export interface ForgeMapStager {
+  stage(input: { taskId: string; worktreePath: string; projectId: string }): Promise<void>;
+}
+
+/**
+ * Source of workflow yaml. WorkflowRegistry validates structure; the adapter
+ * (#6) re-parses the raw yaml into its own typed view, so the engine resolves
+ * the yaml source for the chosen workflow id here. Tests supply yaml inline.
+ */
+export interface WorkflowSourceProvider {
+  /** The raw yaml document that defines `workflowId` (and possibly others). */
+  source(workflowId: string): string;
+}
+
+/** Pluggable Mastra storage + snapshot bridge (proven OQ-M01 pattern). */
+export interface MastraSnapshotBridge {
+  /** Read the durable snapshot for a run, or null when absent. */
+  load(runId: string): Promise<WorkflowRunState | null>;
+  /** Persist a snapshot so a fresh process/store can resume it. */
+  save(runId: string, workflowName: string, snapshot: WorkflowRunState): Promise<void>;
+}
+
+export interface PipelineEngineDeps {
+  projectRegistry: ProjectRegistry;
+  intentRegistry: IntentRegistry;
+  taskStore: TaskStore;
+  worktreeManager: WorktreeManager;
+  agentRunner: AgentRunner;
+  checkRunner: { run(request: CheckRunnerRequest): Promise<CheckRunResult> };
+  conductor: Conductor;
+  approvalGate: ApprovalGate;
+  reporter: ReporterSink;
+  forgeMap: ForgeMapStager;
+  workflowSource: WorkflowSourceProvider;
+  snapshotBridge: MastraSnapshotBridge;
+  /** Where worktrees may be created (passed to ApprovalGate worktree check). */
+  allowedWorktreeRoots: string[];
+  /** Resolves the absolute worktree path for a new task. */
+  worktreePathFor(input: { taskId: string; projectId: string; branch: string }): string;
+  /** Branch name for a new task. */
+  branchFor(input: { taskId: string; projectId: string; title: string }): string;
+  mastraVersion: string;
+  createTaskId?: () => string;
+  createStepRowId?: () => string;
+  createEventId?: () => string;
+  now?: () => Date;
+  /** Logger sink; defaults to stderr. */
+  log?: (line: string) => void;
+}
+
+export class GateAdmissionError extends OrchestratorError {
+  constructor(
+    message: string,
+    readonly category: string,
+    readonly gateReason: string,
+  ) {
+    // Admission denial is a workflow-level guard; surface it as git_conflict's
+    // sibling: there is no dedicated admission failure code, so callers treat
+    // this as a thrown error rather than a recorded failure_reason.
+    super('agent_error', message);
+    this.name = 'GateAdmissionError';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Default snapshot bridge: InMemoryStore + on-disk JSON (OQ-M01 proven path).
+// ---------------------------------------------------------------------------
+
+/**
+ * Couples a per-engine InMemoryStore with a disk directory of snapshot JSON.
+ * Cross-process resume rehydrates the store from disk before `run.resume()`.
+ * Production may swap a durable store; the seam keeps the engine agnostic.
+ */
+export class FileSnapshotBridge implements MastraSnapshotBridge {
+  constructor(private readonly dir: string) {}
+
+  async load(runId: string): Promise<WorkflowRunState | null> {
+    try {
+      const raw = await readFile(this.snapshotPath(runId), 'utf8');
+      const payload = JSON.parse(raw) as { snapshot: WorkflowRunState };
+      return payload.snapshot;
+    } catch {
+      return null;
+    }
+  }
+
+  async save(runId: string, workflowName: string, snapshot: WorkflowRunState): Promise<void> {
+    await mkdir(this.dir, { recursive: true });
+    await writeFile(this.snapshotPath(runId), JSON.stringify({ workflowName, runId, snapshot }));
+  }
+
+  private snapshotPath(runId: string): string {
+    return path.join(this.dir, `${runId}.json`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Engine
+// ---------------------------------------------------------------------------
+
+const MASTRA_WORKFLOW_DOMAIN = 'workflows';
+
+export class MastraPipelineEngine implements PipelineEngine {
+  private readonly deps: PipelineEngineDeps;
+  private readonly createTaskId: () => string;
+  private readonly createStepRowId: () => string;
+  private readonly createEventId: () => string;
+  private readonly now: () => Date;
+  private readonly log: (line: string) => void;
+  /** Cooperative pause intents keyed by task id (codex-confirmed mechanism). */
+  private readonly pauseRequested = new Set<string>();
+
+  constructor(deps: PipelineEngineDeps) {
+    this.deps = deps;
+    this.createTaskId = deps.createTaskId ?? randomUUID;
+    this.createStepRowId = deps.createStepRowId ?? randomUUID;
+    this.createEventId = deps.createEventId ?? randomUUID;
+    this.now = deps.now ?? (() => new Date());
+    this.log = deps.log ?? ((line) => process.stderr.write(`${line}\n`));
+  }
+
+  // -------------------------------------------------------------------------
+  // runFull — sole entry from TaskSources.
+  // -------------------------------------------------------------------------
+
+  async runFull(projectId: string, input: TaskInput, opts: RunOpts = {}): Promise<TaskId> {
+    const project = this.requireProject(projectId);
+    const workflowId = opts.workflowId ?? project.default_workflow;
+    if (!project.allowed_workflows.includes(workflowId)) {
+      throw new GateAdmissionError(
+        `workflow ${workflowId} not allowed for project ${projectId}`,
+        'workflow',
+        'workflow_not_allowed',
+      );
+    }
+
+    const taskId = this.createTaskId();
+    const branch = this.deps.branchFor({ taskId, projectId, title: input.title });
+    const worktreePath = this.deps.worktreePathFor({ taskId, projectId, branch });
+
+    // ApprovalGate admission (pre-Mastra). TaskSources cannot bypass this.
+    const worktreeDecision = this.deps.approvalGate.checkWorktreeCreation(
+      { branch, worktreePath, allowedWorktreeRoots: this.deps.allowedWorktreeRoots },
+      project,
+    );
+    if (!worktreeDecision.allowed) {
+      throw new GateAdmissionError(
+        `worktree creation denied: ${worktreeDecision.reason ?? 'unknown'}`,
+        worktreeDecision.category ?? 'workflow',
+        worktreeDecision.reason ?? 'denied',
+      );
+    }
+
+    // Create the authoritative task row (running) up front.
+    const createInput: CreateTaskInput = {
+      id: taskId,
+      project_id: projectId,
+      workflow_id: workflowId,
+      title: input.title,
+      description: input.description,
+      status: 'running',
+      source: input.source,
+      external_ref: input.externalRef ?? null,
+      issue_number: input.issueNumber ?? null,
+      branch_name: branch,
+      worktree_path: worktreePath,
+      pr_number: null,
+      final_slices: [],
+      vars: opts.vars ?? {},
+    };
+    const task = await this.deps.taskStore.startTask(createInput);
+
+    // WorktreeManager bootstrap (creates worktree + .forgeroom/ skeleton).
+    await this.deps.worktreeManager.create(task);
+    await this.deps.conductor.init(taskId);
+
+    // ForgeMap staging (real impl is a separate issue; seam runs here).
+    await this.deps.forgeMap.stage({ taskId, worktreePath, projectId });
+
+    await this.deps.reporter.notify({ type: 'task_started', task });
+
+    // Build the Mastra workflow via the #6 adapter and start the run.
+    await this.startRun({ task, project, opts });
+
+    return taskId;
+  }
+
+  // -------------------------------------------------------------------------
+  // runNextStep — run exactly the next executable step. In the Mastra model a
+  // single autonomous run advances to the next suspension/terminal point, so
+  // "next step" maps to resuming a suspended run (or starting one). Arbitrary
+  // step targeting is intentionally unsupported (pipeline-engine.md).
+  // -------------------------------------------------------------------------
+
+  async runNextStep(taskId: TaskId): Promise<void> {
+    await this.resume(taskId);
+  }
+
+  // -------------------------------------------------------------------------
+  // pause — cooperative. We cannot preempt a running `run.start()` mid-step;
+  // the only durable suspension points are the adapter's pauseAfterGate steps.
+  // So pause records intent and flips status to 'paused' once the run actually
+  // resolves at a checkpoint (codex-confirmed: paused must reflect real
+  // suspension, not requested suspension).
+  // -------------------------------------------------------------------------
+
+  async pause(taskId: TaskId): Promise<void> {
+    const task = await this.requireTask(taskId);
+    if (task.status !== 'running') {
+      return;
+    }
+    this.pauseRequested.add(taskId);
+    // If the run is already suspended at a gate, mark paused immediately.
+    const runId = await this.deps.taskStore.getMastraRunId(taskId);
+    if (runId !== null && (await this.deps.snapshotBridge.load(runId)) !== null) {
+      await this.deps.taskStore.updateTaskStatus(taskId, 'paused');
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // resume — flip to running, then either resume the suspended Mastra run or
+  // start a fresh reconstructed run (#9 completes the full hybrid; #8 covers
+  // the common suspended-snapshot case + an explicit fresh-run fallback).
+  // -------------------------------------------------------------------------
+
+  async resume(taskId: TaskId): Promise<void> {
+    const task = await this.requireTask(taskId);
+    if (task.status === 'canceled') {
+      throw new OrchestratorError('agent_error', `task ${taskId} is canceled and cannot be resumed`);
+    }
+    if (task.status === 'done' || task.status === 'failed') {
+      return;
+    }
+
+    this.pauseRequested.delete(taskId);
+    await this.deps.taskStore.updateTaskStatus(taskId, 'running');
+
+    const project = this.requireProject(task.project_id);
+    const runId = await this.deps.taskStore.getMastraRunId(taskId);
+
+    if (runId !== null && (await this.deps.snapshotBridge.load(runId)) !== null) {
+      await this.resumeRun({ task, project, runId });
+      return;
+    }
+
+    // Fresh run fallback: no usable snapshot → reconstruct from TaskStore.
+    await this.startRun({ task, project, opts: { vars: task.vars } });
+  }
+
+  // -------------------------------------------------------------------------
+  // cancel — immediate; preserves worktree/branch/PR (pipeline-engine.md).
+  // -------------------------------------------------------------------------
+
+  async cancel(taskId: TaskId): Promise<void> {
+    const task = await this.deps.taskStore.getTask(taskId);
+    if (task === null || task.status === 'canceled' || task.status === 'done' || task.status === 'failed') {
+      return;
+    }
+    this.pauseRequested.delete(taskId);
+    const eventId = this.createEventId();
+    await this.deps.taskStore.cancelTask(taskId, eventId, { reason: 'user_canceled' });
+    await this.deps.reporter.notify({ type: 'task_canceled', task: { ...task, status: 'canceled' } });
+  }
+
+  // -------------------------------------------------------------------------
+  // recoverPending — MINIMAL placeholder. Issue #9 owns the full hybrid
+  // recovery (TaskStore-authoritative step pointer vs. Mastra snapshot, file
+  // authority reconciliation per ADR-017). Here we only enumerate the tasks
+  // that need recovery and log that recovery is deferred so a restart does not
+  // silently lose them.
+  // -------------------------------------------------------------------------
+
+  async recoverPending(): Promise<void> {
+    // #9: replace this with the hybrid resume-vs-fresh-run reconstruction.
+    const active = await this.deps.taskStore.listActiveTasks();
+    for (const task of active) {
+      this.log(
+        `recoverPending: task ${task.id} (status=${task.status}, mastra_run_id=${
+          task.mastra_run_id ?? 'null'
+        }) recovery deferred to #9`,
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Internal: build + start a fresh Mastra run.
+  // -------------------------------------------------------------------------
+
+  private async startRun(input: { task: Task; project: ProjectMeta; opts: RunOpts }): Promise<void> {
+    const { task, project } = input;
+    const built = this.buildWorkflow({ task, project, opts: input.opts });
+    const { mastra, workflowName } = this.makeMastra(built.workflow);
+    const wf = mastra.getWorkflow(workflowName);
+
+    const run = await wf.createRun();
+    // ADR-017 / codex(94): record the run id BEFORE start() so a crash mid-run
+    // leaves a recoverable pointer.
+    await this.deps.taskStore.setMastraRunId(task.id, run.runId);
+
+    const result = await run.start({ inputData: {} });
+    await this.persistSnapshot(mastra, workflowName, run.runId);
+    await this.settle({ task, result: normalizeResult(result) });
+  }
+
+  private async resumeRun(input: { task: Task; project: ProjectMeta; runId: string }): Promise<void> {
+    const { task, project, runId } = input;
+    const built = this.buildWorkflow({ task, project, opts: { vars: task.vars } });
+    const { mastra, workflowName } = this.makeMastra(built.workflow);
+
+    // Rehydrate the durable snapshot into this fresh store before resuming.
+    const snapshot = await this.deps.snapshotBridge.load(runId);
+    if (snapshot === null) {
+      // Snapshot vanished between the check and here → fresh run.
+      await this.startRun({ task, project, opts: { vars: task.vars } });
+      return;
+    }
+    const store = await mastra.getStorage()?.getStore(MASTRA_WORKFLOW_DOMAIN);
+    if (store !== undefined && store !== null) {
+      await (store as WorkflowSnapshotStore).persistWorkflowSnapshot({
+        workflowName,
+        runId,
+        snapshot,
+      });
+    }
+
+    const wf = mastra.getWorkflow(workflowName);
+    const run = await wf.createRun({ runId });
+    const result = await run.resume({ resumeData: { resumed: true } });
+    await this.persistSnapshot(mastra, workflowName, runId);
+    await this.settle({ task, result: normalizeResult(result) });
+  }
+
+  /** Translate a Mastra run result into authoritative TaskStore status. */
+  private async settle(input: { task: Task; result: MastraRunResult }): Promise<void> {
+    const { task, result } = input;
+    if (result.status === 'success') {
+      this.pauseRequested.delete(task.id);
+      await this.deps.taskStore.updateTaskStatus(task.id, 'done');
+      return;
+    }
+    if (result.status === 'suspended') {
+      // A suspended run is a pause checkpoint regardless of whether the user
+      // explicitly requested it (pause_after gate or cooperative pause).
+      this.pauseRequested.delete(task.id);
+      await this.deps.taskStore.updateTaskStatus(task.id, 'paused');
+      return;
+    }
+    // failed: map adapter/runtime failure to a recorded failure_reason.
+    const reason = mapFailureReason(result.error);
+    await this.deps.taskStore.updateTaskStatus(task.id, 'failed', reason);
+    await this.deps.reporter.notify({
+      type: 'task_failed',
+      task: { ...task, status: 'failed', failure_reason: reason },
+      failure_reason: reason,
+    });
+  }
+
+  private async persistSnapshot(mastra: Mastra, workflowName: string, runId: string): Promise<void> {
+    const store = await mastra.getStorage()?.getStore(MASTRA_WORKFLOW_DOMAIN);
+    if (store === undefined || store === null) {
+      return;
+    }
+    const snapshot = await (store as WorkflowSnapshotStore).loadWorkflowSnapshot({ workflowName, runId });
+    if (snapshot !== null && snapshot !== undefined) {
+      await this.deps.snapshotBridge.save(runId, workflowName, snapshot);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Build the Mastra workflow + AdapterContext for a task.
+  // -------------------------------------------------------------------------
+
+  private buildWorkflow(input: { task: Task; project: ProjectMeta; opts: RunOpts }) {
+    const { task, project } = input;
+    const source = this.deps.workflowSource.source(task.workflow_id);
+    let parsed;
+    try {
+      parsed = parseForgeWorkflow(source, task.workflow_id);
+    } catch (error) {
+      if (error instanceof AdapterValidationError) {
+        // Adapter validation is a build failure (ADR-016); surface as-is.
+        throw error;
+      }
+      throw error;
+    }
+
+    const ctx = this.buildAdapterContext({ task, project, opts: input.opts });
+    return toMastraWorkflow(parsed, this.deps.intentRegistry, ctx);
+  }
+
+  private buildAdapterContext(input: {
+    task: Task;
+    project: ProjectMeta;
+    opts: RunOpts;
+  }): AdapterContext {
+    const { task, project } = input;
+    // Per-run mutable view of prior step outputs (filled as steps complete).
+    const stepOutputs: Record<string, StepOutputView> = {};
+    // Monotonic file-index counter for NN_<step_id>.md naming.
+    const stepCounter = { value: 0 };
+
+    const interpolation: InterpolationSource = {
+      task: {
+        title: task.title,
+        description: task.description,
+        project: task.project_id,
+        branch: task.branch_name,
+        worktree_path: task.worktree_path,
+        issue_number: task.issue_number === null ? '' : String(task.issue_number),
+        full_diff_path: path.join('.forgeroom', 'diffs', 'full.diff'),
+        final_slices: task.final_slices,
+      },
+      vars: { ...task.vars, ...(input.opts.vars ?? {}) },
+      stepOutputs,
+    };
+
+    const agentOverrides = input.opts.agentOverrides ?? {};
+
+    const collaborators = {
+      renderPrompt: async (resolved: AdapterResolvedStep, inputs: InterpolatedInputs): Promise<string> => {
+        const index = (stepCounter.value += 1);
+        const fileBase = `${pad2(index)}_${resolved.stepId}`;
+        const promptPath = path.join(task.worktree_path, '.forgeroom', 'prompts', `${fileBase}.md`);
+        // Conductor.refine augments the base prompt with task context. The base
+        // prompt for MVP is the resolved prompt template id plus interpolated
+        // input refs (the real template loader is owned elsewhere).
+        const base = renderBasePrompt(resolved, inputs);
+        const refined = await this.deps.conductor.refine(task.id, resolved.stepId, base);
+        await mkdir(path.dirname(promptPath), { recursive: true });
+        await writeFile(promptPath, refined);
+        // Remember the index for output/diff paths in runAgent.
+        promptIndex.set(resolved.mastraStepId, { index, fileBase });
+        return promptPath;
+      },
+
+      runAgent: async (
+        resolved: AdapterResolvedStep,
+        promptPath: string,
+        _inputs: InterpolatedInputs,
+      ): Promise<AdapterAgentRunResult> => {
+        const meta = promptIndex.get(resolved.mastraStepId);
+        const fileBase = meta?.fileBase ?? `${pad2(stepCounter.value)}_${resolved.stepId}`;
+        const outputPath = path.join(task.worktree_path, '.forgeroom', 'outputs', `${fileBase}.md`);
+        const stdoutPath = path.join(task.worktree_path, '.forgeroom', 'logs', `${fileBase}.stdout`);
+        const stderrPath = path.join(task.worktree_path, '.forgeroom', 'logs', `${fileBase}.stderr`);
+        const agentId = agentOverrides[resolved.agent] ?? resolved.agent;
+
+        // ApprovalGate in-step runtime check (ADR-016 dual placement): the
+        // headless agent message is a fixed read-prompt/write-output command.
+        const agentCommand = `read ${promptPath} && write ${outputPath}`;
+        const decision = this.deps.approvalGate.checkCommand(agentCommand, task.worktree_path);
+        if (!decision.allowed) {
+          throw new OrchestratorError(
+            'agent_error',
+            `in-step gate denied agent command for ${resolved.stepId}: ${decision.reason ?? 'denied'}`,
+          );
+        }
+
+        await mkdir(path.dirname(outputPath), { recursive: true });
+        const result = await this.deps.agentRunner.run({
+          agentId,
+          promptPath,
+          outputPath,
+          stdoutPath,
+          stderrPath,
+          cwd: task.worktree_path,
+          mode: 'headless',
+        });
+
+        if (result.failureKind !== undefined || !result.outputExists) {
+          throw new OrchestratorError(
+            result.failureKind ?? 'output_contract_failed',
+            `agent run failed for step ${resolved.stepId}`,
+          );
+        }
+
+        const output = await readFile(outputPath, 'utf8');
+        return { outputPath, output, diffPath: null };
+      },
+
+      runChecks: async (
+        resolved: AdapterResolvedStep,
+        run: AdapterAgentRunResult,
+      ): Promise<{ allPassed: boolean }> => {
+        // Record a step row for the CheckRunner to update (it patches by id).
+        const step = await this.recordStepRow({ task, resolved, run });
+        const result = await this.deps.checkRunner.run({ task, step, project });
+        return { allPassed: result.allPassed };
+      },
+
+      saveDiff: async (_resolved: AdapterResolvedStep, run: AdapterAgentRunResult): Promise<string | null> => {
+        return run.diffPath;
+      },
+
+      conductorUpdate: async (resolved: AdapterResolvedStep, run: AdapterAgentRunResult): Promise<void> => {
+        const stepResult: StepResult = {
+          stepId: resolved.stepId,
+          promptPath: promptIndex.get(resolved.mastraStepId)?.fileBase ?? resolved.stepId,
+          outputPath: run.outputPath,
+          diffPath: run.diffPath,
+          status: 'done',
+        };
+        // Conductor.update is synchronous (ADR-016): summary/feedback committed
+        // before this resolves, so a later suspend snapshot finds them.
+        await this.deps.conductor.update(task.id, stepResult);
+
+        // Update the in-run interpolation view so downstream steps can read it.
+        let slices: string[] | null;
+        try {
+          slices = parseSlicesOutput(run.output);
+        } catch {
+          slices = null;
+        }
+        let passed: boolean | undefined;
+        if (resolved.kind === 'review') {
+          try {
+            passed = parseReviewPassedOutput(run.output);
+          } catch {
+            passed = undefined;
+          }
+        }
+        stepOutputs[resolved.stepId] = {
+          output: run.output,
+          output_path: run.outputPath,
+          diff_path: run.diffPath,
+          ...(passed === undefined ? {} : { passed }),
+          ...(slices === null ? {} : { slices }),
+        };
+        if (slices !== null) {
+          // task.final_slices is initialised/updated from plan/refine slices.
+          //
+          // FOLLOW-UP (adapter, ADR-016): the adapter evaluates the `foreach`
+          // list expression at workflow BUILD time and captures the array
+          // reference into its list step. We therefore mutate the SAME array in
+          // place (splice) rather than reassigning, so the foreach list step
+          // (which executes at runtime, after the plan step) reads the
+          // runtime-populated slices. This array-identity coupling is a
+          // tactical bridge, NOT a durable seam: the adapter should evaluate the
+          // foreach list lazily in its list step instead. Flagged for a
+          // follow-up adapter change (and clashes with build-result caching).
+          await this.deps.taskStore.updateTaskFinalSlices(task.id, slices);
+          interpolation.task.final_slices.splice(0, interpolation.task.final_slices.length, ...slices);
+        }
+
+        // Reporter notify fires AFTER the TaskStore/Conductor commit (ADR-013).
+        await this.deps.reporter.notify({
+          type: 'step_done',
+          task,
+          step: makeReporterStep(task, resolved, run, this.createStepRowId, this.now),
+        });
+      },
+
+      suspend: async (_resolved: AdapterResolvedStep): Promise<void> => {
+        // The adapter gate calls this just before Mastra `suspend()`. Nothing
+        // else to commit here; Conductor.update already flushed.
+        await Promise.resolve();
+      },
+    };
+
+    const promptIndex = new Map<string, { index: number; fileBase: string }>();
+
+    return {
+      interpolation,
+      collaborators,
+      selectors: {
+        parseSlices: (output: string): string[] => parseSlicesOutput(output),
+        parseReviewPassed: (output: string): boolean => parseReviewPassedOutput(output),
+      },
+    };
+  }
+
+  private async recordStepRow(input: {
+    task: Task;
+    resolved: AdapterResolvedStep;
+    run: AdapterAgentRunResult;
+  }): Promise<Step> {
+    const { task, resolved, run } = input;
+    const now = this.now();
+    const step: Step = {
+      id: this.createStepRowId(),
+      task_id: task.id,
+      step_id: resolved.stepId,
+      parent_step_id: null,
+      iteration: 0,
+      agent_id: resolved.agent,
+      status: 'running',
+      failure_reason: null,
+      attempt: 1,
+      check_fix_attempt: 0,
+      check_status: 'not_run',
+      prompt_path: '',
+      output_path: run.outputPath,
+      diff_path: run.diffPath,
+      exit_code: 0,
+      started_at: now,
+      finished_at: null,
+    };
+    return this.deps.taskStore.createStep(step);
+  }
+
+  private makeMastra(workflow: unknown): { mastra: Mastra; workflowName: string } {
+    // The committed workflow carries its own id; register it by that id.
+    const workflowName = (workflow as { id: string }).id;
+    const mastra = new Mastra({
+      storage: new InMemoryStore(),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      workflows: { [workflowName]: workflow as any },
+      logger: false,
+    });
+    return { mastra, workflowName };
+  }
+
+  private requireProject(projectId: string): ProjectMeta {
+    const project = this.deps.projectRegistry.get(projectId);
+    if (project === null) {
+      throw new OrchestratorError('agent_error', `unknown project: ${projectId}`);
+    }
+    return project;
+  }
+
+  private async requireTask(taskId: string): Promise<Task> {
+    const task = await this.deps.taskStore.getTask(taskId);
+    if (task === null) {
+      throw new OrchestratorError('agent_error', `unknown task: ${taskId}`);
+    }
+    return task;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+interface MastraRunResult {
+  status: 'success' | 'suspended' | 'failed';
+  result?: unknown;
+  error?: unknown;
+  suspended?: unknown;
+}
+
+/**
+ * Normalize a Mastra `run.start()/resume()` result into the three statuses the
+ * engine acts on. Mastra also has a `tripwire` status (a guard short-circuit);
+ * we treat it as a failure so it records a failure_reason rather than silently
+ * completing.
+ */
+function normalizeResult(result: { status: string; error?: unknown; result?: unknown }): MastraRunResult {
+  if (result.status === 'success' || result.status === 'suspended') {
+    return { status: result.status, result: result.result };
+  }
+  return { status: 'failed', error: result.error };
+}
+
+interface WorkflowSnapshotStore {
+  loadWorkflowSnapshot(input: {
+    workflowName: string;
+    runId: string;
+  }): Promise<WorkflowRunState | null>;
+  persistWorkflowSnapshot(input: {
+    workflowName: string;
+    runId: string;
+    snapshot: WorkflowRunState;
+  }): Promise<void>;
+}
+
+function pad2(n: number): string {
+  return n.toString().padStart(2, '0');
+}
+
+function renderBasePrompt(resolved: AdapterResolvedStep, inputs: InterpolatedInputs): string {
+  const lines = [`# Step: ${resolved.stepId}`, `Template: ${resolved.promptTemplate}`, ''];
+  const refs = Object.entries(inputs.input_refs);
+  if (refs.length > 0) {
+    lines.push('## Inputs');
+    for (const [k, v] of refs) {
+      lines.push(`- ${k}: ${String(v)}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function makeReporterStep(
+  task: Task,
+  resolved: AdapterResolvedStep,
+  run: AdapterAgentRunResult,
+  createId: () => string,
+  now: () => Date,
+): Step {
+  return {
+    id: createId(),
+    task_id: task.id,
+    step_id: resolved.stepId,
+    parent_step_id: null,
+    iteration: 0,
+    agent_id: resolved.agent,
+    status: 'done',
+    failure_reason: null,
+    attempt: 1,
+    check_fix_attempt: 0,
+    check_status: 'not_run',
+    prompt_path: '',
+    output_path: run.outputPath,
+    diff_path: run.diffPath,
+    exit_code: 0,
+    started_at: now(),
+    finished_at: now(),
+  };
+}
+
+function mapFailureReason(error: unknown): OrchestratorFailureCode {
+  if (error instanceof ReviewLoopMaxIterationsError) {
+    return 'review_loop_max_iterations';
+  }
+  if (error instanceof AdapterValidationError) {
+    // adapter_validation_failed is not in core's union (#6 flag); map to the
+    // closest runtime code at the boundary rather than promoting the union.
+    return 'output_contract_failed';
+  }
+  if (error instanceof OrchestratorError) {
+    return error.code;
+  }
+  return 'agent_error';
+}
