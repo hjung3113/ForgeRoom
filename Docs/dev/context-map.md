@@ -15,6 +15,8 @@ and how it is gated off in production. Not product specs, not ADRs.
 | File | Role |
 |---|---|
 | `studio.md` | Mastra Studio dev visualization: launch, what's visible, OQ-M04 trace coverage, navigating to `.forgeroom/` files |
+| `openclaw-e2e.md` | Real OpenClawProvider e2e harness: env/credentials, fake-CLI vs live runtime, CLI argv/marker convention |
+| `integration-setup.md` | End-to-end live setup: OpenClaw runtime + Discord bot + GitHub token/labels, env vars, `start` + verification steps |
 
 ## Related docs
 
