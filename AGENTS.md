@@ -18,6 +18,15 @@ Required reading for anyone (human or agent) working in this repo.
 - **Never bypass hooks** (`--no-verify`). If a hook fails, fix the root cause.
 - **Keep context bounded.** During doc work, avoid broad raw reads; follow [Docs/rules/doc-rules.md](Docs/rules/doc-rules.md#context-budget).
 
+## Task execution defaults
+
+Applies to every task unless told otherwise:
+
+- **TDD** — failing test first, then implement.
+- **Discuss with codex** — grill design/decisions with codex via cmux split pane (not `codex exec`); surface only <80%-confidence items. See [docs/agents/codex-discussion.md](docs/agents/codex-discussion.md).
+- **Track via GitHub Issues** — pick up by issue, work the issue, reference it in commits/PR.
+- **On completion** — commit, then open a PR (never push to `main`).
+
 ## Rule documents (must read)
 
 | Area | File |
