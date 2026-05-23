@@ -30,6 +30,12 @@ import {
   type ForgeMapStager,
   type PipelineEngineDeps,
 } from './pipeline-engine.js';
+import {
+  PullRequestCreator,
+  type PullRequestClient,
+  type PullRequestRef,
+} from './pull-request-creator.js';
+import type { ReporterEvent } from './types.js';
 
 const INTENTS = {
   write_plan: { kind: 'write_plan', agent: 'planner', harness: 'planning' },
@@ -303,5 +309,144 @@ describe('MastraPipelineEngine.resume guards', () => {
     });
     expect(await d.taskStore.getMastraRunId(taskId)).toBeTruthy();
     expect((await d.taskStore.getTask(taskId))?.status).toBe('failed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// External-effect phase: PR creation (ADR-019, #29)
+// ---------------------------------------------------------------------------
+
+const PR_NONE_YAML = `
+mvp:
+  description: t
+  effects:
+    worktree: modifies
+    external: { report: status, pr: none }
+  steps:
+    - type: run
+      id: plan
+      intent: write_plan
+      prompt_template: plan.md
+`;
+
+interface FakePr {
+  client: PullRequestClient;
+  calls: { create: number; update: number; find: number };
+}
+
+function fakePrClient(opts: { find?: PullRequestRef | null; create?: PullRequestRef; fail?: boolean } = {}): FakePr {
+  const calls = { create: 0, update: 0, find: 0 };
+  const client: PullRequestClient = {
+    createPR: async () => {
+      calls.create += 1;
+      if (opts.fail) {
+        throw new Error('boom');
+      }
+      return opts.create ?? { number: 321, url: 'https://gh/pull/321' };
+    },
+    updatePR: async () => {
+      calls.update += 1;
+    },
+    findOpenPRByHead: async () => {
+      calls.find += 1;
+      return opts.find ?? null;
+    },
+  };
+  return { client, calls };
+}
+
+function capturingReporter(into: ReporterEvent[]): Reporter {
+  return {
+    notify: async (e: ReporterEvent): Promise<void> => {
+      into.push(e);
+    },
+    flushUndelivered: async (): Promise<void> => Promise.resolve(),
+  };
+}
+
+const prTarget = (): { owner: string; repo: string; base: string } => ({
+  owner: 'acme',
+  repo: 'widget',
+  base: 'main',
+});
+
+describe('MastraPipelineEngine PR external-effect phase (ADR-019)', () => {
+  it('does not run the PR effect when effects.external.pr is none', async () => {
+    const { client, calls } = fakePrClient();
+    const events: ReporterEvent[] = [];
+    const d = deps({
+      workflowSource: { source: (): string => PR_NONE_YAML },
+      pullRequestCreator: new PullRequestCreator({ client, sleep: async () => {} }),
+      prTargetFor: prTarget,
+      reporter: capturingReporter(events),
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    expect((await d.taskStore.getTask(taskId))?.status).toBe('done');
+    expect(calls.create).toBe(0);
+    expect(events.some((e) => e.type === 'pr_created')).toBe(false);
+  });
+
+  it('creates a PR, persists pr_number, and emits pr_created on success', async () => {
+    const { client, calls } = fakePrClient({ create: { number: 77, url: 'u77' } });
+    const events: ReporterEvent[] = [];
+    const d = deps({
+      pullRequestCreator: new PullRequestCreator({ client, sleep: async () => {} }),
+      prTargetFor: prTarget,
+      reporter: capturingReporter(events),
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+    expect(task?.pr_number).toBe(77);
+    expect(calls.create).toBe(1);
+    const prEvent = events.find((e) => e.type === 'pr_created');
+    expect(prEvent).toMatchObject({ type: 'pr_created', pr_number: 77, pr_url: 'u77' });
+  });
+
+  it('fails the task with pr_create_failed after 3 failed attempts', async () => {
+    const { client, calls } = fakePrClient({ fail: true });
+    const d = deps({
+      pullRequestCreator: new PullRequestCreator({ client, sleep: async () => {} }),
+      prTargetFor: prTarget,
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('failed');
+    expect(task?.failure_reason).toBe('pr_create_failed');
+    expect(calls.create).toBe(3);
+  });
+
+  it('does not double-create the PR across a recoverPending replay', async () => {
+    // One fake client across both the original run and the replay.
+    const pr = fakePrClient({ create: { number: 88, url: 'u88' } });
+    const d = deps({
+      pullRequestCreator: new PullRequestCreator({ client: pr.client, sleep: async () => {} }),
+      prTargetFor: prTarget,
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+    expect((await d.taskStore.getTask(taskId))?.pr_number).toBe(88);
+    expect(pr.calls.create).toBe(1);
+
+    // Simulate a crash before `done` was observed: drop the auxiliary Mastra run
+    // pointer and re-mark the task active, then recover. recoverPending starts a
+    // FRESH run, the PR effect re-reads the persisted pr_number, and reuses it
+    // (update, not create) — so no duplicate PR.
+    await d.taskStore.setMastraRunId(taskId, null);
+    await d.taskStore.updateTaskStatus(taskId, 'running');
+
+    await engine.recoverPending();
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+    expect(task?.pr_number).toBe(88);
+    expect(pr.calls.create).toBe(1); // still only the original create
+    expect(pr.calls.update).toBe(1); // replay reused via update
   });
 });
