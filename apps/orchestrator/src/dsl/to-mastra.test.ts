@@ -278,6 +278,68 @@ describe('toMastraWorkflow — foreach', () => {
     expect(result.status).toBe('success');
     expect(boundSlices).toEqual(['slice-a', 'slice-b']);
   });
+
+  it('resolves the foreach list LAZILY at runtime, not at build time', async () => {
+    // The list is empty at BUILD time and only populated (as the engine does
+    // from a prior plan step) AFTER the workflow is built. A build-time capture
+    // would iterate the empty array; a lazy read sees the runtime values.
+    const parsed = parseForgeWorkflow(FOREACH_YAML, 'slices_wf');
+    const boundSlices: unknown[] = [];
+    const { ctx } = makeCtx();
+    ctx.interpolation.task.final_slices = [];
+    ctx.collaborators.renderPrompt = async (_resolved, vars) => {
+      boundSlices.push(vars.vars.slice);
+      return 'p';
+    };
+
+    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+
+    // Populate the list AFTER the build (simulating the runtime plan step).
+    ctx.interpolation.task.final_slices = ['runtime-1', 'runtime-2', 'runtime-3'];
+
+    const mastra = new Mastra({ workflows: { wf: built.workflow }, storage: new MockStore() });
+    const run = await mastra.getWorkflow('wf').createRun();
+    const result = await run.start({ inputData: {} });
+    expect(result.status).toBe('success');
+    expect(boundSlices).toEqual(['runtime-1', 'runtime-2', 'runtime-3']);
+  });
+
+  it('does NOT leak slices across two runs of a cached/reused built workflow', async () => {
+    // Build ONCE (cached), then run the SAME built workflow twice with two
+    // different runtime slice lists. A build-time array snapshot inside the
+    // foreach list step would bleed run A's slices into run B; a lazy read of
+    // the current interpolation source binds only the run's own list.
+    const parsed = parseForgeWorkflow(FOREACH_YAML, 'slices_wf');
+    const { ctx } = makeCtx();
+    const boundSlices: unknown[] = [];
+    ctx.collaborators.renderPrompt = async (_resolved, vars) => {
+      boundSlices.push(vars.vars.slice);
+      return 'p';
+    };
+
+    const cache = new Map<string, ReturnType<typeof toMastraWorkflow>>();
+    const build = (): ReturnType<typeof toMastraWorkflow> => toMastraWorkflow(parsed, INTENTS, ctx);
+    const cacheParts = { yamlSource: FOREACH_YAML, intentsSource: 'i', mastraVersion: '1.36.0' };
+
+    // Run A: list = [a1, a2].
+    const builtA = buildMastraWorkflowCached(cacheParts, cache, build);
+    ctx.interpolation.task.final_slices = ['a1', 'a2'];
+    const mastraA = new Mastra({ workflows: { wf: builtA.workflow }, storage: new MockStore() });
+    const runA = await mastraA.getWorkflow('wf').createRun();
+    expect((await runA.start({ inputData: {} })).status).toBe('success');
+    expect(boundSlices).toEqual(['a1', 'a2']);
+
+    // Run B reuses the SAME cached built workflow with a different list.
+    const builtB = buildMastraWorkflowCached(cacheParts, cache, build);
+    expect(builtB).toBe(builtA); // proves the workflow object was reused, not rebuilt
+    boundSlices.length = 0;
+    ctx.interpolation.task.final_slices = ['b1', 'b2', 'b3'];
+    const mastraB = new Mastra({ workflows: { wf: builtB.workflow }, storage: new MockStore() });
+    const runB = await mastraB.getWorkflow('wf').createRun();
+    expect((await runB.start({ inputData: {} })).status).toBe('success');
+    // No bleed: run B sees ONLY its own slices.
+    expect(boundSlices).toEqual(['b1', 'b2', 'b3']);
+  });
 });
 
 describe('toMastraWorkflow — review_loop', () => {
