@@ -96,6 +96,7 @@ function makeTask() {
     pr_number: null,
     final_slices: [] as string[],
     vars: {},
+    mastra_run_id: null,
     created_at: new Date('2026-05-22T00:00:00.000Z'),
     updated_at: new Date('2026-05-22T00:00:00.000Z'),
   } as const;
