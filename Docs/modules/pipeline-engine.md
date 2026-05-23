@@ -117,6 +117,18 @@ MVP에서 `task.final_slices` 갱신 규칙:
 - findings/body는 구조화하지 않고 refine agent가 review 파일을 직접 읽어 해석한다.
 - findings schema와 부분 추출은 Forge Phase 2의 output contract 확장 후보로 둔다.
 
+## yaml DSL → Mastra 어댑터 (ADR-016 구현 메모)
+
+`apps/orchestrator/src/dsl/to-mastra.ts`가 parsed workflow + Intent Catalog를 Mastra `createWorkflow()` 객체로 변환한다. 구현 세부:
+
+- `type: run` → `.then(workerStep)`. worker body 순서: prompt render → AgentRunner.run → output/selector 검증 → CheckRunner(`kind: execute`만) → diff 저장 → Conductor.update.
+- `pause_after: true` → worker 뒤에 `${intent}:${step}:pauseAfterGate` step을 append하고, suspend는 gate body에서 호출한다 (Conductor.update는 suspend 이전 완료).
+- `type: group` + `foreach` → `${id}:items` 매핑 step으로 list를 산출한 뒤 `.foreach(itemStep, { concurrency: 1 })`. itemStep은 그룹 내부 step들을 한 iteration 안에서 순차 실행하고 `as` 식별자를 step input으로 바인딩한다. 내부 step의 `pause_after`는 itemStep body 안에서 native suspend로 처리한다 (OQ-M02 outcome a).
+- `type: review_loop` → `${id}:seed` → `.dountil(loopStep, condition)` → `${id}:verify`. iteration은 OQ-M01 결과(native 미노출)에 따라 loopStep input/output schema로 thread한다. condition은 `inputData.passed`와 1-based `iterationCount`만 읽고, budget 소진 시 throw하지 않고 loop를 멈춘 뒤 verify step이 `review_loop_max_iterations`로 run을 실패시킨다 (condition throw는 run을 reject로 만들기 때문).
+- output selector(`${step}.output.slices`, `${step}.passed`)는 worker body 안에서 주입된 parser로 파싱하고 step output(`StepExecution`)으로 반환해 `.dountil` condition과 downstream step으로 흐르게 한다.
+- 어댑터 validate 실패는 `AdapterValidationError`(`failure_reason=adapter_validation_failed`)로 격상한다. catch 대상: unknown intent, missing prompt_template, invalid `until`/`review.passed`, review intent가 `kind: review`가 아님.
+- 빌드 결과는 `sha256(mastraVersion + intentsSource + yamlSource)` 키로 캐시하며, yaml/intents/Mastra 버전 변경 시 무효화한다.
+
 ## 정지·재개
 
 - 기본 실행 모드는 autonomous run. workflow가 끝나거나 실패하거나 pause checkpoint를 만날 때까지 다음 step을 계속 실행
