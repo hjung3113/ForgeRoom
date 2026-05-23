@@ -91,6 +91,24 @@ export interface ConductorState {
   last_updated: Date;
 }
 
+export interface StepResult {
+  stepId: string;
+  promptPath: string;
+  outputPath: string;
+  diffPath: string | null;
+  status: StepStatus;
+}
+
+export interface Conductor {
+  init(taskId: string): Promise<void>;
+  // ADR-016: synchronous — summary.md/feedback.md are committed to disk before
+  // the returned promise resolves, so a later Mastra suspend/resume finds them.
+  update(taskId: string, stepResult: StepResult): Promise<void>;
+  integrateFeedback(taskId: string): Promise<void>;
+  refine(taskId: string, stepId: string, basePrompt: string): Promise<string>;
+  answer(taskId: string, question: string): Promise<string>;
+}
+
 export interface EventDelivery {
   id: string;
   event_id: string;

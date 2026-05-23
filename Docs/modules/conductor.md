@@ -105,6 +105,12 @@ step이 성공적으로 완료됐으면 이번 step에 반영된 Pending feedbac
 
 MVP AgentRunRequest에는 provider별 per-call permission profile을 넣지 않는다. Conductor scope 방어는 post-run diff 검사와 revert를 기본으로 한다. Provider capability 기반 사전 차단은 Forge Phase 2에서 재검토한다.
 
+위반 판정은 `(호출 후 변경 집합) − (호출 전 변경 집합) − {summary.md, feedback.md}`로 계산한다. 호출 전부터 dirty했던 파일은 revert 대상이 아니다. tracked 파일은 `git restore --source=HEAD --worktree`로 복원하고, untracked 파일은 삭제한다. Conductor 자신의 파일 기반 프롬프트 산출물(`.forgeroom/prompts/conductor/`, `.forgeroom/outputs/conductor/`, `.forgeroom/logs/`)은 위반으로 보지 않는다.
+
+### feedback.md Pending→Applied 전이는 코드 소유
+
+`Pending`→`Applied` 전이는 LLM 출력에 의존하지 않고 Conductor 코드가 결정한다(섹션 파싱 후 라인 이동). consuming step이 `done`으로 끝난 `update` 호출에서만 Pending 항목을 `[step: <step_id>]` marker와 함께 Applied로 이동한다. step이 실패하면 Pending을 유지한다. LLM은 summary 서사 갱신만 담당한다. 이로써 전이가 결정적이고 테스트 가능하다.
+
 ## 에이전트 슬롯
 
 `configs/agents.yaml`의 `conductor:` 블록에서 정의. 기본: Claude.
