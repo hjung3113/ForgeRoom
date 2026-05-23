@@ -53,7 +53,9 @@ agent 실행 → CheckRunner (kind:execute일 때) → diff 저장 → **Conduct
 
 ### iteration 인덱스 (review_loop)
 
-Mastra `.dountil()`이 step body에 iteration counter를 노출하는지는 MVP 스파이크 전까지 불확실(OQ-M01 참조). 어댑터는 loopStep input에 `{iteration, passed, prevOutputPath}`를 명시적으로 thread한다. iteration은 ForgeRoom 파일명 규칙(`07_slice_review.0.md`)과 step row의 `iteration` 컬럼에 그대로 반영한다.
+**OQ-M01 스파이크로 확인됨 (`@mastra/core@1.36.0`, 결과 (b)):** Mastra `.dountil()`은 iteration counter를 step body에 노출하지 **않는다**. `iterationCount`는 `.dountil()` condition predicate에만 주입되며 (loop ceiling 용도), step `execute` payload·`getStepResult`·`requestContext` 어디에도 들어오지 않는다. 따라서 어댑터는 loopStep input/output schema에 `{iteration, passed, prevOutputPath}`를 명시적으로 thread한다. iteration은 ForgeRoom 파일명 규칙(`07_slice_review.0.md`)과 step row의 `iteration` 컬럼에 그대로 반영한다.
+
+manual thread 채널은 step input/output으로 한다(`setState`/`state`도 가능하나 불필요): condition이 이미 `inputData.passed`를 읽으므로(위 "Output selector 위치" 참조) `iteration`을 같은 경로에 두면 데이터 흐름이 하나로 유지된다. mid-loop suspend 후 별도 프로세스에서 resume해도 threaded counter가 보존됨을 스파이크가 확인했다 (snapshot round-trip). 검증: `Docs/spikes/2026-05-23-oq-m01-dountil-iteration.md`.
 
 ### 검증
 
@@ -73,6 +75,7 @@ WorkflowRegistry.load → workflow-parser → **to-mastra adapter validate** →
 - ADR-013 TaskSource/Reporter boundaries (Reporter 호출 위치 보존)
 - ADR-015 Mastra workflow primitives 채택
 - ADR-017 TaskStore = 권위, Mastra snapshot = 보조
+- OQ-M01 스파이크 `Docs/spikes/2026-05-23-oq-m01-dountil-iteration.md` (iteration 인덱스 결정 근거)
 - `Docs/concepts/workflow-dsl.md`
 - `Docs/concepts/prompt-file-protocol.md`
 - `Docs/modules/pipeline-engine.md`
