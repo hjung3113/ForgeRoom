@@ -34,6 +34,12 @@ import type { CheckRunResult, Step } from './types.js';
 import { parseSlicesOutput, parseReviewPassedOutput } from './output-selectors.js';
 import { OrchestratorError, type OrchestratorFailureCode } from './errors.js';
 import {
+  PullRequestCreateFailedError,
+  type PullRequestCreator,
+  type PullRequestEffectRequest,
+} from './pull-request-creator.js';
+import type { WorkflowPrEffect } from './workflow-registry.js';
+import {
   parseForgeWorkflow,
   toMastraWorkflow,
   ReviewLoopMaxIterationsError,
@@ -108,6 +114,19 @@ export interface MastraSnapshotBridge {
   save(runId: string, workflowName: string, snapshot: WorkflowRunState): Promise<void>;
 }
 
+/**
+ * GitHub coordinates for a task's PR external effect (ADR-019). Resolved by the
+ * composition root (#30) — core never derives owner/repo from `ProjectMeta`
+ * (which is provider-agnostic). `null` means the project has no PR target
+ * configured, so the effect is skipped even when `effects.external.pr != none`.
+ */
+export interface PullRequestTarget {
+  owner: string;
+  repo: string;
+  /** Base branch the PR merges into. */
+  base: string;
+}
+
 export interface PipelineEngineDeps {
   projectRegistry: ProjectRegistry;
   intentRegistry: IntentRegistry;
@@ -127,6 +146,15 @@ export interface PipelineEngineDeps {
   forgeMap: ForgeMapStager;
   workflowSource: WorkflowSourceProvider;
   snapshotBridge: MastraSnapshotBridge;
+  /**
+   * PR external effect (ADR-019). Runs after workflow/check success and before
+   * task `done`, only when the workflow's `effects.external.pr != none` AND a PR
+   * target is resolved. Both are optional so projects/workflows without PR
+   * automation (and existing tests) need no wiring; the gateway-backed
+   * PullRequestCreator + target resolver are wired at the composition root (#30).
+   */
+  pullRequestCreator?: PullRequestCreator;
+  prTargetFor?: (input: { task: Task; project: ProjectMeta }) => PullRequestTarget | null;
   /** Where worktrees may be created (passed to ApprovalGate worktree check). */
   allowedWorktreeRoots: string[];
   /** Resolves the absolute worktree path for a new task. */
@@ -468,7 +496,7 @@ export class MastraPipelineEngine implements PipelineEngine {
 
     const result = await run.start({ inputData: {} });
     await this.persistSnapshot(mastra, workflowName, run.runId);
-    await this.settle({ task, result: normalizeResult(result) });
+    await this.settle({ task, project, result: normalizeResult(result), prEffect: built.prEffect });
   }
 
   private async resumeRun(input: { task: Task; project: ProjectMeta; runId: string }): Promise<void> {
@@ -496,14 +524,33 @@ export class MastraPipelineEngine implements PipelineEngine {
     const run = await wf.createRun({ runId });
     const result = await run.resume({ resumeData: { resumed: true } });
     await this.persistSnapshot(mastra, workflowName, runId);
-    await this.settle({ task, result: normalizeResult(result) });
+    await this.settle({ task, project, result: normalizeResult(result), prEffect: built.prEffect });
   }
 
   /** Translate a Mastra run result into authoritative TaskStore status. */
-  private async settle(input: { task: Task; result: MastraRunResult }): Promise<void> {
-    const { task, result } = input;
+  private async settle(input: {
+    task: Task;
+    project: ProjectMeta;
+    result: MastraRunResult;
+    prEffect: WorkflowPrEffect;
+  }): Promise<void> {
+    const { task, project, result, prEffect } = input;
     if (result.status === 'success') {
       this.pauseRequested.delete(task.id);
+      // External-effect phase (ADR-019): after workflow/check success, before
+      // task done. PR creation is task-critical — a final failure fails the task.
+      try {
+        await this.runPullRequestEffect({ task, project, prEffect });
+      } catch (error) {
+        const reason = mapFailureReason(error);
+        await this.deps.taskStore.updateTaskStatus(task.id, 'failed', reason);
+        await this.deps.reporter.notify({
+          type: 'task_failed',
+          task: { ...task, status: 'failed', failure_reason: reason },
+          failure_reason: reason,
+        });
+        return;
+      }
       await this.deps.taskStore.updateTaskStatus(task.id, 'done');
       return;
     }
@@ -521,6 +568,82 @@ export class MastraPipelineEngine implements PipelineEngine {
       type: 'task_failed',
       task: { ...task, status: 'failed', failure_reason: reason },
       failure_reason: reason,
+    });
+  }
+
+  /**
+   * Workflow external effect (ADR-019): create or reuse the task's PR.
+   *
+   * Runs only when `effects.external.pr != none`, a {@link PullRequestCreator}
+   * is wired, and the project resolves a {@link PullRequestTarget}. The current
+   * `pr_number` is re-read from the authoritative store (not the pre-run task
+   * snapshot) so a recoverPending() replay reuses the existing PR instead of
+   * double-creating. On success the engine persists `pr_number` and emits
+   * `pr_created` (Reporter delivers; the engine does NOT touch PR comments). A
+   * final failure propagates so {@link settle} fails the task with
+   * `pr_create_failed`.
+   */
+  private async runPullRequestEffect(input: {
+    task: Task;
+    project: ProjectMeta;
+    prEffect: WorkflowPrEffect;
+  }): Promise<void> {
+    const { task, project, prEffect } = input;
+    if (prEffect === 'none') {
+      return;
+    }
+    const creator = this.deps.pullRequestCreator;
+    const target = this.deps.prTargetFor?.({ task, project }) ?? null;
+    if (creator === undefined || target === null) {
+      this.log(
+        `pr-effect: task ${task.id} effects.external.pr=${prEffect} but ${
+          creator === undefined ? 'no PullRequestCreator wired' : 'no PR target resolved'
+        }; skipping`,
+      );
+      return;
+    }
+
+    // Re-read the authoritative pr_number (idempotency across replays).
+    const current = await this.deps.taskStore.getTask(task.id);
+    const prNumber = current?.pr_number ?? null;
+
+    const request: PullRequestEffectRequest = {
+      taskId: task.id,
+      prNumber,
+      owner: target.owner,
+      repo: target.repo,
+      head: task.branch_name,
+      base: target.base,
+      title: task.title,
+      body: task.description,
+      draft: prEffect === 'draft',
+    };
+
+    let result;
+    try {
+      result = await creator.ensure(request);
+    } catch (error) {
+      // Normalise to a typed failure so settle records pr_create_failed.
+      if (error instanceof PullRequestCreateFailedError) {
+        throw error;
+      }
+      throw new PullRequestCreateFailedError(
+        `PR external effect failed for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`,
+        0,
+        error instanceof Error ? { cause: error } : undefined,
+      );
+    }
+
+    // Persist pr_number (no-op write if unchanged) then emit pr_created so the
+    // Reporter best-effort updates the PR surface (ADR-019).
+    if (result.ref.number !== prNumber) {
+      await this.deps.taskStore.setPrNumber(task.id, result.ref.number);
+    }
+    await this.deps.reporter.notify({
+      type: 'pr_created',
+      task: { ...task, pr_number: result.ref.number },
+      pr_number: result.ref.number,
+      pr_url: result.ref.url,
     });
   }
 
@@ -554,7 +677,8 @@ export class MastraPipelineEngine implements PipelineEngine {
     }
 
     const ctx = this.buildAdapterContext({ task, project, opts: input.opts });
-    return toMastraWorkflow(parsed, this.deps.intentRegistry, ctx);
+    const built = toMastraWorkflow(parsed, this.deps.intentRegistry, ctx);
+    return { ...built, prEffect: parsed.effects.external.pr };
   }
 
   private buildAdapterContext(input: {
