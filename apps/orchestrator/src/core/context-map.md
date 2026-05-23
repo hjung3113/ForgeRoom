@@ -14,6 +14,7 @@ The business logic of ForgeRoom: workflow execution, agent orchestration, worktr
 | File | Module | Spec |
 |---|---|---|
 | `pipeline-engine.ts` | PipelineEngine | [Docs/modules/pipeline-engine.md](../../../../Docs/modules/pipeline-engine.md) |
+| `pipeline-executor.ts` | PipelineEngine run/group/review_loop execution internals | [Docs/modules/pipeline-engine.md](../../../../Docs/modules/pipeline-engine.md) |
 | `pipeline-lifecycle.ts` | PipelineEngine pause, resume, and cancel state transitions | [Docs/modules/pipeline-engine.md](../../../../Docs/modules/pipeline-engine.md) |
 | `conductor.ts` | Conductor | [Docs/modules/conductor.md](../../../../Docs/modules/conductor.md) |
 | `agent-runner.ts` | AgentRunner (delegates to OpenClaw) | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |

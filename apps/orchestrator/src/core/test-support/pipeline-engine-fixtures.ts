@@ -1,12 +1,15 @@
 import type { AgentRunRequest, AgentRunResult, AgentRunner, AgentRunnerResumeRequest } from '../agent-runner';
 import type { CheckRunnerRequest } from '../check-runner';
 import type { AgentRunFailureKind } from '../agent-runner';
-import { DefaultPipelineEngine, type PipelineArtifactStore } from '../pipeline-engine';
+import { DefaultPipelineEngine } from '../pipeline-engine';
+import type { PipelineArtifactStore } from '../pipeline-executor';
 import type { ProjectMeta } from '../project-registry';
 import type { CreateStepInput, CreateTaskInput, TaskStore } from '../task-store';
 import type { Step, Task } from '../types';
 import type { ParsedWorkflow, ResolvedStep } from '../workflow-registry';
 import type { WorktreeHandle } from '../worktree-manager';
+import { step } from './pipeline-task-fixtures';
+export { task } from './pipeline-task-fixtures';
 
 export function makePipelineHarness(
   options: {
@@ -94,12 +97,14 @@ export class FakeTaskStore
       TaskStore,
       | 'createTask'
       | 'getTask'
+      | 'listActiveTasks'
       | 'acquireProjectLock'
       | 'releaseProjectLock'
       | 'createStep'
       | 'updateStep'
       | 'updateTaskStatus'
       | 'updateTaskFinalSlices'
+      | 'listSteps'
       | 'cancelTask'
     >
 {
@@ -134,6 +139,10 @@ export class FakeTaskStore
     return Promise.resolve(this.tasks.get(id) ?? null);
   }
 
+  listActiveTasks(): Promise<Task[]> {
+    return Promise.resolve([...this.tasks.values()].filter((task) => task.status === 'running' || task.status === 'paused'));
+  }
+
   acquireProjectLock(projectId: string, taskId: string): Promise<boolean> {
     this.lockRequests.push({ projectId, taskId });
     return Promise.resolve(true);
@@ -147,6 +156,10 @@ export class FakeTaskStore
   createStep(input: CreateStepInput): Promise<Step> {
     this.createdSteps.push(input);
     return Promise.resolve(input);
+  }
+
+  listSteps(taskId: string): Promise<Step[]> {
+    return Promise.resolve(this.createdSteps.filter((step) => step.task_id === taskId));
   }
 
   updateStep(id: string, patch: Partial<Step>): Promise<void> {
@@ -187,6 +200,14 @@ export class FakeTaskStore
     if (task !== undefined) {
       this.tasks.set(id, { ...task, status });
     }
+  }
+
+  seedTask(seed: Task): void {
+    this.tasks.set(seed.id, seed);
+  }
+
+  seedStep(seed: Partial<Step> & Pick<Step, 'task_id' | 'step_id' | 'status'>): void {
+    this.createdSteps.push(step(seed));
   }
 }
 

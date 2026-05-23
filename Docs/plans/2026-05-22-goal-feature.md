@@ -101,6 +101,23 @@ Refinement applied:
 - Stage 9: Reporter, DiscordGateway, GitHubGateway, and PR-ready handoff
 - Stage 10: End-to-end verification, final reviews, and user review request
 
+## MVP Implementation Status Snapshot (2026-05-23)
+
+This section tracks the current branch implementation against the planned MVP. It is intentionally factual: implemented means code and tests exist on this branch; not implemented means the design remains planned or only partially scaffolded.
+
+| Area | Status | Evidence / Gap |
+|---|---|---|
+| Stage 1 Toolchain and shared contracts | Implemented | TypeScript, lint, Vitest, core types/errors, and path-safety tests exist. |
+| Stage 2 DSL, intent, agent, harness, registry validation | Implemented | Workflow, project, intent, agent, and harness registry tests pass; output selector evaluation remains outside `dsl/`. |
+| Stage 3 SQLite TaskStore and domain events | Implemented with follow-up refactor needed | SQLite store covers tasks, locks, steps, checks, events, deliveries, conductor state, cancel, and `final_slices`; `sqlite-task-store.ts` and its test still exceed the 300-line stage policy and need role splitting. |
+| Stage 4 Worktree, filesystem seams, ApprovalGate safety | Implemented | Worktree bootstrap, command/file/worktree safety checks, and injected git/filesystem seams exist. |
+| Stage 5 AgentRunner, OpenClawProvider, output contract | Implemented | OpenClaw provider, AgentRunner retry/timeout/resume/sessionless fallback tests pass. |
+| Stage 6 CheckRunner and check-fix contract | Implemented | Command runner, CheckRunner, check-fix attempt 0/1, timeout, command-not-found, and failure-after-fix tests pass. |
+| Stage 7 PipelineEngine execution, selectors, loops, lifecycle, recovery | Mostly implemented | `runFull`, run/group execution, `final_slices`, review result parsing, review_loop max-iteration failure, pause/resume/cancel, recoverPending, and cancel lock integration exist. Semantic selector retry through `AgentRunner.resume` for invalid `## Slices` / `Review Result` remains not implemented. Recovery coverage is currently simple top-level run-step recovery, not full nested review_loop reconstruction. |
+| Stage 8 ForgeMap and Conductor context staging | Not implemented | No ForgeMap store, ContextSelector staging, Conductor scope guard, or `/ask` answer boundary implementation yet. |
+| Stage 9 Reporter, DiscordGateway, GitHubGateway, PR-ready handoff | Not implemented | Reporter/gateway/PR handoff tests and adapters are still planned. |
+| Stage 10 End-to-end verification and user review request | Not implemented | No fake full/quick/hotfix e2e, no real/manual credential checklist execution, and no final review request yet. |
+
 ## TDD Policy
 
 - Red command: run the narrowest Vitest target for the new behavior before production code exists.
@@ -354,29 +371,29 @@ Tests:
 - `tests/integration/pipeline-engine.test.ts`
 
 Tasks:
-- [ ] Red: tests prove `runFull` creates task, lock, worktree, initial context, and first prompt.
-- [ ] Green: implement `runFull` with dependency injection.
-- [ ] Red: tests parse `## Slices` from plan/refine outputs inside `PipelineEngine` or a `core` helper only.
-- [ ] Green: implement `task.final_slices` selector parsing and validation.
-- [ ] Red: tests parse exact `Review Result: pass/fail` headers inside `PipelineEngine` or a `core` helper only.
-- [ ] Green: implement review result selector parsing and output contract retry.
-- [ ] Red: tests prove `implementation_plan` slices initialize `task.final_slices`, `refine_plan` always refreshes them, and zero slices fail with `output_contract_failed`.
-- [ ] Green: implement selector evaluation and final slice state.
-- [ ] Red: tests prove review_loop max iterations fail with `review_loop_max_iterations`.
-- [ ] Green: implement review_loop control rows and child step execution.
-- [ ] Red: tests prove pause, resume, cancel, and recoverPending transitions.
-- [ ] Green: implement lifecycle methods.
-- [ ] Red: integration tests prove cancel releases the project lock and a queued task for the same project can proceed.
-- [ ] Green: connect PipelineEngine cancel to TaskStore transactional cancel.
-- [ ] Red: integration tests prove `recoverPending` resumes from a done step, restarts a running step, leaves failed tasks for user decision, and never resumes canceled tasks.
-- [ ] Green: implement recovery decisions.
-- [ ] Refactor: extract step execution helpers if `pipeline-engine.ts` approaches the file-size guideline.
+- [x] Red: tests prove `runFull` creates task, lock, worktree, initial context, and first prompt.
+- [x] Green: implement `runFull` with dependency injection.
+- [x] Red: tests parse `## Slices` from plan/refine outputs inside `PipelineEngine` or a `core` helper only.
+- [x] Green: implement `task.final_slices` selector parsing and validation.
+- [x] Red: tests parse exact `Review Result: pass/fail` headers inside `PipelineEngine` or a `core` helper only.
+- [ ] Green: implement review result selector parsing and output contract retry. Current state parses review results, but semantic selector retry via `AgentRunner.resume` is not implemented.
+- [x] Red: tests prove `implementation_plan` slices initialize `task.final_slices`, `refine_plan` always refreshes them, and zero slices fail with `output_contract_failed`.
+- [x] Green: implement selector evaluation and final slice state.
+- [x] Red: tests prove review_loop max iterations fail with `review_loop_max_iterations`.
+- [x] Green: implement review_loop control rows and child step execution.
+- [x] Red: tests prove pause, resume, cancel, and recoverPending transitions.
+- [x] Green: implement lifecycle methods.
+- [x] Red: integration tests prove cancel releases the project lock and a queued task for the same project can proceed.
+- [x] Green: connect PipelineEngine cancel to TaskStore transactional cancel.
+- [x] Red: integration tests prove `recoverPending` resumes from a done step, restarts a running step, leaves failed tasks for user decision, and never resumes canceled tasks. Current coverage is top-level run-step recovery; nested review_loop reconstruction remains a documented gap.
+- [x] Green: implement recovery decisions.
+- [x] Refactor: extract step execution helpers if `pipeline-engine.ts` approaches the file-size guideline.
 
 Acceptance checklist:
-- [ ] `PipelineEngine` responsibilities match `Docs/modules/pipeline-engine.md`.
-- [ ] `kind: execute` is the only CheckRunner trigger.
-- [ ] Canceled tasks do not resume.
-- [ ] `PipelineEngine` owns workflow output selector semantics; `dsl/` does not.
+- [ ] `PipelineEngine` responsibilities match `Docs/modules/pipeline-engine.md`. Mostly true; semantic selector retry and nested review_loop recovery are still gaps.
+- [x] `kind: execute` is the only CheckRunner trigger.
+- [x] Canceled tasks do not resume.
+- [x] `PipelineEngine` owns workflow output selector semantics; `dsl/` does not.
 - [ ] Stage adversarial review completed and refinements applied.
 
 ## Stage 8: ForgeMap and Conductor Context
