@@ -62,6 +62,12 @@ export interface TaskStore {
   getMastraRunId(taskId: string): Promise<string | null>;
   setMastraRunId(taskId: string, mastraRunId: string | null): Promise<void>;
   updateTaskFinalSlices(id: string, finalSlices: string[]): Promise<void>;
+  /**
+   * Persist the PR number resolved by the PR external effect (ADR-019). Set
+   * once an open PR is created or discovered so a recoverPending() replay reuses
+   * it instead of creating a duplicate.
+   */
+  setPrNumber(id: string, prNumber: number): Promise<void>;
   acquireProjectLock(projectId: string, taskId: string): Promise<boolean>;
   releaseProjectLock(projectId: string, taskId: string): Promise<void>;
   createStep(input: CreateStepInput): Promise<Step>;

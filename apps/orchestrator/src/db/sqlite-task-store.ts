@@ -144,6 +144,21 @@ export class SqliteTaskStore implements TaskStore {
     return Promise.resolve();
   }
 
+  // ADR-019: persist the PR number resolved by the PR external effect so a
+  // recoverPending() replay reuses the same PR instead of double-creating.
+  setPrNumber(id: string, prNumber: number): Promise<void> {
+    try {
+      this.db
+        .update(tasks)
+        .set({ prNumber, updatedAt: new Date().toISOString() })
+        .where(eq(tasks.id, id))
+        .run();
+    } catch (error) {
+      return Promise.reject(toTaskStoreError(error));
+    }
+    return Promise.resolve();
+  }
+
   listActiveTasks(projectId?: string): Promise<Task[]> {
     const activeStatuses = ['running', 'paused'] as const;
     const rows =
