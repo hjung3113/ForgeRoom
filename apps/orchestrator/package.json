@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
+    "db:migrate": "tsc -p tsconfig.build.json && node dist/db/migrate.js",
     "lint": "eslint ."
   },
   "dependencies": {
