@@ -158,6 +158,25 @@ export interface ReporterSink {
   deliver(event: ReporterEvent): Promise<void>;
 }
 
+/**
+ * What a TaskSource (Discord/GitHub gateway) produces and hands to the
+ * orchestrator (ADR-013). The composition root maps this onto
+ * `PipelineEngine.runFull(projectId, TaskInput, RunOpts)`. Kept self-contained
+ * here (no import from pipeline-engine.ts) so `core/types.ts` stays
+ * dependency-free and gateways can consume it (gateway -> core).
+ */
+export interface TaskRequest {
+  projectId: string;
+  /** Selected workflow id within the project's allowed_workflows; omit for project default. */
+  workflowId?: string;
+  title: string;
+  description: string;
+  source: Task['source'];
+  externalRef?: ExternalRef | null;
+  issueNumber?: number | null;
+  vars?: Record<string, string>;
+}
+
 export function isTaskStatus(value: string): value is TaskStatus {
   return TASK_STATUSES.includes(value as TaskStatus);
 }
