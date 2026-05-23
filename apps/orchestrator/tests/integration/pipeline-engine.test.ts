@@ -27,7 +27,7 @@ import { HarnessRegistry } from '../../src/core/harness-registry.js';
 import { ApprovalGate } from '../../src/core/approval-gate.js';
 import type { AgentRunner, AgentRunResult } from '../../src/core/agent-runner.js';
 import type { CheckRunResult } from '../../src/core/types.js';
-import type { Conductor, ReporterEvent, StepResult } from '../../src/core/types.js';
+import type { Conductor, Reporter, ReporterEvent, StepResult } from '../../src/core/types.js';
 import type { CheckRunnerRequest } from '../../src/core/check-runner.js';
 import type { Task } from '../../src/core/types.js';
 import {
@@ -35,7 +35,6 @@ import {
   FileSnapshotBridge,
   type ForgeMapStager,
   type PipelineEngineDeps,
-  type ReporterSink,
   type WorkflowSourceProvider,
 } from '../../src/core/pipeline-engine.js';
 
@@ -250,7 +249,8 @@ async function setup(yaml: string, outputs: Record<string, string>): Promise<{
 
   const worktreePathRef = { path: '' };
   const agentRunner = makeFakeAgentRunner(() => worktreePathRef.path, agentCalls, outputs);
-  const reporter: ReporterSink = {
+  const reporter: Reporter = {
+    flushUndelivered: (): Promise<void> => Promise.resolve(),
     notify: async (event): Promise<void> => {
       reporterEvents.push(event);
       return Promise.resolve();

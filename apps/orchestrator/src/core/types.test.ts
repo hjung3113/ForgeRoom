@@ -60,14 +60,14 @@ describe('core shared types', () => {
     const delivered: ReporterEvent[] = [];
     const sink: ReporterSink = {
       destination: 'discord',
-      deliver: (reporterEvent) => {
-        delivered.push(reporterEvent);
-        return Promise.resolve();
+      deliver: (request) => {
+        delivered.push(request.event);
+        return Promise.resolve({ surface: request.surface });
       },
     };
     const reporter: Reporter = {
       notify: async (reporterEvent) => {
-        await sink.deliver(reporterEvent);
+        await sink.deliver({ event: reporterEvent, surface: null });
       },
       flushUndelivered: () => Promise.resolve(),
     };

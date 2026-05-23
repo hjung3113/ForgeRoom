@@ -30,14 +30,13 @@ import { HarnessRegistry } from '../../src/core/harness-registry.js';
 import { ApprovalGate } from '../../src/core/approval-gate.js';
 import type { AgentRunner, AgentRunResult } from '../../src/core/agent-runner.js';
 import type { CheckRunResult } from '../../src/core/types.js';
-import type { Conductor, ReporterEvent, StepResult, Task } from '../../src/core/types.js';
+import type { Conductor, Reporter, ReporterEvent, StepResult, Task } from '../../src/core/types.js';
 import type { CheckRunnerRequest } from '../../src/core/check-runner.js';
 import {
   MastraPipelineEngine,
   FileSnapshotBridge,
   type ForgeMapStager,
   type PipelineEngineDeps,
-  type ReporterSink,
   type WorkflowSourceProvider,
 } from '../../src/core/pipeline-engine.js';
 
@@ -290,7 +289,8 @@ async function setup(yaml: string): Promise<Harness> {
   const reviewState = { calls: 0 };
 
   const agentRunner = makeFakeAgentRunner(agentCalls, { plan: PLAN_OUTPUT }, reviewState);
-  const reporter: ReporterSink = {
+  const reporter: Reporter = {
+    flushUndelivered: (): Promise<void> => Promise.resolve(),
     notify: async (event): Promise<void> => {
       reporterEvents.push(event);
       return Promise.resolve();

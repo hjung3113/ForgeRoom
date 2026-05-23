@@ -22,14 +22,13 @@ import { AgentRegistry } from './agent-registry.js';
 import { HarnessRegistry } from './harness-registry.js';
 import { ApprovalGate, type GateDecision } from './approval-gate.js';
 import type { AgentRunner, AgentRunResult } from './agent-runner.js';
-import type { CheckRunResult, Conductor, StepResult, Task } from './types.js';
+import type { CheckRunResult, Conductor, Reporter, StepResult, Task } from './types.js';
 import {
   MastraPipelineEngine,
   FileSnapshotBridge,
   GateAdmissionError,
   type ForgeMapStager,
   type PipelineEngineDeps,
-  type ReporterSink,
 } from './pipeline-engine.js';
 
 const INTENTS = {
@@ -146,7 +145,10 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     refine: async (_t: string, _s: string, base: string): Promise<string> => base,
     answer: async (): Promise<string> => 'ok',
   };
-  const reporter: ReporterSink = { notify: async (): Promise<void> => Promise.resolve() };
+  const reporter: Reporter = {
+    notify: async (): Promise<void> => Promise.resolve(),
+    flushUndelivered: async (): Promise<void> => Promise.resolve(),
+  };
   const forgeMap: ForgeMapStager = { stage: async (): Promise<void> => Promise.resolve() };
   const worktreeManager = {
     create: async (task: Task): Promise<{ path: string; branch: string }> => {

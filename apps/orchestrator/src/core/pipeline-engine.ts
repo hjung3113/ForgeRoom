@@ -24,7 +24,7 @@ import type { WorkflowRunState } from '@mastra/core/workflows';
 
 import type { AgentRunner } from './agent-runner.js';
 import type { ApprovalGate } from './approval-gate.js';
-import type { Conductor, ReporterEvent, StepResult, Task } from './types.js';
+import type { Conductor, Reporter, StepResult, Task } from './types.js';
 import type { TaskStore, CreateTaskInput } from './task-store.js';
 import type { ProjectRegistry, ProjectMeta } from './project-registry.js';
 import type { IntentRegistry } from './intent-registry.js';
@@ -81,15 +81,6 @@ export interface PipelineEngine {
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal Reporter seam. The real Reporter (separate issue) persists events to
- * the events table and delivers to Discord/GitHub; here the engine only needs
- * to fire notifications AFTER the TaskStore commit (ADR-013 ordering).
- */
-export interface ReporterSink {
-  notify(event: ReporterEvent): Promise<void>;
-}
-
-/**
  * Minimal ForgeMap seam. The real ForgeMap/ContextSelector (separate issue)
  * stages selected-forgemap.md / target-profile.md / docs into the worktree
  * `.forgeroom/context/`. Here the engine only needs the staging hook to run
@@ -126,7 +117,13 @@ export interface PipelineEngineDeps {
   checkRunner: { run(request: CheckRunnerRequest): Promise<CheckRunResult> };
   conductor: Conductor;
   approvalGate: ApprovalGate;
-  reporter: ReporterSink;
+  /**
+   * Reporter facade (ADR-013): the engine fires `notify(event)` AFTER the
+   * authoritative TaskStore commit. The real OutboxReporter lives in
+   * `reporter.ts`; tests inject a fake. (`flushUndelivered` is part of the
+   * contract but only the composition root / restart path calls it.)
+   */
+  reporter: Reporter;
   forgeMap: ForgeMapStager;
   workflowSource: WorkflowSourceProvider;
   snapshotBridge: MastraSnapshotBridge;
