@@ -37,3 +37,7 @@ ForgeRoom orchestrator는 Discord WebSocket gateway, GitHub API polling, 다중 
 
 - 단일 머신 한계 도달 시 Go re-evaluation
 - 빌드 시간이 문제 되면 esbuild·swc 도입 검토
+
+## 갱신
+
+- Node 런타임 baseline은 `>=22.13.0` (ADR-018). Mastra(ADR-015) 채택이 동인.
