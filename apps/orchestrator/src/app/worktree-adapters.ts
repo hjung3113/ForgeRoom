@@ -8,12 +8,9 @@
  * `app/` as concrete wiring rather than in `core/`.
  */
 import { access, mkdir, writeFile } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 
 import type { WorktreeFileSystem, WorktreeGitClient } from '../core/worktree-manager.js';
-
-const execFileAsync = promisify(execFile);
+import { GitCli } from './git-cli.js';
 
 /** Source repo a worktree path resolves to (cwd + base branch for `git worktree add`). */
 export interface WorktreeRepoTarget {
@@ -28,29 +25,32 @@ export interface GitCliWorktreeClientOptions {
    * this resolver maps it back to the repo (see worktree-naming.ts).
    */
   resolveRepo(worktreePath: string): WorktreeRepoTarget;
+  git?: GitCli;
 }
 
 export class GitCliWorktreeClient implements WorktreeGitClient {
   private readonly resolveRepo: (worktreePath: string) => WorktreeRepoTarget;
+  private readonly git: GitCli;
 
   constructor(options: GitCliWorktreeClientOptions) {
     this.resolveRepo = options.resolveRepo;
+    this.git = options.git ?? new GitCli();
   }
 
   async worktreeExists(worktreePath: string): Promise<boolean> {
     const { repoPath } = this.resolveRepo(worktreePath);
-    const { stdout } = await execFileAsync('git', ['worktree', 'list', '--porcelain'], {
-      cwd: repoPath,
-    });
-    return stdout.split('\n').some((line) => line === `worktree ${worktreePath}`);
+    return this.git.worktreeExists({ cwd: repoPath, path: worktreePath });
   }
 
   async createWorktree(input: { path: string; branch: string }): Promise<void> {
     const { repoPath, baseBranch } = this.resolveRepo(input.path);
     // -b creates the branch off the project base branch; the worktree dir is
     // created by git. ApprovalGate has already cleared the path/branch.
-    await execFileAsync('git', ['worktree', 'add', '-b', input.branch, input.path, baseBranch], {
+    await this.git.worktreeAddBranch({
       cwd: repoPath,
+      branch: input.branch,
+      path: input.path,
+      base: baseBranch,
     });
   }
 }
