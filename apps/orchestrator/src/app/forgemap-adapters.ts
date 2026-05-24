@@ -14,9 +14,6 @@
  * This keeps the stage hook honestly wired (it produces a valid, near-empty
  * `.forgeroom/context/`) without the missing map-builder.
  */
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
 import type {
   ForgeMapRecord,
   ForgeMapStore,
@@ -28,16 +25,21 @@ import type {
 import type { TaskStore } from '../core/task-store.js';
 import type { WorkflowRegistry } from '../core/workflow-registry.js';
 import type { ProjectRegistry } from '../core/project-registry.js';
-
-const execFileAsync = promisify(execFile);
+import { GitCli } from './git-cli.js';
 
 export class GitCliRepoStateProbe implements RepoStateProbe {
+  private readonly git: GitCli;
+
+  constructor(options: { git?: GitCli } = {}) {
+    this.git = options.git ?? new GitCli();
+  }
+
   async head(repoPath: string): Promise<{ commit: string; dirty: boolean }> {
-    const [{ stdout: rev }, { stdout: status }] = await Promise.all([
-      execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoPath }),
-      execFileAsync('git', ['status', '--porcelain'], { cwd: repoPath }),
+    const [commit, status] = await Promise.all([
+      this.git.revParseHead(repoPath),
+      this.git.statusPorcelain(repoPath),
     ]);
-    return { commit: rev.trim(), dirty: status.trim().length > 0 };
+    return { commit, dirty: status.trim().length > 0 };
   }
 }
 

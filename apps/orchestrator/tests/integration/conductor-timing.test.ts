@@ -8,10 +8,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   FileConductor,
-  GitCliConductorGit,
   type ConductorAgent,
   type ConductorAgentResult,
 } from '../../src/core/conductor.js';
+import { GitCliConductorGit } from '../../src/app/conductor-git.js';
 import type { StepResult, Task } from '../../src/core/types.js';
 
 const execFileAsync = promisify(execFile);

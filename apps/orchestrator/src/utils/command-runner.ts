@@ -1,8 +1,4 @@
-import { spawn } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
-import path from 'node:path';
-import { finished } from 'node:stream/promises';
+import { spawnCaptured } from './subprocess.js';
 
 const KILL_GRACE_MS = 100;
 
@@ -29,89 +25,39 @@ export interface CommandRunner {
 
 export class NodeCommandRunner implements CommandRunner {
   async run(input: CommandRunnerInput): Promise<CommandRunnerResult> {
-    await Promise.all([
-      mkdir(path.dirname(input.stdoutPath), { recursive: true }),
-      mkdir(path.dirname(input.stderrPath), { recursive: true }),
-    ]);
-
-    const startedAt = Date.now();
-    const stdout = createWriteStream(input.stdoutPath);
-    const stderr = createWriteStream(input.stderrPath);
-    let timedOut = false;
-    const killTimeout = setTimeout(() => {
-      if (timedOut) {
-        terminateProcess(child.pid, 'SIGKILL');
-      }
-    }, input.timeoutMs + KILL_GRACE_MS);
-
-    const child = spawn(input.command, {
+    const result = await spawnCaptured({
+      bin: input.command,
+      args: [],
       cwd: input.cwd,
-      detached: process.platform !== 'win32',
       shell: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdoutPath: input.stdoutPath,
+      stderrPath: input.stderrPath,
+      capture: false,
+      timeoutMs: input.timeoutMs,
+      killGraceMs: KILL_GRACE_MS,
+      writeSpawnErrorToStderr: true,
     });
 
-    child.stdout.pipe(stdout);
-    child.stderr.pipe(stderr);
-
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      terminateProcess(child.pid, 'SIGTERM');
-    }, input.timeoutMs);
-
-    const exitCode = await new Promise<number>((resolve) => {
-      child.once('error', (error: NodeJS.ErrnoException) => {
-        stderr.write(`${error.message}\n`);
-        resolve(error.code === 'ENOENT' ? 127 : 1);
-      });
-
-      child.once('close', (code) => {
-        resolve(timedOut ? 1 : normalizeExitCode(code));
-      });
-    });
-
-    clearTimeout(timeout);
-    clearTimeout(killTimeout);
-    stdout.end();
-    stderr.end();
-    await Promise.all([finished(stdout), finished(stderr)]);
+    const exitCode =
+      result.spawnError !== null
+        ? result.spawnError.code === 'ENOENT'
+          ? 127
+          : 1
+        : result.timedOut
+          ? 1
+          : normalizeExitCode(result.rawExit);
 
     return {
       command: input.command,
       exitCode,
-      durationMs: Date.now() - startedAt,
+      durationMs: result.durationMs,
       stdoutPath: input.stdoutPath,
       stderrPath: input.stderrPath,
-      timedOut,
+      timedOut: result.timedOut,
     };
   }
 }
 
 function normalizeExitCode(code: number | null): number {
   return code ?? 1;
-}
-
-function terminateProcess(pid: number | undefined, signal: NodeJS.Signals): void {
-  if (pid === undefined) {
-    return;
-  }
-
-  if (process.platform === 'win32') {
-    try {
-      process.kill(pid, signal);
-    } catch {
-      // The process may have exited between timeout firing and signal delivery.
-    }
-    return;
-  }
-
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    try {
-      process.kill(pid, signal);
-    } catch {
-      // The process may have exited between timeout firing and signal delivery.
-    }
-  }
 }
