@@ -9,6 +9,7 @@ import {
   OpenClawCliClient,
   OpenClawCliConfigError,
   classifyFailure,
+  deriveModelArg,
   extractReplyText,
   extractSessionId,
   parseAgentJson,
@@ -48,6 +49,13 @@ if (mode === 'ok') {
   process.stdout.write(JSON.stringify({
     status: 'ok',
     result: { payloads: [{ text: 'MSG:' + message }], meta: { agentMeta: { sessionId: session } } },
+  }));
+  process.exit(0);
+} else if (mode === 'echo_model') {
+  // Echo the received --model back inside the reply text for argv assertions.
+  process.stdout.write(JSON.stringify({
+    status: 'ok',
+    result: { payloads: [{ text: 'MODEL:' + (arg('--model') || '<none>') }], meta: { agentMeta: { sessionId: session } } },
   }));
   process.exit(0);
 } else if (mode === 'multi') {
@@ -102,7 +110,7 @@ async function request(overrides: Partial<OpenClawExecutionRequest> = {}): Promi
     endpoint: 'http://127.0.0.1:18789',
     token: 'tok',
     runtime: 'claude-cli',
-    model: 'claude-cli/claude-opus-4-7',
+    model: 'anthropic/claude-opus-4-7',
     agentId: 'main',
     cwd: workdir,
     mode: 'headless',
@@ -120,6 +128,30 @@ function client(mode: string): OpenClawCliClient {
     config: { bin: process.execPath, baseArgs: [cliPath, 'agent', '--json'], agentId: 'main', extraEnv: { FAKE_OPENCLAW_MODE: mode } },
   });
 }
+
+describe('deriveModelArg', () => {
+  it('re-prefixes the model base with the runtime (claude-cli + anthropic vendor)', () => {
+    expect(deriveModelArg('claude-cli', 'anthropic/claude-opus-4-7')).toBe('claude-cli/claude-opus-4-7');
+  });
+
+  it('re-prefixes the model base with the runtime (openai-codex + openai vendor)', () => {
+    expect(deriveModelArg('openai-codex', 'openai/gpt-5')).toBe('openai-codex/gpt-5');
+  });
+
+  it('prefixes a model with no vendor segment with the runtime', () => {
+    expect(deriveModelArg('claude-cli', 'claude-opus-4-7')).toBe('claude-cli/claude-opus-4-7');
+  });
+
+  it('falls back to the raw model when the runtime is empty', () => {
+    expect(deriveModelArg('', 'anthropic/claude-opus-4-7')).toBe('anthropic/claude-opus-4-7');
+    expect(deriveModelArg('   ', 'anthropic/claude-opus-4-7')).toBe('anthropic/claude-opus-4-7');
+  });
+
+  it('returns null when there is no model to pass', () => {
+    expect(deriveModelArg('claude-cli', '')).toBeNull();
+    expect(deriveModelArg('claude-cli', '   ')).toBeNull();
+  });
+});
 
 describe('resolveOpenClawCliConfig', () => {
   it('defaults bin to openclaw, base args to agent --json, and agent to main', () => {
@@ -253,6 +285,13 @@ describe('OpenClawCliClient subprocess lifecycle', () => {
     await client('echo_message').run(req);
     const written = await readFile(req.outputPath, 'utf8');
     expect(written).toContain('PROMPT-BODY-MARKER');
+  });
+
+  it('passes the runtime-derived --model on the wire (vendor prefix stripped)', async () => {
+    const req = await request({ runtime: 'claude-cli', model: 'anthropic/claude-opus-4-7' });
+    await client('echo_model').run(req);
+    const written = await readFile(req.outputPath, 'utf8');
+    expect(written).toBe('MODEL:claude-cli/claude-opus-4-7');
   });
 
   it('joins multiple payloads into the output file', async () => {
