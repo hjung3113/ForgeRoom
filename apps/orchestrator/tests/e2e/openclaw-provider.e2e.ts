@@ -5,16 +5,18 @@
  * `pnpm -F orchestrator test:e2e` (see `vitest.e2e.config.ts`).
  *
  * It drives the REAL `OpenClawProvider` (core) over the REAL `OpenClawCliClient`
- * subprocess transport (app), through the file-based prompt protocol, proving:
+ * subprocess transport (app), through the real `openclaw agent --json` contract
+ * (#45), proving:
  *   - readiness/health (shallow, ADR-012),
- *   - session creation + prompt-file-in → output-file-out under `.forgeroom/`,
- *   - the auth-failure path surfaces `failureKind: 'auth_failed'`,
+ *   - prompt-file-in → JSON reply parsed → output-file-out under `.forgeroom/`,
+ *     with a runtime session id surfaced for resume,
+ *   - the connection-refused path surfaces `failureKind: 'runtime_unavailable'`,
  *   - the timeout path surfaces `failureKind: 'timeout'`.
  *
  * Two execution modes:
- *   - DEFAULT (fake): uses a bundled fake OpenClaw CLI honouring the adapter's
- *     documented argv/markers, so the FULL path is exercised without a live
- *     runtime or credentials. This is what runs here in the sandbox.
+ *   - DEFAULT (fake): uses a bundled fake OpenClaw CLI emitting the real JSON
+ *     envelope, so the FULL path is exercised without a live runtime or
+ *     credentials. This is what runs here in the sandbox.
  *   - LIVE: set `FORGEROOM_OPENCLAW_E2E_LIVE=1` plus real credentials
  *     (`FORGEROOM_OPENCLAW_BIN`, `FORGEROOM_OPENCLAW_ENDPOINT`,
  *     `FORGEROOM_OPENCLAW_TOKEN`, `FORGEROOM_OPENCLAW_RUNTIME`) to drive the
@@ -34,25 +36,31 @@ import { OpenClawCliClient, resolveOpenClawCliConfig } from '../../src/app/openc
 
 const LIVE = process.env.FORGEROOM_OPENCLAW_E2E_LIVE === '1';
 
+// Fake `openclaw agent --json` CLI: emits the REAL 2026.5.18 JSON envelope on
+// stdout. The adapter (not the agent) parses it and writes the output file, so
+// this fake only echoes JSON.
 const FAKE_CLI = `
-const fs = require('node:fs');
-const path = require('node:path');
 const args = process.argv.slice(2);
 function arg(name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; }
 const mode = process.env.FAKE_OPENCLAW_MODE || 'ok';
-const message = arg('--message') || '';
-const m = /Write your response to (.+?)\\.?$/.exec(message.trim());
-const session = arg('--session') || ('sess-' + Date.now());
-if (mode === 'auth') {
-  process.stderr.write('OPENCLAW_AUTH_FAILED=1\\n');
-  process.exit(41);
+const session = arg('--session-id') || ('sess-' + Date.now());
+if (mode === 'refused') {
+  process.stderr.write('connect ECONNREFUSED 127.0.0.1:18789\\n');
+  process.exit(1);
 }
 if (mode === 'hang') { setTimeout(() => process.exit(0), 60000); return; }
-process.stdout.write('OPENCLAW_SESSION_ID=' + session + '\\n');
-if (m) {
-  fs.mkdirSync(path.dirname(m[1]), { recursive: true });
-  fs.writeFileSync(m[1], '# E2E output\\n\\nThis response was produced by the OpenClaw provider e2e harness and is well over fifty bytes.\\n');
-}
+process.stdout.write(JSON.stringify({
+  status: 'ok',
+  result: {
+    payloads: [{ text: '# E2E output\\n\\nThis response was produced by the OpenClaw provider e2e harness and is well over fifty bytes.' }],
+    meta: {
+      finalAssistantVisibleText: 'E2E output',
+      agentMeta: { sessionId: session, cliSessionBinding: { sessionId: session + '-cli' } },
+      completion: { refusal: false, finishReason: 'stop' },
+      durationMs: 10,
+    },
+  },
+}));
 process.exit(0);
 `;
 
@@ -84,12 +92,14 @@ function provider(mode: string): OpenClawProvider {
     ? resolveOpenClawCliConfig({
         cliBin: process.env.FORGEROOM_OPENCLAW_BIN,
         cliArgsJson: process.env.FORGEROOM_OPENCLAW_ARGS,
+        agentId: process.env.FORGEROOM_OPENCLAW_AGENT,
       })
-    : { bin: process.execPath, baseArgs: [cliPath], extraEnv: { FAKE_OPENCLAW_MODE: mode } };
+    : { bin: process.execPath, baseArgs: [cliPath, 'agent', '--json'], agentId: 'main', extraEnv: { FAKE_OPENCLAW_MODE: mode } };
   return new OpenClawProvider({
-    endpoint: process.env.FORGEROOM_OPENCLAW_ENDPOINT ?? 'http://127.0.0.1:4317',
+    endpoint: process.env.FORGEROOM_OPENCLAW_ENDPOINT ?? 'http://127.0.0.1:18789',
     token: process.env.FORGEROOM_OPENCLAW_TOKEN ?? 'e2e-token',
     runtime: agent.runtime,
+    agentId: process.env.FORGEROOM_OPENCLAW_AGENT ?? 'main',
     client: new OpenClawCliClient({ config }),
   });
 }
@@ -133,15 +143,15 @@ describe(`OpenClawProvider e2e (${LIVE ? 'LIVE runtime' : 'fake CLI'})`, () => {
     expect(output.length).toBeGreaterThan(50);
   });
 
-  it('surfaces the auth-failure path as failureKind: auth_failed (ADR-012)', async () => {
+  it('surfaces a connection-refused gateway as failureKind: runtime_unavailable (ADR-012)', async () => {
     if (LIVE) {
-      // A live auth-failure requires deliberately invalid credentials; document
-      // the manual step rather than corrupting the live session here.
+      // A live connection-refusal requires stopping the gateway; document the
+      // manual step rather than tearing down the live session here.
       return;
     }
     const req = await runRequest('02');
-    const result = await provider('auth').run(req, agent);
-    expect(result.failureKind).toBe('auth_failed');
+    const result = await provider('refused').run(req, agent);
+    expect(result.failureKind).toBe('runtime_unavailable');
     expect(result.outputExists).toBe(false);
   });
 

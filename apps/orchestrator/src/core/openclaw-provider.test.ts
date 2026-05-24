@@ -72,9 +72,10 @@ function createProvider(client = new FakeOpenClawIpcClient()): {
   return {
     client,
     provider: new OpenClawProvider({
-      endpoint: 'http://127.0.0.1:4317',
+      endpoint: 'http://127.0.0.1:18789',
       token: 'test-token',
       runtime: 'claude-cli',
+      agentId: 'main',
       client,
     }),
   };
@@ -88,7 +89,7 @@ describe('OpenClawProvider', () => {
 
     expect(client.healthRequests).toEqual([
       {
-        endpoint: 'http://127.0.0.1:4317',
+        endpoint: 'http://127.0.0.1:18789',
         token: 'test-token',
         runtime: 'claude-cli',
       },
@@ -102,9 +103,10 @@ describe('OpenClawProvider', () => {
   ])('fails health before IPC when configured %s is missing', async (_field, override) => {
     const client = new FakeOpenClawIpcClient();
     const provider = new OpenClawProvider({
-      endpoint: 'http://127.0.0.1:4317',
+      endpoint: 'http://127.0.0.1:18789',
       token: 'test-token',
       runtime: 'claude-cli',
+      agentId: 'main',
       client,
       ...override,
     });
@@ -120,15 +122,15 @@ describe('OpenClawProvider', () => {
 
     expect(client.runRequests).toEqual([
       {
-        endpoint: 'http://127.0.0.1:4317',
+        endpoint: 'http://127.0.0.1:18789',
         token: 'test-token',
         runtime: 'claude-cli',
         model: 'anthropic/claude-opus-4-7',
+        agentId: 'main',
         cwd: '/workspace',
         mode: 'headless',
-        promptInstruction:
-          'Read /workspace/.forgeroom/prompts/01_plan.md. Follow the instructions inside.',
-        outputInstruction: 'Write your response to /workspace/.forgeroom/outputs/01_plan.md.',
+        promptPath: '/workspace/.forgeroom/prompts/01_plan.md',
+        outputPath: '/workspace/.forgeroom/outputs/01_plan.md',
         stdoutPath: '/workspace/.forgeroom/logs/01.stdout.log',
         stderrPath: '/workspace/.forgeroom/logs/01.stderr.log',
         timeoutMs: 300_000,
@@ -162,16 +164,16 @@ describe('OpenClawProvider', () => {
 
     expect(client.resumeRequests).toEqual([
       {
-        endpoint: 'http://127.0.0.1:4317',
+        endpoint: 'http://127.0.0.1:18789',
         token: 'test-token',
         sessionId: 'openclaw-session-1',
         runtime: 'claude-cli',
         model: 'anthropic/claude-opus-4-7',
+        agentId: 'main',
         cwd: '/workspace',
         mode: 'headless',
-        promptInstruction:
-          'Read /workspace/.forgeroom/prompts/01_retry.md. Follow the instructions inside.',
-        outputInstruction: 'Write your response to /workspace/.forgeroom/outputs/01_plan.md.',
+        promptPath: '/workspace/.forgeroom/prompts/01_retry.md',
+        outputPath: '/workspace/.forgeroom/outputs/01_plan.md',
         stdoutPath: '/workspace/.forgeroom/logs/01.stdout.log',
         stderrPath: '/workspace/.forgeroom/logs/01.stderr.log',
         timeoutMs: 300_000,

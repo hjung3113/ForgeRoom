@@ -257,7 +257,7 @@ export class FakeOpenClawIpc implements OpenClawIpcClient {
   }
 
   private async execute(request: OpenClawExecutionRequest): Promise<OpenClawRunResponse> {
-    const outputPath = parseOutputPath(request.outputInstruction);
+    const outputPath = request.outputPath;
     const stepId = stepIdFromOutputPath(outputPath);
     this.agentCalls.push(stepId);
 
@@ -457,7 +457,7 @@ function assemble(tempDir: string, options: HarnessOptions): AcceptanceHarness {
   const conductorLog: string[] = [];
 
   const openClaw = new FakeOpenClawIpc(script);
-  const provider = new OpenClawProvider({ endpoint: 'http://x', token: 'tok', runtime: 'claude-cli', client: openClaw });
+  const provider = new OpenClawProvider({ endpoint: 'http://x', token: 'tok', runtime: 'claude-cli', agentId: 'main', client: openClaw });
 
   const harnessRegistry = HarnessRegistry.fromConfig({
     planning: { source: 'planning' },
@@ -759,15 +759,6 @@ function enqueuePlainEvent(
 ): Promise<void> {
   const event: Event = { id: randomUUID(), task_id: taskId, type, payload, created_at: new Date() };
   return store.enqueueEvent(event).then(() => undefined);
-}
-
-function parseOutputPath(outputInstruction: string): string {
-  // outputInstruction is "Write your response to <path>."
-  const match = /Write your response to (.+)\.$/.exec(outputInstruction.trim());
-  if (match?.[1] === undefined) {
-    throw new Error(`could not parse output path from: ${outputInstruction}`);
-  }
-  return match[1];
 }
 
 function stepIdFromOutputPath(outputPath: string): string {
