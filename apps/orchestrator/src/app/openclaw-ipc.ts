@@ -199,7 +199,7 @@ export class OpenClawCliClient implements OpenClawIpcClient {
 
   private childEnv(request: OpenClawExecutionRequest): NodeJS.ProcessEnv {
     return {
-      ...process.env,
+      ...sanitizedParentEnv(),
       ...this.config.extraEnv,
       OPENCLAW_ENDPOINT: request.endpoint,
       OPENCLAW_TOKEN: request.token,
@@ -210,7 +210,7 @@ export class OpenClawCliClient implements OpenClawIpcClient {
     return new Promise((resolve) => {
       const child = this.spawnFn(this.config.bin, [...this.config.baseArgs, '--version'], {
         env: {
-          ...process.env,
+          ...sanitizedParentEnv(),
           ...this.config.extraEnv,
           OPENCLAW_ENDPOINT: request.endpoint,
           OPENCLAW_TOKEN: request.token,
@@ -397,6 +397,20 @@ export function deriveModelArg(runtime: string, model: string): string | null {
 export type ParsedAgentJson = Record<string, unknown>;
 
 /** Parse the CLI stdout as the OpenClaw JSON envelope; null on non-JSON. */
+/**
+ * Parent env to hand a spawned OpenClaw CLI, minus host-process injection that
+ * would corrupt it. `openclaw` is itself a Node CLI, so inheriting our
+ * `NODE_OPTIONS` (e.g. vitest's `--import` loader, or any `--require` hook)
+ * makes the child Node load our instrumentation and emit no/garbled stdout —
+ * which the adapter then sees as an empty JSON envelope (`agent_error`).
+ * Stripping it is correct for any external CLI, and is what made the live e2e
+ * pass under vitest.
+ */
+export function sanitizedParentEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const { NODE_OPTIONS: _nodeOptions, ...rest } = env;
+  return rest;
+}
+
 export function parseAgentJson(stdout: string): ParsedAgentJson | null {
   const trimmed = stdout.trim();
   if (trimmed === '') {

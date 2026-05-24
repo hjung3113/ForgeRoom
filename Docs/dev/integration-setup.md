@@ -62,21 +62,24 @@ through a CLI subprocess (`apps/orchestrator/src/app/openclaw-ipc.ts`,
    there is **no** `openclaw exec`). If your install differs, override
    `FORGEROOM_OPENCLAW_ARGS` / `FORGEROOM_OPENCLAW_AGENT`, or adjust the adapter in
    `openclaw-ipc.ts` — see [openclaw-e2e.md](openclaw-e2e.md).
-3. **Smoke-test the provider** (fake CLI first, then live):
+3. **Smoke-test the provider.** The fake-CLI e2e proves the adapter wiring; the
+   **live** check uses a standalone script (the real `openclaw` is a Node bin that
+   misbehaves under vitest workers, so live verification runs in plain node — the
+   same path as `start`):
    ```sh
-   # fake CLI — proves the wiring without a live runtime
+   # fake CLI — adapter wiring, no live runtime
    pnpm -F orchestrator test:e2e
 
-   # live runtime
-   FORGEROOM_OPENCLAW_E2E_LIVE=1 \
+   # live runtime — one real agent turn through the real openclaw
+   pnpm -F orchestrator build
    FORGEROOM_OPENCLAW_BIN=openclaw \
    FORGEROOM_OPENCLAW_ENDPOINT=http://127.0.0.1:18789 \
    FORGEROOM_OPENCLAW_TOKEN=<your-token> \
    FORGEROOM_OPENCLAW_RUNTIME=claude-cli \
    FORGEROOM_OPENCLAW_AGENT=main \
-   pnpm -F orchestrator test:e2e
+   pnpm -F orchestrator smoke:openclaw
    ```
-   If the live success path produces a `.forgeroom/outputs/NN_*.md` file, the
+   If the live smoke prints `PASS` and a `.forgeroom/outputs/NN_*.md` file, the
    OpenClaw side is good. If it errors, the most likely fix is the endpoint/token,
    `FORGEROOM_OPENCLAW_AGENT`, or `FORGEROOM_OPENCLAW_ARGS`.
 

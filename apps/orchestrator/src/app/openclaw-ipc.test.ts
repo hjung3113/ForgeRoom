@@ -14,6 +14,7 @@ import {
   extractSessionId,
   parseAgentJson,
   resolveOpenClawCliConfig,
+  sanitizedParentEnv,
 } from './openclaw-ipc.js';
 
 // A fake `openclaw agent --json` CLI: a node script driven by FAKE_OPENCLAW_MODE.
@@ -128,6 +129,15 @@ function client(mode: string): OpenClawCliClient {
     config: { bin: process.execPath, baseArgs: [cliPath, 'agent', '--json'], agentId: 'main', extraEnv: { FAKE_OPENCLAW_MODE: mode } },
   });
 }
+
+describe('sanitizedParentEnv', () => {
+  it('strips NODE_OPTIONS so a spawned node CLI does not inherit our loaders', () => {
+    const out = sanitizedParentEnv({ NODE_OPTIONS: '--import /x/loader.mjs', PATH: '/usr/bin', FOO: 'bar' });
+    expect(out.NODE_OPTIONS).toBeUndefined();
+    expect(out.PATH).toBe('/usr/bin');
+    expect(out.FOO).toBe('bar');
+  });
+});
 
 describe('deriveModelArg', () => {
   it('re-prefixes the model base with the runtime (claude-cli + anthropic vendor)', () => {
