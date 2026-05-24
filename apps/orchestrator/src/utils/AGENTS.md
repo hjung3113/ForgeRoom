@@ -11,7 +11,8 @@ Read [context-map.md](context-map.md) first.
 
 1. **Domain-independent only.** No ForgeRoom domain concepts. Pure helpers anyone could borrow.
 2. **No imports from sibling folders.** `utils` only exports; it never depends on `core`, `gateway`, `dsl`, or `db`.
-3. **Minimal side effects.** Prefer pure functions.
+3. **Minimal side effects.** Prefer pure functions. Subprocess helpers may perform
+   caller-specified process control and stdout/stderr artifact IO only.
 4. **Logger and secret masking live here.** Any folder can import them safely.
 5. **Unit-test everything.** Small helpers still get tests.
 
@@ -21,6 +22,7 @@ Read [context-map.md](context-map.md) first.
 - `secret-mask.ts` — token pattern masking
 - `paths.ts` — worktree-internal path builders (prompts/outputs/diffs)
 - `command-runner.ts` — command execution adapter for ForgeRoom-owned check commands
+- `subprocess.ts` — shared child-process termination and subprocess lifecycle helpers
 - `env.ts` — environment variable schema and validation
 - `errors.ts` — base error class (`OrchestratorError`)
 - `time.ts` — duration / sleep / AbortController helpers as needed
@@ -28,7 +30,10 @@ Read [context-map.md](context-map.md) first.
 ## Forbidden
 
 - Business logic (no dependency on `Task`, `Workflow`, `Step`, etc.)
-- External IO (DB, filesystem) — except `logger` writing to stdout / a log file, and `command-runner.ts` writing caller-specified stdout/stderr artifacts for check commands
+- External IO (DB, filesystem) — except `logger` writing to stdout / a log file,
+  `command-runner.ts` writing caller-specified stdout/stderr artifacts for check
+  commands, and `subprocess.ts` handling caller-specified child-process control
+  plus stdout/stderr artifacts
 - Importing from any other `src/` folder
 
 ## Checklist

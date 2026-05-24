@@ -18,6 +18,7 @@ Domain-independent helpers: logger, secret masking, path builders, environment v
 | `paths.ts` | Standard worktree-internal path builders (prompts, outputs, diffs) |
 | `path-safety.ts` | Root-boundary and secret-path checks for adapters and core seams |
 | `command-runner.ts` | Injectable command execution contract and Node child-process implementation |
+| `subprocess.ts` | Shared child-process termination and subprocess lifecycle helpers |
 | `env.ts` | zod schema for environment variables + validation |
 | `errors.ts` | `OrchestratorError` base class |
 | `time.ts` | Time utilities (sleep, withTimeout, etc.) |
@@ -38,8 +39,10 @@ Domain-independent helpers: logger, secret masking, path builders, environment v
 
 1. Define every environment variable in `env.ts` with a zod schema
 2. Build `logger.ts` around a single pino instance plus `child({ module: '...' })`
-3. Expose worktree path builders as functions:
+3. Keep subprocess helpers domain-independent; they may only perform
+   caller-specified child-process control and stdout/stderr artifact IO
+4. Expose worktree path builders as functions:
    - `promptPath(worktree, index, stepId)`
    - `outputPath(worktree, index, stepId)`
    - `diffPath(worktree, index, stepId)`
-4. Unit-test each helper
+5. Unit-test each helper

@@ -4,6 +4,8 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { finished } from 'node:stream/promises';
 
+import { terminateProcessGroup } from './subprocess.js';
+
 const KILL_GRACE_MS = 100;
 
 export interface CommandRunnerInput {
@@ -40,7 +42,7 @@ export class NodeCommandRunner implements CommandRunner {
     let timedOut = false;
     const killTimeout = setTimeout(() => {
       if (timedOut) {
-        terminateProcess(child.pid, 'SIGKILL');
+        terminateProcessGroup(child.pid, 'SIGKILL');
       }
     }, input.timeoutMs + KILL_GRACE_MS);
 
@@ -56,7 +58,7 @@ export class NodeCommandRunner implements CommandRunner {
 
     const timeout = setTimeout(() => {
       timedOut = true;
-      terminateProcess(child.pid, 'SIGTERM');
+      terminateProcessGroup(child.pid, 'SIGTERM');
     }, input.timeoutMs);
 
     const exitCode = await new Promise<number>((resolve) => {
@@ -89,29 +91,4 @@ export class NodeCommandRunner implements CommandRunner {
 
 function normalizeExitCode(code: number | null): number {
   return code ?? 1;
-}
-
-function terminateProcess(pid: number | undefined, signal: NodeJS.Signals): void {
-  if (pid === undefined) {
-    return;
-  }
-
-  if (process.platform === 'win32') {
-    try {
-      process.kill(pid, signal);
-    } catch {
-      // The process may have exited between timeout firing and signal delivery.
-    }
-    return;
-  }
-
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    try {
-      process.kill(pid, signal);
-    } catch {
-      // The process may have exited between timeout firing and signal delivery.
-    }
-  }
 }

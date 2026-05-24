@@ -51,6 +51,7 @@ import type {
   OpenClawResumeRequest,
   OpenClawRunResponse,
 } from '../core/openclaw-provider.js';
+import { terminateProcessGroup } from '../utils/subprocess.js';
 
 /** Grace window between SIGTERM and the escalation SIGKILL on timeout. */
 const KILL_GRACE_MS = 200;
@@ -269,14 +270,14 @@ export class OpenClawCliClient implements OpenClawIpcClient {
         ? null
         : setTimeout(() => {
             timedOut = true;
-            terminate(child.pid, 'SIGTERM');
+            terminateProcessGroup(child.pid, 'SIGTERM');
           }, timeoutMs);
     const killTimer =
       timeoutMs === undefined
         ? null
         : setTimeout(() => {
             if (timedOut) {
-              terminate(child.pid, 'SIGKILL');
+              terminateProcessGroup(child.pid, 'SIGKILL');
             }
           }, timeoutMs + KILL_GRACE_MS);
 
@@ -512,27 +513,4 @@ export function classifyFailure(input: {
     return 'agent_error';
   }
   return undefined;
-}
-
-function terminate(pid: number | undefined, signal: NodeJS.Signals): void {
-  if (pid === undefined) {
-    return;
-  }
-  if (process.platform === 'win32') {
-    try {
-      process.kill(pid, signal);
-    } catch {
-      // Process may have exited between timeout firing and signal delivery.
-    }
-    return;
-  }
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    try {
-      process.kill(pid, signal);
-    } catch {
-      // Process may have exited between timeout firing and signal delivery.
-    }
-  }
 }
