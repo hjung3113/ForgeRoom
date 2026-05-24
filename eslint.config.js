@@ -8,6 +8,14 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // Node ESM helper scripts (e.g. scripts/*.mjs) — not part of the TS project.
+    files: ['**/*.mjs'],
+    languageOptions: {
+      sourceType: 'module',
+      globals: { process: 'readonly', console: 'readonly' },
+    },
+  },
+  {
     files: ['**/*.ts'],
     languageOptions: {
       parserOptions: {

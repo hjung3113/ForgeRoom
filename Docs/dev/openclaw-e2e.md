@@ -38,21 +38,27 @@ subprocess → output-file path (spawn lifecycle, JSON parse, session-id
 extraction, the adapter writing the output file, connection-refused + timeout
 mapping) without a live runtime. This is what runs in CI/sandbox.
 
-### Live runtime mode
+### Live runtime mode — use the standalone smoke script, not `test:e2e`
+
+The real `openclaw` binary is a Node ESM CLI that spawns its own children. When
+spawned from a **vitest worker** it emits empty stdio (a harness artifact — the
+production plain-node path works fine), so the vitest LIVE real-run is skipped.
+Live verification runs in plain node via a standalone script (the same path
+`node dist/main.js` uses):
 
 ```sh
-FORGEROOM_OPENCLAW_E2E_LIVE=1 \
+pnpm -F orchestrator build
 FORGEROOM_OPENCLAW_BIN=openclaw \
 FORGEROOM_OPENCLAW_ENDPOINT=http://127.0.0.1:18789 \
 FORGEROOM_OPENCLAW_TOKEN=<real-token> \
 FORGEROOM_OPENCLAW_RUNTIME=claude-cli \
 FORGEROOM_OPENCLAW_AGENT=main \
-pnpm -F orchestrator test:e2e
+pnpm -F orchestrator smoke:openclaw
 ```
 
-In LIVE mode the connection-refused and timeout assertions are skipped (they
-need a stopped gateway / a deliberately-slow task); run those manually. The
-success path runs a real agent task end to end.
+It runs ONE real agent turn end to end and asserts exit 0 + an output file +
+a session id, printing `PASS`/`FAIL`. The connection-refused and timeout paths
+stay covered by the fake-CLI `test:e2e`.
 
 ## Required env / credentials
 
