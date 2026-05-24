@@ -34,17 +34,15 @@ import type { CheckRunResult, Step } from './types.js';
 import { parseSlicesOutput, parseReviewPassedOutput } from './output-selectors.js';
 import { OrchestratorError, type OrchestratorFailureCode } from './errors.js';
 import type { PullRequestCreator } from './pull-request-creator.js';
-import type { WorkflowPrEffect } from './workflow-registry.js';
-import {
-  parseForgeWorkflow,
-  toMastraWorkflow,
-  ReviewLoopMaxIterationsError,
-  type AdapterContext,
-  type AgentRunResult as AdapterAgentRunResult,
-  type InterpolationSource,
-  type ResolvedStep as AdapterResolvedStep,
-  type StepOutputView,
-} from '../dsl/to-mastra.js';
+import { parseForgeWorkflow, toMastraWorkflow, ReviewLoopMaxIterationsError } from '../dsl/to-mastra.js';
+import type {
+  AdapterContext,
+  AgentRunResult as AdapterAgentRunResult,
+  InterpolationSource,
+  ResolvedStep as AdapterResolvedStep,
+  StepOutputView,
+  WorkflowPrEffect,
+} from '../workflow/types.js';
 import { AdapterValidationError } from '../dsl/dsl-errors.js';
 import { StepCollaborators } from './engine/step-collaborators.js';
 import { PullRequestExternalEffect } from './engine/pull-request-external-effect.js';

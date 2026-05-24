@@ -9,9 +9,9 @@ import {
   buildMastraWorkflowCached,
   parseForgeWorkflow,
   toMastraWorkflow,
-  type AdapterContext,
   type StepExecution,
 } from './to-mastra.js';
+import type { AdapterContext } from '../workflow/types.js';
 
 const INTENTS = IntentRegistry.fromConfig({
   codex_execute: { kind: 'execute', agent: 'codex', harness: 'implementation' },

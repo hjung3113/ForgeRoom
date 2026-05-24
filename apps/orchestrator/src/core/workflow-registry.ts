@@ -1,6 +1,14 @@
 import { AgentRegistry } from './agent-registry.js';
 import { HarnessRegistry } from './harness-registry.js';
 import { IntentRegistry } from './intent-registry.js';
+import type {
+  WorkflowEffects,
+  WorkflowPrEffect,
+  WorkflowReportEffect,
+  WorkflowWorktreeEffect,
+} from '../workflow/types.js';
+
+export type { WorkflowEffects, WorkflowPrEffect, WorkflowReportEffect, WorkflowWorktreeEffect };
 
 export class WorkflowValidationError extends Error {
   readonly workflowId: string | null;
@@ -22,23 +30,11 @@ interface WorkflowValidationErrorOptions {
   sourceContext?: WorkflowValidationSourceContext;
 }
 
-export type WorkflowWorktreeEffect = 'read_only' | 'modifies';
-export type WorkflowReportEffect = 'none' | 'status' | 'final';
-export type WorkflowPrEffect = 'none' | 'draft' | 'ready';
-
 export interface ParsedWorkflow {
   id: string;
   description: string;
   effects: WorkflowEffects;
   steps: ResolvedStep[];
-}
-
-export interface WorkflowEffects {
-  worktree: WorkflowWorktreeEffect;
-  external: {
-    report: WorkflowReportEffect;
-    pr: WorkflowPrEffect;
-  };
 }
 
 export interface ResolvedStep {

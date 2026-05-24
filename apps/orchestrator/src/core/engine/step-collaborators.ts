@@ -17,7 +17,7 @@ import type {
   InterpolationSource,
   ResolvedStep as AdapterResolvedStep,
   StepOutputView,
-} from '../../dsl/to-mastra.js';
+} from '../../workflow/types.js';
 
 interface StepCollaboratorDeps {
   conductor: Conductor;

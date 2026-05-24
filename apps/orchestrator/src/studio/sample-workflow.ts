@@ -17,14 +17,16 @@ import { IntentRegistry } from '../core/intent-registry.js';
 import {
   parseForgeWorkflow,
   toMastraWorkflow,
-  type AdapterContext,
-  type AgentRunResult,
   type BuiltMastraWorkflow,
-  type InterpolatedInputs,
-  type InterpolationSource,
-  type ResolvedStep,
-  type StepOutputView,
 } from '../dsl/to-mastra.js';
+import type {
+  AdapterContext,
+  AgentRunResult,
+  InterpolatedInputs,
+  InterpolationSource,
+  ResolvedStep,
+  StepOutputView,
+} from '../workflow/types.js';
 import { parseSlicesOutput, parseReviewPassedOutput } from '../core/output-selectors.js';
 import { SAMPLE_WORKFLOW_ID, SAMPLE_WORKFLOW_YAML, SAMPLE_INTENTS } from './sample-config.js';
 
