@@ -6,6 +6,6 @@ claude:
 
 codex:
   provider: openclaw
-  runtime: openai-codex
-  model: openai/gpt-5
+  runtime: codex
+  model: codex/gpt-5.3-codex
   harness: implementation
