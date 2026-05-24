@@ -33,11 +33,7 @@ import type { CheckRunnerRequest } from './check-runner.js';
 import type { CheckRunResult, Step } from './types.js';
 import { parseSlicesOutput, parseReviewPassedOutput } from './output-selectors.js';
 import { OrchestratorError, type OrchestratorFailureCode } from './errors.js';
-import {
-  PullRequestCreateFailedError,
-  type PullRequestCreator,
-  type PullRequestEffectRequest,
-} from './pull-request-creator.js';
+import type { PullRequestCreator } from './pull-request-creator.js';
 import type { WorkflowPrEffect } from './workflow-registry.js';
 import {
   parseForgeWorkflow,
@@ -51,6 +47,7 @@ import {
 } from '../dsl/to-mastra.js';
 import { AdapterValidationError } from '../dsl/dsl-errors.js';
 import { StepCollaborators } from './engine/step-collaborators.js';
+import { PullRequestExternalEffect } from './engine/pull-request-external-effect.js';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -229,6 +226,7 @@ export class MastraPipelineEngine implements PipelineEngine {
   private readonly createEventId: () => string;
   private readonly now: () => Date;
   private readonly log: (line: string) => void;
+  private readonly prEffect: PullRequestExternalEffect;
   /** Cooperative pause intents keyed by task id (codex-confirmed mechanism). */
   private readonly pauseRequested = new Set<string>();
 
@@ -239,6 +237,13 @@ export class MastraPipelineEngine implements PipelineEngine {
     this.createEventId = deps.createEventId ?? randomUUID;
     this.now = deps.now ?? (() => new Date());
     this.log = deps.log ?? ((line) => process.stderr.write(`${line}\n`));
+    this.prEffect = new PullRequestExternalEffect({
+      ...(deps.pullRequestCreator === undefined ? {} : { pullRequestCreator: deps.pullRequestCreator }),
+      ...(deps.prTargetFor === undefined ? {} : { prTargetFor: deps.prTargetFor }),
+      taskStore: deps.taskStore,
+      reporter: deps.reporter,
+      log: this.log,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -540,7 +545,7 @@ export class MastraPipelineEngine implements PipelineEngine {
       // External-effect phase (ADR-019): after workflow/check success, before
       // task done. PR creation is task-critical — a final failure fails the task.
       try {
-        await this.runPullRequestEffect({ task, project, prEffect });
+        await this.prEffect.run({ task, project, prEffect });
       } catch (error) {
         const reason = mapFailureReason(error);
         await this.deps.taskStore.updateTaskStatus(task.id, 'failed', reason);
@@ -568,82 +573,6 @@ export class MastraPipelineEngine implements PipelineEngine {
       type: 'task_failed',
       task: { ...task, status: 'failed', failure_reason: reason },
       failure_reason: reason,
-    });
-  }
-
-  /**
-   * Workflow external effect (ADR-019): create or reuse the task's PR.
-   *
-   * Runs only when `effects.external.pr != none`, a {@link PullRequestCreator}
-   * is wired, and the project resolves a {@link PullRequestTarget}. The current
-   * `pr_number` is re-read from the authoritative store (not the pre-run task
-   * snapshot) so a recoverPending() replay reuses the existing PR instead of
-   * double-creating. On success the engine persists `pr_number` and emits
-   * `pr_created` (Reporter delivers; the engine does NOT touch PR comments). A
-   * final failure propagates so {@link settle} fails the task with
-   * `pr_create_failed`.
-   */
-  private async runPullRequestEffect(input: {
-    task: Task;
-    project: ProjectMeta;
-    prEffect: WorkflowPrEffect;
-  }): Promise<void> {
-    const { task, project, prEffect } = input;
-    if (prEffect === 'none') {
-      return;
-    }
-    const creator = this.deps.pullRequestCreator;
-    const target = this.deps.prTargetFor?.({ task, project }) ?? null;
-    if (creator === undefined || target === null) {
-      this.log(
-        `pr-effect: task ${task.id} effects.external.pr=${prEffect} but ${
-          creator === undefined ? 'no PullRequestCreator wired' : 'no PR target resolved'
-        }; skipping`,
-      );
-      return;
-    }
-
-    // Re-read the authoritative pr_number (idempotency across replays).
-    const current = await this.deps.taskStore.getTask(task.id);
-    const prNumber = current?.pr_number ?? null;
-
-    const request: PullRequestEffectRequest = {
-      taskId: task.id,
-      prNumber,
-      owner: target.owner,
-      repo: target.repo,
-      head: task.branch_name,
-      base: target.base,
-      title: task.title,
-      body: task.description,
-      draft: prEffect === 'draft',
-    };
-
-    let result;
-    try {
-      result = await creator.ensure(request);
-    } catch (error) {
-      // Normalise to a typed failure so settle records pr_create_failed.
-      if (error instanceof PullRequestCreateFailedError) {
-        throw error;
-      }
-      throw new PullRequestCreateFailedError(
-        `PR external effect failed for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`,
-        0,
-        error instanceof Error ? { cause: error } : undefined,
-      );
-    }
-
-    // Persist pr_number (no-op write if unchanged) then emit pr_created so the
-    // Reporter best-effort updates the PR surface (ADR-019).
-    if (result.ref.number !== prNumber) {
-      await this.deps.taskStore.setPrNumber(task.id, result.ref.number);
-    }
-    await this.deps.reporter.notify({
-      type: 'pr_created',
-      task: { ...task, pr_number: result.ref.number },
-      pr_number: result.ref.number,
-      pr_url: result.ref.url,
     });
   }
 

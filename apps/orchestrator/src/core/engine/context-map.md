@@ -15,10 +15,11 @@ out of `pipeline-engine.ts` without changing the public PipelineEngine contract.
 | File | Role |
 |---|---|
 | `step-collaborators.ts` | Per-run Mastra adapter collaborators for prompt rendering, agent execution, checks, conductor update, and reporting |
+| `pull-request-external-effect.ts` | Task-critical PR external effect wrapper used by PipelineEngine settle |
 
 ## Dependencies
 
-- Internal: `core/` interfaces and `dsl/to-mastra.ts` adapter contracts.
+- Internal: `core/` interfaces, `pull-request-creator.ts`, and `dsl/to-mastra.ts` adapter contracts.
 - External adapters: none.
 
 ## Notes
