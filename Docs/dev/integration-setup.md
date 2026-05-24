@@ -35,9 +35,10 @@ through a CLI subprocess (`apps/orchestrator/src/app/openclaw-ipc.ts`,
 | ForgeRoom env | Meaning | Default |
 |---|---|---|
 | `FORGEROOM_OPENCLAW_BIN` | the OpenClaw CLI binary on PATH | `openclaw` |
-| `FORGEROOM_OPENCLAW_ARGS` | JSON array of leading argv | `["exec"]` |
-| `FORGEROOM_OPENCLAW_ENDPOINT` | runtime HTTP endpoint (loopback) | `http://127.0.0.1:4317` |
-| `FORGEROOM_OPENCLAW_TOKEN` | runtime auth token (passed to the child as `OPENCLAW_TOKEN`, never on argv) | — (required) |
+| `FORGEROOM_OPENCLAW_ARGS` | JSON array of leading argv | `["agent","--json"]` |
+| `FORGEROOM_OPENCLAW_AGENT` | OpenClaw agent id (`openclaw agents list`) | `main` |
+| `FORGEROOM_OPENCLAW_ENDPOINT` | gateway HTTP endpoint (loopback) | `http://127.0.0.1:18789` |
+| `FORGEROOM_OPENCLAW_TOKEN` | gateway auth token (passed to the child as `OPENCLAW_TOKEN`, never on argv) | — (required) |
 | `FORGEROOM_OPENCLAW_RUNTIME` | runtime/model id | `claude-cli` |
 
 ### What you do
@@ -46,18 +47,21 @@ through a CLI subprocess (`apps/orchestrator/src/app/openclaw-ipc.ts`,
    (the docs reference `openclaw setup`, which creates `~/.openclaw/openclaw.json`
    and initializes the agent workspace). Confirm:
    - `openclaw` is on your `PATH` (or note the absolute path for `FORGEROOM_OPENCLAW_BIN`).
-   - The gateway/runtime server starts and listens on a known host:port (ForgeRoom
-     defaults to `http://127.0.0.1:4317` — set `FORGEROOM_OPENCLAW_ENDPOINT` to whatever yours uses).
-   - You have an auth token for it → `FORGEROOM_OPENCLAW_TOKEN`.
-   - The model/runtime you want (e.g. a Claude CLI runtime) is configured and note
-     its id → `FORGEROOM_OPENCLAW_RUNTIME` (default `claude-cli`).
-2. **Verify the exact run command.** ForgeRoom assumes `openclaw exec <flags>` reads
-   a prompt file and writes an output file (the
-   [prompt-file protocol](../concepts/prompt-file-protocol.md)). If your OpenClaw's
-   CLI differs, override `FORGEROOM_OPENCLAW_ARGS` (e.g. `["run"]`) and, if the
-   verb/marker convention doesn't match, the adapter in `openclaw-ipc.ts` is the one
-   place to adjust (this contract is a documented ForgeRoom convention, **not** an
-   upstream guarantee — see [openclaw-e2e.md](openclaw-e2e.md)).
+   - The gateway server starts and listens on a known host:port (ForgeRoom
+     defaults to `http://127.0.0.1:18789` — set `FORGEROOM_OPENCLAW_ENDPOINT` to whatever yours uses).
+   - You have an auth token for it (in `~/.openclaw/openclaw.json` `gateway.auth.token`)
+     → `FORGEROOM_OPENCLAW_TOKEN`.
+   - The agent id you want to drive (`openclaw agents list`, default `main`)
+     → `FORGEROOM_OPENCLAW_AGENT`; and the model/runtime → `FORGEROOM_OPENCLAW_RUNTIME`
+     (default `claude-cli`).
+2. **The run command.** ForgeRoom drives the real one-shot
+   `openclaw agent --json --agent <id> [--session-id <id>] --message <prompt>`
+   contract (verified against OpenClaw 2026.5.18). The adapter reads the prompt
+   file, passes its content inline as `--message`, parses the JSON reply, and writes
+   it to the output file (the [prompt-file protocol](../concepts/prompt-file-protocol.md);
+   there is **no** `openclaw exec`). If your install differs, override
+   `FORGEROOM_OPENCLAW_ARGS` / `FORGEROOM_OPENCLAW_AGENT`, or adjust the adapter in
+   `openclaw-ipc.ts` — see [openclaw-e2e.md](openclaw-e2e.md).
 3. **Smoke-test the provider** (fake CLI first, then live):
    ```sh
    # fake CLI — proves the wiring without a live runtime
@@ -66,14 +70,15 @@ through a CLI subprocess (`apps/orchestrator/src/app/openclaw-ipc.ts`,
    # live runtime
    FORGEROOM_OPENCLAW_E2E_LIVE=1 \
    FORGEROOM_OPENCLAW_BIN=openclaw \
-   FORGEROOM_OPENCLAW_ENDPOINT=http://127.0.0.1:4317 \
+   FORGEROOM_OPENCLAW_ENDPOINT=http://127.0.0.1:18789 \
    FORGEROOM_OPENCLAW_TOKEN=<your-token> \
    FORGEROOM_OPENCLAW_RUNTIME=claude-cli \
+   FORGEROOM_OPENCLAW_AGENT=main \
    pnpm -F orchestrator test:e2e
    ```
    If the live success path produces a `.forgeroom/outputs/NN_*.md` file, the
-   OpenClaw side is good. If it errors, the most likely fix is `FORGEROOM_OPENCLAW_ARGS`
-   or the endpoint/token.
+   OpenClaw side is good. If it errors, the most likely fix is the endpoint/token,
+   `FORGEROOM_OPENCLAW_AGENT`, or `FORGEROOM_OPENCLAW_ARGS`.
 
 ---
 
@@ -182,9 +187,10 @@ Create a token that can read issues and write PRs on your project repos:
 1. Create an `.env` (do NOT commit it — it's gitignored) with the vars from §1–4. Minimal example:
    ```sh
    FORGEROOM_WORKTREE_ROOTS=/Users/hyojung/forgeroom-worktrees
-   FORGEROOM_OPENCLAW_ENDPOINT=http://127.0.0.1:4317
+   FORGEROOM_OPENCLAW_ENDPOINT=http://127.0.0.1:18789
    FORGEROOM_OPENCLAW_TOKEN=...
    FORGEROOM_OPENCLAW_RUNTIME=claude-cli
+   FORGEROOM_OPENCLAW_AGENT=main
    DISCORD_BOT_TOKEN=...
    DISCORD_APPLICATION_ID=...
    DISCORD_GUILD_IDS=...
@@ -222,8 +228,10 @@ Create a token that can read issues and write PRs on your project repos:
 - **Discord commands don't appear:** bot wasn't invited with `applications.commands`
   scope, or the wrong `DISCORD_GUILD_IDS`. Re-invite with the correct scope.
 - **Every Discord command rejected:** your user id isn't in `DISCORD_ALLOWED_USER_IDS`.
-- **OpenClaw run fails immediately:** wrong `FORGEROOM_OPENCLAW_ARGS` verb, endpoint,
-  or token. Try the fake-CLI `test:e2e` first to isolate ForgeRoom-side wiring.
+- **OpenClaw run fails immediately:** gateway not running on the configured endpoint
+  (`runtime_unavailable` from `ECONNREFUSED`), wrong token, or wrong
+  `FORGEROOM_OPENCLAW_AGENT` / `FORGEROOM_OPENCLAW_ARGS`. Try the fake-CLI `test:e2e`
+  first to isolate ForgeRoom-side wiring.
 - **GitHub PR not created / task fails with `pr_create_failed`:** token lacks Pull
   requests: write (or `repo` scope), or the branch couldn't be pushed.
 - **Approved dirty baseline still blocks:** that was a wiring gap (issue #42); confirm
