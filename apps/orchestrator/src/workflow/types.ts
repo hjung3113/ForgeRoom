@@ -108,7 +108,7 @@ export interface ResolvedWorkflowGroupStep {
   output_selectors: [];
   foreach: string;
   as: string;
-  steps: ResolvedWorkflowStep[];
+  steps: ResolvedWorkflowExecutableStep[];
   review: null;
   refine: null;
   until: null;

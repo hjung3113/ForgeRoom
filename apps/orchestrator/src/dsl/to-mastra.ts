@@ -17,15 +17,15 @@ import { createHash } from 'node:crypto';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 
-import type { IntentRegistry } from '../core/intent-registry.js';
 import { AdapterValidationError, WorkflowParseError } from './dsl-errors.js';
 import type {
   AdapterContext,
   InterpolatedInputs,
   ParsedForgeWorkflow,
-  ParsedGroupStep,
-  ParsedReviewLoopStep,
-  ParsedRunStep,
+  ResolvedWorkflow,
+  ResolvedWorkflowExecutableStep,
+  ResolvedWorkflowGroupStep,
+  ResolvedWorkflowReviewLoopStep,
   ResolvedStep,
   SelectorName,
   WorkflowEffects,
@@ -111,50 +111,40 @@ export function parseForgeWorkflow(source: string, workflowId: string): ParsedFo
 // ---------------------------------------------------------------------------
 
 export function toMastraWorkflow(
-  parsed: ParsedForgeWorkflow,
-  intents: IntentRegistry,
+  workflow: ResolvedWorkflow,
   ctx: AdapterContext,
 ): BuiltMastraWorkflow {
-  validateWorkflow(parsed, intents);
-
-  const resolvedSteps: ResolvedStep[] = [];
-  const resolve: ResolveFn = (spec): ResolvedStep => {
-    const intent = intents.resolve(spec.intent);
-    const r: ResolvedStep = {
-      mastraStepId: `${spec.intent}:${spec.id}`,
-      stepId: spec.id,
-      intentId: spec.intent,
-      kind: intent.kind,
-      agent: intent.agent,
-      harness: intent.harness,
-      promptTemplate: spec.prompt_template,
-      vars: spec.vars,
-      input_refs: spec.input_refs,
-    };
-    resolvedSteps.push(r);
-    return r;
+  const resolvedStepCache = new WeakMap<ResolvedWorkflowExecutableStep, ResolvedStep>();
+  const adapterStepFor = (step: ResolvedWorkflowExecutableStep): ResolvedStep => {
+    const cached = resolvedStepCache.get(step);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const resolved = toAdapterResolvedStep(step);
+    resolvedStepCache.set(step, resolved);
+    return resolved;
   };
 
   let wf = createWorkflow({
-    id: sanitizeWorkflowId(parsed.id),
+    id: sanitizeWorkflowId(workflow.id),
     inputSchema: z.object({}).passthrough(),
     outputSchema: z.unknown(),
   });
 
-  for (const step of parsed.steps) {
+  for (const step of workflow.steps) {
     if (step.type === 'run') {
-      wf = appendRunStep(wf, step, ctx, resolve);
+      wf = appendRunStep(wf, step, ctx, adapterStepFor);
     } else if (step.type === 'group') {
-      wf = appendForeach(wf, step, ctx, resolve);
+      wf = appendForeach(wf, step, ctx, adapterStepFor);
     } else {
-      wf = appendReviewLoop(wf, step, ctx, resolve);
+      wf = appendReviewLoop(wf, step, ctx, adapterStepFor);
     }
   }
 
   return {
     workflow: wf.commit(),
-    effects: parsed.effects,
-    resolvedSteps,
+    effects: workflow.effects,
+    resolvedSteps: workflow.executableSteps.map(adapterStepFor),
   };
 }
 
@@ -164,21 +154,33 @@ export function toMastraWorkflow(
 // re-impose type safety at the public boundary (BuiltMastraWorkflow).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyWf = any;
-interface ResolvableSpec {
-  id: string;
-  intent: string;
-  prompt_template: string;
-  vars: Record<string, string>;
-  input_refs: Record<string, string>;
+type AdapterStepFor = (step: ResolvedWorkflowExecutableStep) => ResolvedStep;
+
+function toAdapterResolvedStep(step: ResolvedWorkflowExecutableStep): ResolvedStep {
+  return {
+    mastraStepId: `${step.intent}:${step.id}`,
+    stepId: step.id,
+    intentId: step.intent,
+    kind: step.kind,
+    agent: step.agent,
+    harness: step.harness,
+    promptTemplate: step.prompt_template,
+    vars: step.vars,
+    input_refs: step.input_refs,
+  };
 }
-type ResolveFn = (spec: ResolvableSpec) => ResolvedStep;
 
 // ---------------------------------------------------------------------------
 // Sequential `type: run` -> `.then(step)` (+ optional pauseAfterGate)
 // ---------------------------------------------------------------------------
 
-function appendRunStep(wf: AnyWf, step: ParsedRunStep, ctx: AdapterContext, resolve: ResolveFn): AnyWf {
-  const resolved = resolve(step);
+function appendRunStep(
+  wf: AnyWf,
+  step: ResolvedWorkflowExecutableStep,
+  ctx: AdapterContext,
+  adapterStepFor: AdapterStepFor,
+): AnyWf {
+  const resolved = adapterStepFor(step);
   const worker = buildWorkerStep(resolved, step, ctx);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let next = (wf as any).then(worker) as AnyWf;
@@ -197,7 +199,7 @@ function appendRunStep(wf: AnyWf, step: ParsedRunStep, ctx: AdapterContext, reso
  */
 function buildWorkerStep(
   resolved: ResolvedStep,
-  step: ParsedRunStep,
+  step: ResolvedWorkflowExecutableStep,
   ctx: AdapterContext,
 ): ReturnType<typeof createStep> {
   return createStep({
@@ -269,7 +271,12 @@ function buildPauseGate(resolved: ResolvedStep, ctx: AdapterContext): ReturnType
 // `type: group` + foreach -> `.foreach(step, { concurrency: 1 })`
 // ---------------------------------------------------------------------------
 
-function appendForeach(wf: AnyWf, step: ParsedGroupStep, ctx: AdapterContext, resolve: ResolveFn): AnyWf {
+function appendForeach(
+  wf: AnyWf,
+  step: ResolvedWorkflowGroupStep,
+  ctx: AdapterContext,
+  adapterStepFor: AdapterStepFor,
+): AnyWf {
   // The foreach list expression is RESOLVED LAZILY at iteration bind time
   // (ADR-016 "bind time" = step input bind at runtime, NOT workflow build).
   // MVP only supports `${task.final_slices}` and `${<step>.output.slices}`.
@@ -284,7 +291,7 @@ function appendForeach(wf: AnyWf, step: ParsedGroupStep, ctx: AdapterContext, re
   // Compose the group's inner steps (worker + optional pause gate per item)
   // into a single nested committed workflow, which `.foreach()` accepts as a
   // Step (codex-verified for @mastra/core 1.36).
-  const innerStep = buildForeachItemStep(step, ctx, resolve);
+  const innerStep = buildForeachItemStep(step, ctx, adapterStepFor);
 
   // The list step resolves the array at RUNTIME from the (current) runtime
   // interpolation source, then `.foreach()` iterates that returned array.
@@ -303,14 +310,14 @@ function appendForeach(wf: AnyWf, step: ParsedGroupStep, ctx: AdapterContext, re
 }
 
 function buildForeachItemStep(
-  step: ParsedGroupStep,
+  step: ResolvedWorkflowGroupStep,
   ctx: AdapterContext,
-  resolve: ResolveFn,
+  adapterStepFor: AdapterStepFor,
 ): ReturnType<typeof createStep> {
   // Resolve all inner steps up front for metadata; bodies bind `as` from input.
   const inner = step.steps.map((s) => ({
     spec: s,
-    resolved: resolve(s),
+    resolved: adapterStepFor(s),
   }));
 
   return createStep({
@@ -348,7 +355,7 @@ const FOREACH_STEP_SLICES_RE = /^\$\{(\w+)\.output\.slices\}$/;
  * mid-run. The VALUE behind a supported shape is resolved lazily at runtime by
  * {@link evaluateForeachList}.
  */
-function assertForeachExprSupported(expr: string, step: ParsedGroupStep): void {
+function assertForeachExprSupported(expr: string, step: ResolvedWorkflowGroupStep): void {
   if (expr === '${task.final_slices}' || FOREACH_STEP_SLICES_RE.test(expr)) {
     return;
   }
@@ -361,7 +368,7 @@ function assertForeachExprSupported(expr: string, step: ParsedGroupStep): void {
  * reads the run's own slices — never a build-time snapshot. MVP supports
  * `${task.final_slices}` and `${<step>.output.slices}`.
  */
-function evaluateForeachList(expr: string, ctx: AdapterContext, step: ParsedGroupStep): string[] {
+function evaluateForeachList(expr: string, ctx: AdapterContext, step: ResolvedWorkflowGroupStep): string[] {
   if (expr === '${task.final_slices}') {
     return ctx.interpolation.task.final_slices;
   }
@@ -380,12 +387,12 @@ function evaluateForeachList(expr: string, ctx: AdapterContext, step: ParsedGrou
 
 function appendReviewLoop(
   wf: AnyWf,
-  step: ParsedReviewLoopStep,
+  step: ResolvedWorkflowReviewLoopStep,
   ctx: AdapterContext,
-  resolve: ResolveFn,
+  adapterStepFor: AdapterStepFor,
 ): AnyWf {
-  const reviewResolved = resolve(step.review);
-  const refineResolved = resolve(step.refine);
+  const reviewResolved = adapterStepFor(step.review);
+  const refineResolved = adapterStepFor(step.refine);
   const maxIterations = step.max_iterations;
 
   // Seed step: provides the initial loop state (iteration 0, not passed).
@@ -560,64 +567,6 @@ export class MissingVariableError extends Error {
   constructor(readonly ref: string) {
     super(`missing variable: \${${ref}}`);
     this.name = 'MissingVariableError';
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Validation (ADR-016): unknown intent, missing prompt_template, invalid until
-// ---------------------------------------------------------------------------
-
-export function validateWorkflow(parsed: ParsedForgeWorkflow, intents: IntentRegistry): void {
-  for (const step of parsed.steps) {
-    if (step.type === 'run') {
-      validateExecutable(parsed.id, step.id, step.intent, step.prompt_template, intents);
-    } else if (step.type === 'group') {
-      for (const inner of step.steps) {
-        validateExecutable(parsed.id, inner.id, inner.intent, inner.prompt_template, intents);
-      }
-    } else {
-      validateReviewLoop(parsed.id, step, intents);
-    }
-  }
-}
-
-function validateExecutable(
-  workflowId: string,
-  stepId: string,
-  intentId: string,
-  promptTemplate: string,
-  intents: IntentRegistry,
-): void {
-  if (!intents.has(intentId)) {
-    throw new AdapterValidationError(`unknown intent reference: ${intentId}`, workflowId, `${stepId}.intent`);
-  }
-  if (promptTemplate.trim() === '') {
-    throw new AdapterValidationError('missing prompt_template', workflowId, `${stepId}.prompt_template`);
-  }
-}
-
-function validateReviewLoop(workflowId: string, step: ParsedReviewLoopStep, intents: IntentRegistry): void {
-  validateExecutable(workflowId, step.review.id, step.review.intent, step.review.prompt_template, intents);
-  validateExecutable(workflowId, step.refine.id, step.refine.intent, step.refine.prompt_template, intents);
-
-  // until must be exactly ${<review.id>.passed}.
-  const expected = `\${${step.review.id}.passed}`;
-  if (step.until.trim() !== expected) {
-    throw new AdapterValidationError(
-      `invalid until expression: expected ${expected}`,
-      workflowId,
-      `${step.id}.until`,
-    );
-  }
-
-  // review intent must be kind: review.
-  const reviewIntent = intents.resolve(step.review.intent);
-  if (reviewIntent.kind !== 'review') {
-    throw new AdapterValidationError(
-      `review_loop.review intent must be kind: review`,
-      workflowId,
-      `${step.id}.review.intent`,
-    );
   }
 }
 

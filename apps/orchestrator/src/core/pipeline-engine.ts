@@ -28,13 +28,14 @@ import type { Conductor, Reporter, Task } from './types.js';
 import type { TaskStore, CreateTaskInput } from './task-store.js';
 import type { ProjectRegistry, ProjectMeta } from './project-registry.js';
 import type { IntentRegistry } from './intent-registry.js';
+import type { WorkflowRegistry } from './workflow-registry.js';
 import type { WorktreeManager } from './worktree-manager.js';
 import type { CheckRunnerRequest } from './check-runner.js';
 import type { CheckRunResult, Step } from './types.js';
 import { parseSlicesOutput, parseReviewPassedOutput } from './output-selectors.js';
 import { OrchestratorError, type OrchestratorFailureCode } from './errors.js';
 import type { PullRequestCreator } from './pull-request-creator.js';
-import { parseForgeWorkflow, toMastraWorkflow, ReviewLoopMaxIterationsError } from '../dsl/to-mastra.js';
+import { toMastraWorkflow, ReviewLoopMaxIterationsError } from '../dsl/to-mastra.js';
 import type {
   AdapterContext,
   AgentRunResult as AdapterAgentRunResult,
@@ -42,6 +43,7 @@ import type {
   ResolvedStep as AdapterResolvedStep,
   StepOutputView,
   WorkflowPrEffect,
+  ResolvedWorkflow,
 } from '../workflow/types.js';
 import { AdapterValidationError } from '../dsl/dsl-errors.js';
 import { StepCollaborators } from './engine/step-collaborators.js';
@@ -124,6 +126,7 @@ export interface PullRequestTarget {
 
 export interface PipelineEngineDeps {
   projectRegistry: ProjectRegistry;
+  workflowRegistry: WorkflowRegistry;
   intentRegistry: IntentRegistry;
   taskStore: TaskStore;
   worktreeManager: WorktreeManager;
@@ -591,21 +594,14 @@ export class MastraPipelineEngine implements PipelineEngine {
 
   private buildWorkflow(input: { task: Task; project: ProjectMeta; opts: RunOpts }) {
     const { task, project } = input;
-    const source = this.deps.workflowSource.source(task.workflow_id);
-    let parsed;
-    try {
-      parsed = parseForgeWorkflow(source, task.workflow_id);
-    } catch (error) {
-      if (error instanceof AdapterValidationError) {
-        // Adapter validation is a build failure (ADR-016); surface as-is.
-        throw error;
-      }
-      throw error;
+    const workflow = this.deps.workflowRegistry.get(task.workflow_id);
+    if (workflow === null || workflow.executableSteps === undefined) {
+      throw new AdapterValidationError(`workflow not found: ${task.workflow_id}`, task.workflow_id);
     }
 
     const ctx = this.buildAdapterContext({ task, project, opts: input.opts });
-    const built = toMastraWorkflow(parsed, this.deps.intentRegistry, ctx);
-    return { ...built, prEffect: parsed.effects.external.pr };
+    const built = toMastraWorkflow(workflow as ResolvedWorkflow, ctx);
+    return { ...built, prEffect: workflow.effects.external.pr };
   }
 
   private buildAdapterContext(input: {

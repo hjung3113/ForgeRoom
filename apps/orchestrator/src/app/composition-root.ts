@@ -255,6 +255,7 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
   // --- PipelineEngine -------------------------------------------------------
   const engineDeps: PipelineEngineDeps = {
     projectRegistry: registries.projects,
+    workflowRegistry: registries.workflows,
     intentRegistry: registries.intents,
     taskStore,
     worktreeManager,

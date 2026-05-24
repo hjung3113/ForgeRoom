@@ -13,17 +13,18 @@
  * (renderPrompt -> runAgent -> runChecks -> saveDiff -> conductorUpdate) so the
  * trace shape matches production step boundaries.
  */
+import { AgentRegistry } from '../core/agent-registry.js';
+import { HarnessRegistry } from '../core/harness-registry.js';
 import { IntentRegistry } from '../core/intent-registry.js';
-import {
-  parseForgeWorkflow,
-  toMastraWorkflow,
-  type BuiltMastraWorkflow,
-} from '../dsl/to-mastra.js';
+import { WorkflowRegistry } from '../core/workflow-registry.js';
+import { toMastraWorkflow, type BuiltMastraWorkflow } from '../dsl/to-mastra.js';
+import { parseWorkflowConfig } from '../dsl/workflow-parser.js';
 import type {
   AdapterContext,
   AgentRunResult,
   InterpolatedInputs,
   InterpolationSource,
+  ResolvedWorkflow,
   ResolvedStep,
   StepOutputView,
 } from '../workflow/types.js';
@@ -160,7 +161,28 @@ export function buildSampleAdapterContext(): AdapterContext {
  * tests that assert the graph builds and runs end to end.
  */
 export function buildSampleWorkflow(): BuiltMastraWorkflow {
-  const parsed = parseForgeWorkflow(SAMPLE_WORKFLOW_YAML, SAMPLE_WORKFLOW_ID);
+  const harnesses = HarnessRegistry.fromConfig({
+    planning: { source: 'harnesses/planning.md' },
+    implementation: { source: 'harnesses/implementation.md' },
+    review: { source: 'harnesses/review.md' },
+  });
+  const agents = AgentRegistry.fromConfig(
+    {
+      claude: { provider: 'openclaw', runtime: 'claude', model: 'stub', harness: 'planning' },
+      codex: { provider: 'openclaw', runtime: 'codex', model: 'stub', harness: 'implementation' },
+    },
+    harnesses,
+  );
   const intents = IntentRegistry.fromConfig(SAMPLE_INTENTS);
-  return toMastraWorkflow(parsed, intents, buildSampleAdapterContext());
+  const parsed = parseWorkflowConfig(SAMPLE_WORKFLOW_YAML);
+  const workflows = WorkflowRegistry.fromConfig(parsed.config, {
+    intentRegistry: intents,
+    agentRegistry: agents,
+    harnessRegistry: harnesses,
+  });
+  const workflow = workflows.get(SAMPLE_WORKFLOW_ID);
+  if (workflow === null || workflow.executableSteps === undefined) {
+    throw new Error(`sample workflow not found: ${SAMPLE_WORKFLOW_ID}`);
+  }
+  return toMastraWorkflow(workflow as ResolvedWorkflow, buildSampleAdapterContext());
 }

@@ -18,6 +18,7 @@ import { SqliteTaskStore } from '../db/sqlite-task-store.js';
 import { IntentRegistry } from './intent-registry.js';
 import { ProjectRegistry } from './project-registry.js';
 import { WorkflowRegistry } from './workflow-registry.js';
+import { parseWorkflowConfig } from '../dsl/workflow-parser.js';
 import { AgentRegistry } from './agent-registry.js';
 import { HarnessRegistry } from './harness-registry.js';
 import { ApprovalGate, type GateDecision } from './approval-gate.js';
@@ -90,14 +91,10 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     harnessRegistry,
   );
   const intentRegistry = IntentRegistry.fromConfig(INTENTS);
+  const workflowSource = overrides.workflowSource ?? { source: (): string => SINGLE_STEP_YAML };
+  const parsedWorkflowSource = parseWorkflowConfig(workflowSource.source('mvp'));
   const workflowRegistry = WorkflowRegistry.fromConfig(
-    {
-      mvp: {
-        description: 't',
-        effects: { worktree: 'modifies', external: { report: 'status', pr: 'draft' } },
-        steps: [{ type: 'run', id: 'plan', intent: 'write_plan', prompt_template: 'plan.md' }],
-      },
-    },
+    parsedWorkflowSource.config,
     { intentRegistry, agentRegistry, harnessRegistry },
     { templateExists: () => true },
   );
@@ -168,6 +165,7 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
 
   return {
     projectRegistry,
+    workflowRegistry,
     intentRegistry,
     taskStore: store,
     worktreeManager,
@@ -177,7 +175,7 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     approvalGate: new ApprovalGate(),
     reporter,
     forgeMap,
-    workflowSource: { source: (): string => SINGLE_STEP_YAML },
+    workflowSource,
     snapshotBridge: new FileSnapshotBridge(path.join(tempDir, 'snap')),
     allowedWorktreeRoots: [worktreeRoot],
     worktreePathFor: ({ taskId }): string => path.join(worktreeRoot, taskId),

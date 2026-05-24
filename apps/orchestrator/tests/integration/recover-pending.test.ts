@@ -25,6 +25,7 @@ import { SqliteTaskStore } from '../../src/db/sqlite-task-store.js';
 import { IntentRegistry } from '../../src/core/intent-registry.js';
 import { ProjectRegistry } from '../../src/core/project-registry.js';
 import { WorkflowRegistry } from '../../src/core/workflow-registry.js';
+import { parseWorkflowConfig } from '../../src/dsl/workflow-parser.js';
 import { AgentRegistry } from '../../src/core/agent-registry.js';
 import { HarnessRegistry } from '../../src/core/harness-registry.js';
 import { ApprovalGate } from '../../src/core/approval-gate.js';
@@ -171,7 +172,7 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
-function buildProjectRegistry(projectPath: string): ProjectRegistry {
+function buildWorkflowRegistry(yaml: string): { workflowRegistry: WorkflowRegistry; intents: IntentRegistry } {
   const harnessRegistry = HarnessRegistry.fromConfig({
     planning: { source: 'harnesses/planning.md' },
     implementation: { source: 'harnesses/implementation.md' },
@@ -186,17 +187,16 @@ function buildProjectRegistry(projectPath: string): ProjectRegistry {
     harnessRegistry,
   );
   const intentRegistry = IntentRegistry.fromConfig(INTENTS);
+  const parsedWorkflow = parseWorkflowConfig(yaml);
   const workflowRegistry = WorkflowRegistry.fromConfig(
-    {
-      mvp: {
-        description: 'test',
-        effects: { worktree: 'modifies', external: { report: 'status', pr: 'draft' } },
-        steps: [{ type: 'run', id: 'plan', intent: 'write_plan', prompt_template: 'plan.md' }],
-      },
-    },
+    parsedWorkflow.config,
     { intentRegistry, agentRegistry, harnessRegistry },
     { templateExists: () => true },
   );
+  return { workflowRegistry, intents: intentRegistry };
+}
+
+function buildProjectRegistry(projectPath: string, workflowRegistry: WorkflowRegistry): ProjectRegistry {
   return ProjectRegistry.fromConfig(
     {
       proj: {
@@ -298,7 +298,8 @@ async function setup(yaml: string): Promise<Harness> {
   };
   const forgeMap: ForgeMapStager = { stage: async (): Promise<void> => Promise.resolve() };
   const conductor = makeFakeConductor();
-  const projectRegistry = buildProjectRegistry(projectPath);
+  const { workflowRegistry, intents } = buildWorkflowRegistry(yaml);
+  const projectRegistry = buildProjectRegistry(projectPath, workflowRegistry);
   const snapshotDir = path.join(tempDir, 'snapshots');
 
   const checkRunner = {
@@ -318,7 +319,8 @@ async function setup(yaml: string): Promise<Harness> {
 
   const deps: PipelineEngineDeps = {
     projectRegistry,
-    intentRegistry: IntentRegistry.fromConfig(INTENTS),
+    workflowRegistry,
+    intentRegistry: intents,
     taskStore: store,
     worktreeManager,
     agentRunner,

@@ -24,6 +24,7 @@ import { randomUUID } from 'node:crypto';
 
 import { createTaskStoreDatabase, migrateTaskStoreDatabase } from '../../src/db/client.js';
 import { SqliteTaskStore } from '../../src/db/sqlite-task-store.js';
+import { parseWorkflowConfig } from '../../src/dsl/workflow-parser.js';
 import { IntentRegistry } from '../../src/core/intent-registry.js';
 import { ProjectRegistry } from '../../src/core/project-registry.js';
 import { WorkflowRegistry } from '../../src/core/workflow-registry.js';
@@ -472,17 +473,12 @@ function assemble(tempDir: string, options: HarnessOptions): AcceptanceHarness {
     harnessRegistry,
   );
   const intentRegistry = IntentRegistry.fromConfig(INTENTS);
-  // The ProjectRegistry validates allowed_workflows against the WorkflowRegistry,
-  // so every workflow id the project allows must be registered here. The engine
-  // executes from the raw YAML in `workflowSource`; these structural entries only
-  // satisfy the registry's existence + shape check.
-  const minimalWorkflow = {
-    description: 'matrix workflow',
-    effects: { worktree: 'modifies' as const, external: { report: 'status' as const, pr: 'ready' as const } },
-    steps: [{ type: 'run' as const, id: 'plan', intent: 'claude_write_plan', prompt_template: 'plan.md' }],
-  };
+  const workflowConfig = Object.assign(
+    {},
+    ...Object.values(ALL_WORKFLOWS).map((yaml) => parseWorkflowConfig(yaml).config),
+  ) as Record<string, Record<string, unknown>>;
   const workflowRegistry = WorkflowRegistry.fromConfig(
-    { quick: minimalWorkflow, hotfix: minimalWorkflow, full: minimalWorkflow, custom: minimalWorkflow },
+    workflowConfig,
     { intentRegistry, agentRegistry, harnessRegistry },
     { templateExists: () => true },
   );
@@ -575,6 +571,7 @@ function assemble(tempDir: string, options: HarnessOptions): AcceptanceHarness {
 
   const deps: PipelineEngineDeps = {
     projectRegistry,
+    workflowRegistry,
     intentRegistry,
     taskStore: store,
     worktreeManager,

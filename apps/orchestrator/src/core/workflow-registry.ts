@@ -519,7 +519,7 @@ function resolveGroupStep(
     foreach,
     as: parsed.as,
     steps: parsed.steps.map((step, index) =>
-      resolveStep(
+      resolveExecutableStep(
         step,
         deps,
         options,
