@@ -13,6 +13,6 @@ forgeroom:
     typecheck: pnpm typecheck
     test: pnpm test:unit
   maintainers:
-    discord_user_ids: []
+    discord_user_ids: ["388212532697104384"]
     github_logins:
-      - hyojung
+      - hjung3113
