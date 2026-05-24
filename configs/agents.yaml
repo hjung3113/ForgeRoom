@@ -6,6 +6,6 @@ claude:
 
 codex:
   provider: openclaw
-  runtime: codex
-  model: codex/gpt-5.3-codex
+  runtime: claude-cli
+  model: anthropic/claude-opus-4-7
   harness: implementation
