@@ -33,6 +33,11 @@ import type {
   SelectorName,
   WorkflowEffects,
 } from '../workflow/types.js';
+import {
+  parseRuntimeExpressionRef,
+  replaceExpressionRefs,
+  wholeExpressionRef,
+} from '../workflow/expression.js';
 
 // ---------------------------------------------------------------------------
 // Step execution output shape (what every worker step body returns)
@@ -576,50 +581,48 @@ function evaluateExpression(
   varsOverride?: Record<string, unknown>,
 ): unknown {
   // Whole-string single expression -> return typed value.
-  const whole = /^\$\{([^}]+)\}$/.exec(expr.trim());
-  if (whole) {
-    return resolveRef(whole[1] as string, ctx, varsOverride);
+  const whole = wholeExpressionRef(expr);
+  if (whole !== null) {
+    return resolveRef(whole, ctx, varsOverride);
   }
   // Mixed text -> string interpolation.
-  return expr.replace(/\$\{([^}]+)\}/g, (_m, ref: string) => {
-    const value = resolveRef(ref.trim(), ctx, varsOverride);
+  return replaceExpressionRefs(expr, (ref) => {
+    const value = resolveRef(ref, ctx, varsOverride);
     return value === undefined || value === null ? '' : String(value);
   });
 }
 
 function resolveRef(ref: string, ctx: AdapterContext, varsOverride?: Record<string, unknown>): unknown {
   const { interpolation } = ctx;
+  const parsed = parseRuntimeExpressionRef(ref, new Set(Object.keys(varsOverride ?? {})));
 
   // foreach `as` binding (e.g. ${slice}).
-  if (varsOverride && ref in varsOverride) {
-    return varsOverride[ref];
+  if (parsed.kind === 'scoped') {
+    return varsOverride?.[parsed.name];
   }
 
-  if (ref.startsWith('vars.')) {
-    const name = ref.slice('vars.'.length);
-    if (!(name in interpolation.vars)) {
+  if (parsed.kind === 'vars') {
+    if (!(parsed.name in interpolation.vars)) {
       throw new MissingVariableError(ref);
     }
-    return interpolation.vars[name];
+    return interpolation.vars[parsed.name];
   }
 
-  if (ref.startsWith('task.')) {
-    const name = ref.slice('task.'.length);
+  if (parsed.kind === 'task') {
     const task = interpolation.task as unknown as Record<string, unknown>;
-    if (!(name in task)) {
+    if (!(parsed.field in task)) {
       throw new MissingVariableError(ref);
     }
-    return task[name];
+    return task[parsed.field];
   }
 
   // ${<step>.output}, .output_path, .output.slices, .diff_path, .passed
-  const stepMatch = /^(\w+)\.(output\.slices|output_path|output|diff_path|passed)$/.exec(ref);
-  if (stepMatch) {
-    const view = interpolation.stepOutputs[stepMatch[1] as string];
+  if (parsed.kind === 'step') {
+    const view = interpolation.stepOutputs[parsed.stepId];
     if (view === undefined) {
       throw new MissingVariableError(ref);
     }
-    switch (stepMatch[2]) {
+    switch (parsed.field) {
       case 'output.slices':
         return view.slices;
       case 'output_path':

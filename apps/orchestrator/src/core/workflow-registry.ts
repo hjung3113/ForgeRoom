@@ -7,6 +7,7 @@ import type {
   WorkflowReportEffect,
   WorkflowWorktreeEffect,
 } from '../workflow/types.js';
+import { extractExpressionRefs, parseValidationExpressionRef } from '../workflow/expression.js';
 
 export type { WorkflowEffects, WorkflowPrEffect, WorkflowReportEffect, WorkflowWorktreeEffect };
 
@@ -697,9 +698,8 @@ function validateExpressionString(
   sourceField: string,
   workflowId: string,
 ): void {
-  const expressionPattern = /\$\{([^}]+)\}/g;
-  for (const match of value.matchAll(expressionPattern)) {
-    validateExpression((match[1] ?? '').trim(), knownStepIds, scopedVars, messageField, sourceField, workflowId);
+  for (const ref of extractExpressionRefs(value)) {
+    validateExpression(ref, knownStepIds, scopedVars, messageField, sourceField, workflowId);
   }
 }
 
@@ -719,68 +719,50 @@ function validateExpression(
   sourceField: string,
   workflowId: string,
 ): void {
-  if (expression === '') {
-    throw new WorkflowValidationError(`${messageField} has an empty expression`, { workflowId, field: sourceField });
-  }
-  if (scopedVars.has(expression)) {
-    return;
-  }
-  if (expression.startsWith('vars.')) {
-    if (expression === 'vars.') {
+  const ref = parseValidationExpressionRef(expression, scopedVars);
+  switch (ref.kind) {
+    case 'empty':
+      throw new WorkflowValidationError(`${messageField} has an empty expression`, { workflowId, field: sourceField });
+    case 'scoped':
+    case 'vars':
+    case 'task':
+      return;
+    case 'invalid_vars':
       throw new WorkflowValidationError(`${messageField} has an invalid vars reference`, {
         workflowId,
         field: sourceField,
       });
-    }
-    return;
-  }
-  if (expression.startsWith('task.')) {
-    const taskField = expression.slice('task.'.length);
-    if (!TASK_REFERENCE_FIELDS.has(taskField)) {
-      throw new WorkflowValidationError(`${messageField} has unsupported task reference field: ${taskField}`, {
+    case 'unsupported_task_field':
+      throw new WorkflowValidationError(`${messageField} has unsupported task reference field: ${ref.field}`, {
         workflowId,
         field: sourceField,
       });
-    }
-    return;
-  }
-
-  const fieldStart = expression.indexOf('.');
-  if (fieldStart === -1) {
-    throw new WorkflowValidationError(`${messageField} has unsupported expression reference: ${expression}`, {
-      workflowId,
-      field: sourceField,
-    });
-  }
-
-  const stepId = expression.slice(0, fieldStart);
-  const stepField = expression.slice(fieldStart + 1);
-  if (!knownStepIds.has(stepId)) {
-    throw new WorkflowValidationError(`${messageField} references unknown step id: ${stepId}`, {
-      workflowId,
-      field: sourceField,
-    });
-  }
-  if (!STEP_REFERENCE_FIELDS.has(stepField)) {
-    throw new WorkflowValidationError(`${messageField} has unsupported step reference field: ${stepField}`, {
-      workflowId,
-      field: sourceField,
-    });
+    case 'step':
+      if (!knownStepIds.has(ref.stepId)) {
+        throw new WorkflowValidationError(`${messageField} references unknown step id: ${ref.stepId}`, {
+          workflowId,
+          field: sourceField,
+        });
+      }
+      return;
+    case 'unsupported_step_field':
+      if (!knownStepIds.has(ref.stepId)) {
+        throw new WorkflowValidationError(`${messageField} references unknown step id: ${ref.stepId}`, {
+          workflowId,
+          field: sourceField,
+        });
+      }
+      throw new WorkflowValidationError(`${messageField} has unsupported step reference field: ${ref.field}`, {
+        workflowId,
+        field: sourceField,
+      });
+    case 'unsupported_reference':
+      throw new WorkflowValidationError(`${messageField} has unsupported expression reference: ${ref.ref}`, {
+        workflowId,
+        field: sourceField,
+      });
   }
 }
-
-const TASK_REFERENCE_FIELDS = new Set([
-  'title',
-  'description',
-  'project',
-  'branch',
-  'worktree_path',
-  'issue_number',
-  'full_diff_path',
-  'final_slices',
-]);
-
-const STEP_REFERENCE_FIELDS = new Set(['output', 'output.slices', 'output_path', 'diff_path', 'passed']);
 
 function asRawStep(value: unknown, field: string, sourceField?: string, workflowId?: string): RawStep {
   if (!isRecord(value)) {
