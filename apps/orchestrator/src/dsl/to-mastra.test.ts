@@ -7,17 +7,120 @@ import { AdapterValidationError } from './dsl-errors.js';
 import {
   adapterCacheKey,
   buildMastraWorkflowCached,
-  parseForgeWorkflow,
   toMastraWorkflow,
-  type AdapterContext,
   type StepExecution,
 } from './to-mastra.js';
+import { parseForgeWorkflow } from '../workflow/schema.js';
+import type {
+  AdapterContext,
+  ParsedForgeWorkflow,
+  ParsedRunStep,
+  ResolvedWorkflow,
+  ResolvedWorkflowExecutableStep,
+  ResolvedWorkflowStep,
+} from '../workflow/types.js';
 
 const INTENTS = IntentRegistry.fromConfig({
   codex_execute: { kind: 'execute', agent: 'codex', harness: 'implementation' },
   claude_review: { kind: 'review', agent: 'claude', harness: 'review' },
   claude_plan: { kind: 'write_plan', agent: 'claude', harness: 'planning' },
 });
+
+function resolveForAdapter(parsed: ParsedForgeWorkflow, intents = INTENTS): ResolvedWorkflow {
+  const executableSteps: ResolvedWorkflowExecutableStep[] = [];
+  const resolveRun = (step: ParsedRunStep): ResolvedWorkflowExecutableStep => {
+    if (!intents.has(step.intent)) {
+      throw new AdapterValidationError(`unknown intent reference: ${step.intent}`, parsed.id, `${step.id}.intent`);
+    }
+    if (step.prompt_template.trim() === '') {
+      throw new AdapterValidationError('missing prompt_template', parsed.id, `${step.id}.prompt_template`);
+    }
+    const intent = intents.resolve(step.intent);
+    const resolved: ResolvedWorkflowExecutableStep = {
+      type: 'run',
+      id: step.id,
+      intent: step.intent,
+      prompt_template: step.prompt_template,
+      input_refs: step.input_refs,
+      vars: step.vars,
+      output_selectors: step.output_selectors,
+      foreach: null,
+      as: null,
+      steps: [],
+      review: null,
+      refine: null,
+      until: null,
+      max_iterations: null,
+      pause_after: step.pause_after,
+      kind: intent.kind,
+      agent: intent.agent,
+      harness: intent.harness,
+    };
+    executableSteps.push(resolved);
+    return resolved;
+  };
+  const resolveStep = (step: ParsedForgeWorkflow['steps'][number]): ResolvedWorkflowStep => {
+    if (step.type === 'run') {
+      return resolveRun(step);
+    }
+    if (step.type === 'group') {
+      return {
+        ...step,
+        intent: null,
+        prompt_template: null,
+        input_refs: {},
+        vars: {},
+        output_selectors: [],
+        steps: step.steps.map((inner) => resolveRun(inner)),
+        review: null,
+        refine: null,
+        until: null,
+        max_iterations: null,
+        pause_after: false,
+        kind: null,
+        agent: null,
+        harness: null,
+      };
+    }
+    const review = resolveRun({ ...step.review, type: 'run', output_selectors: [], pause_after: false });
+    const refine = resolveRun({ ...step.refine, type: 'run', output_selectors: [], pause_after: false });
+    const expected = `\${${step.review.id}.passed}`;
+    if (step.until.trim() !== expected) {
+      throw new AdapterValidationError(`invalid until expression: expected ${expected}`, parsed.id, `${step.id}.until`);
+    }
+    if (review.kind !== 'review') {
+      throw new AdapterValidationError(
+        `review_loop.review intent must be kind: review`,
+        parsed.id,
+        `${step.id}.review.intent`,
+      );
+    }
+    return {
+      ...step,
+      intent: null,
+      prompt_template: null,
+      input_refs: {},
+      vars: {},
+      output_selectors: [],
+      foreach: null,
+      as: null,
+      steps: [],
+      review,
+      refine,
+      pause_after: false,
+      kind: null,
+      agent: null,
+      harness: null,
+    };
+  };
+  return {
+    id: parsed.id,
+    description: parsed.description,
+    effects: parsed.effects,
+    steps: parsed.steps.map(resolveStep),
+    executableSteps,
+  };
+}
 
 /** A fake collaborator set that records the order of operations per step. */
 function makeCtx(overrides: Partial<AdapterContext> = {}): {
@@ -125,7 +228,7 @@ describe('toMastraWorkflow — sequential run', () => {
   it('builds a workflow that compiles and runs the step body in ADR-016 order', async () => {
     const parsed = parseForgeWorkflow(SEQUENTIAL_YAML, 'quick');
     const { ctx, log } = makeCtx();
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
 
     expect(built.effects.worktree).toBe('modifies');
 
@@ -160,7 +263,7 @@ describe('toMastraWorkflow — sequential run', () => {
 `;
     const parsed = parseForgeWorkflow(yaml, 'plan_wf');
     const { ctx, log } = makeCtx();
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
     const mastra = new Mastra({ workflows: { wf: built.workflow }, storage: new MockStore() });
     const run = await mastra.getWorkflow('wf').createRun();
     await run.start({ inputData: {} });
@@ -177,7 +280,7 @@ describe('toMastraWorkflow — interpolation', () => {
       interpolated.push(vars);
       return 'p';
     };
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
     const mastra = new Mastra({ workflows: { wf: built.workflow }, storage: new MockStore() });
     const run = await mastra.getWorkflow('wf').createRun();
     await run.start({ inputData: {} });
@@ -204,7 +307,7 @@ describe('toMastraWorkflow — interpolation', () => {
     const { ctx } = makeCtx();
     // Interpolation is evaluated at step bind time (run), so building succeeds
     // but running fails fast on the missing variable.
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
     expect(built.workflow).toBeDefined();
     const mastra = new Mastra({ workflows: { wf: built.workflow }, storage: new MockStore() });
     const run = await mastra.getWorkflow('wf').createRun();
@@ -233,7 +336,7 @@ describe('toMastraWorkflow — interpolation', () => {
       captured.push(vars.vars.line);
       return 'p';
     };
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
     const mastra = new Mastra({ workflows: { wf: built.workflow }, storage: new MockStore() });
     const run = await mastra.getWorkflow('wf').createRun();
     await run.start({ inputData: {} });
@@ -271,7 +374,7 @@ describe('toMastraWorkflow — foreach', () => {
       boundSlices.push(vars.vars.slice);
       return 'p';
     };
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
     const mastra = new Mastra({ workflows: { wf: built.workflow }, storage: new MockStore() });
     const run = await mastra.getWorkflow('wf').createRun();
     const result = await run.start({ inputData: {} });
@@ -292,7 +395,7 @@ describe('toMastraWorkflow — foreach', () => {
       return 'p';
     };
 
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
 
     // Populate the list AFTER the build (simulating the runtime plan step).
     ctx.interpolation.task.final_slices = ['runtime-1', 'runtime-2', 'runtime-3'];
@@ -318,7 +421,7 @@ describe('toMastraWorkflow — foreach', () => {
     };
 
     const cache = new Map<string, ReturnType<typeof toMastraWorkflow>>();
-    const build = (): ReturnType<typeof toMastraWorkflow> => toMastraWorkflow(parsed, INTENTS, ctx);
+    const build = (): ReturnType<typeof toMastraWorkflow> => toMastraWorkflow(resolveForAdapter(parsed), ctx);
     const cacheParts = { yamlSource: FOREACH_YAML, intentsSource: 'i', mastraVersion: '1.36.0' };
 
     // Run A: list = [a1, a2].
@@ -370,7 +473,7 @@ describe('toMastraWorkflow — review_loop', () => {
   it('passes on the first review (small max_iterations) and never refines', async () => {
     const parsed = parseForgeWorkflow(reviewLoopYaml(3), 'rl_wf');
     const { ctx, log } = makeCtx();
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
     const mastra = new Mastra({ workflows: { wf: built.workflow }, storage: new MockStore() });
     const run = await mastra.getWorkflow('wf').createRun();
     const result = await run.start({ inputData: {} });
@@ -398,7 +501,7 @@ describe('toMastraWorkflow — review_loop', () => {
       }
       return { outputPath: `/o/${resolved.stepId}.md`, output: 'done', diffPath: '/d.diff' };
     };
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
     const mastra = new Mastra({ workflows: { wf: built.workflow }, storage: new MockStore() });
     const run = await mastra.getWorkflow('wf').createRun();
     const result = await run.start({ inputData: {} });
@@ -416,7 +519,7 @@ describe('toMastraWorkflow — review_loop', () => {
       output: resolved.kind === 'review' ? 'Review Result: fail' : 'done',
       diffPath: null,
     });
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
     const mastra = new Mastra({ workflows: { wf: built.workflow }, storage: new MockStore() });
     const run = await mastra.getWorkflow('wf').createRun();
     const result = await run.start({ inputData: {} });
@@ -447,7 +550,7 @@ describe('toMastraWorkflow — selector parsing inside body', () => {
     );
     const { ctx } = makeCtx();
     ctx.selectors.parseSlices = sliceParse;
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
     const mastra = new Mastra({ workflows: { wf: built.workflow }, storage: new MockStore() });
     const run = await mastra.getWorkflow('wf').createRun();
     const result = await run.start({ inputData: {} });
@@ -480,7 +583,7 @@ describe('toMastraWorkflow — pause_after', () => {
 `;
     const parsed = parseForgeWorkflow(yaml, 'pw');
     const { ctx, log } = makeCtx();
-    const built = toMastraWorkflow(parsed, INTENTS, ctx);
+    const built = toMastraWorkflow(resolveForAdapter(parsed), ctx);
     const mastra = new Mastra({ workflows: { wf: built.workflow }, storage: new MockStore() });
     const run = await mastra.getWorkflow('wf').createRun();
     const result = await run.start({ inputData: {} });
@@ -509,9 +612,9 @@ describe('adapter validation', () => {
 `;
     const parsed = parseForgeWorkflow(yaml, 'w');
     const { ctx } = makeCtx();
-    expect(() => toMastraWorkflow(parsed, INTENTS, ctx)).toThrow(AdapterValidationError);
+    expect(() => toMastraWorkflow(resolveForAdapter(parsed), ctx)).toThrow(AdapterValidationError);
     try {
-      toMastraWorkflow(parsed, INTENTS, ctx);
+      toMastraWorkflow(resolveForAdapter(parsed), ctx);
     } catch (err) {
       expect((err as AdapterValidationError).failure_reason).toBe('adapter_validation_failed');
     }
@@ -530,7 +633,7 @@ describe('adapter validation', () => {
 `;
     const parsed = parseForgeWorkflow(yaml, 'w');
     const { ctx } = makeCtx();
-    expect(() => toMastraWorkflow(parsed, INTENTS, ctx)).toThrow(AdapterValidationError);
+    expect(() => toMastraWorkflow(resolveForAdapter(parsed), ctx)).toThrow(AdapterValidationError);
   });
 
   it('throws on invalid until expression', () => {
@@ -555,7 +658,7 @@ describe('adapter validation', () => {
 `;
     const parsed = parseForgeWorkflow(yaml, 'w');
     const { ctx } = makeCtx();
-    expect(() => toMastraWorkflow(parsed, INTENTS, ctx)).toThrow(AdapterValidationError);
+    expect(() => toMastraWorkflow(resolveForAdapter(parsed), ctx)).toThrow(AdapterValidationError);
   });
 
   it('throws when review intent is not kind: review', () => {
@@ -580,7 +683,7 @@ describe('adapter validation', () => {
 `;
     const parsed = parseForgeWorkflow(yaml, 'w');
     const { ctx } = makeCtx();
-    expect(() => toMastraWorkflow(parsed, INTENTS, ctx)).toThrow(AdapterValidationError);
+    expect(() => toMastraWorkflow(resolveForAdapter(parsed), ctx)).toThrow(AdapterValidationError);
   });
 });
 
@@ -599,7 +702,7 @@ describe('adapter cache', () => {
     const { ctx } = makeCtx();
     const build = (): ReturnType<typeof toMastraWorkflow> => {
       const parsed = parseForgeWorkflow(SEQUENTIAL_YAML, 'quick');
-      return toMastraWorkflow(parsed, INTENTS, ctx);
+      return toMastraWorkflow(resolveForAdapter(parsed), ctx);
     };
     const a = buildMastraWorkflowCached(
       { yamlSource: SEQUENTIAL_YAML, intentsSource: 'i', mastraVersion: '1.36.0' },

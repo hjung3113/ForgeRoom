@@ -45,7 +45,6 @@ import {
   type PipelineEngine,
   type PipelineEngineDeps,
   type PullRequestTarget,
-  type WorkflowSourceProvider,
 } from '../core/pipeline-engine.js';
 import { PullRequestCreator } from '../core/pull-request-creator.js';
 import {
@@ -241,20 +240,10 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
   // --- PR external effect (ADR-019) ----------------------------------------
   const { pullRequestCreator, prTargetFor } = buildPullRequestEffect({ env, overrides });
 
-  // --- WorkflowSourceProvider ----------------------------------------------
-  const workflowSource: WorkflowSourceProvider = {
-    source: (workflowId: string): string => {
-      const src = registries.workflowSources[workflowId];
-      if (src === undefined) {
-        throw new Error(`no workflow source for id: ${workflowId}`);
-      }
-      return src;
-    },
-  };
-
   // --- PipelineEngine -------------------------------------------------------
   const engineDeps: PipelineEngineDeps = {
     projectRegistry: registries.projects,
+    workflowRegistry: registries.workflows,
     intentRegistry: registries.intents,
     taskStore,
     worktreeManager,
@@ -264,7 +253,6 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     approvalGate,
     reporter,
     forgeMap,
-    workflowSource,
     snapshotBridge: new FileSnapshotBridge(env.snapshotDir),
     ...(pullRequestCreator === null ? {} : { pullRequestCreator }),
     ...(prTargetFor === null ? {} : { prTargetFor }),

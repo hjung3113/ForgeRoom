@@ -6,7 +6,7 @@ import {
 } from '../pull-request-creator.js';
 import type { TaskStore } from '../task-store.js';
 import type { Reporter, Task } from '../types.js';
-import type { WorkflowPrEffect } from '../workflow-registry.js';
+import type { WorkflowPrEffect } from '../../workflow/types.js';
 
 interface PullRequestTarget {
   owner: string;

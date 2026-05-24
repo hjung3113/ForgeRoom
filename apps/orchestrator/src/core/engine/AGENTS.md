@@ -12,7 +12,7 @@ Read [context-map.md](context-map.md) first.
 1. Keep PipelineEngine internals behavior-preserving unless a task explicitly changes semantics.
 2. Do not depend on concrete adapters from `app/`, `gateway/`, or `db/`.
 3. Depend on narrow injected interfaces and callbacks instead of raw `PipelineEngineDeps`.
-4. Preserve Mastra adapter contracts from `dsl/to-mastra.ts`.
+4. Preserve Mastra adapter contracts from `workflow/types.ts`.
 
 ## Upstream rules
 

@@ -14,14 +14,17 @@ Read [context-map.md](context-map.md) before starting work in this folder.
 3. **Folder responsibilities are strict:**
    - `core/` — business logic (PipelineEngine, Conductor, AgentRunner, WorktreeManager, CheckRunner, Reporter, ApprovalGate, registries, the TaskStore interface)
    - `gateway/` — adapters for external surfaces (Discord, GitHub)
-   - `dsl/` — workflow yaml parsing, variable interpolation, foreach/until evaluation
+   - `dsl/` — workflow yaml → Mastra builder (consumes a resolved workflow; no parsing/semantic-validation of its own)
+   - `workflow/` — neutral workflow contract layer (ADR-020): schema/types/expression. Owns the single `ParsedForgeWorkflow`/`ResolvedWorkflow` types, the `source → ParsedForgeWorkflow` parser, and the expression grammar. Imports nothing from sibling folders.
    - `db/` — Drizzle schema, migrations, SQLite binding (the TaskStore implementation)
    - `utils/` — domain-independent helpers only (logger, secret masking, path utils)
 4. **`types.ts` convention.** Types that other folders consume go in `<folder>/types.ts`.
 5. **Import direction:**
-   - Allowed: `gateway → core`, `dsl → core`, `db → core`
+   - Allowed: `gateway → core`, `db → core`
+   - Allowed: `core → workflow`, `dsl → workflow`, `db → workflow` (the neutral contract layer; ADR-020)
    - Forbidden: `core → gateway/dsl/db` (dependency inversion violation)
-   - `utils` may be imported from anywhere, but `utils` itself imports nothing from these folders
+   - Forbidden: `dsl → core` (ADR-020 supersedes the old allowance; dsl gets its schema types from `workflow/`)
+   - `workflow` and `utils` may be imported from anywhere, but they themselves import nothing from these folders
 
 ## Forbidden
 

@@ -28,23 +28,23 @@ import type { Conductor, Reporter, Task } from './types.js';
 import type { TaskStore, CreateTaskInput } from './task-store.js';
 import type { ProjectRegistry, ProjectMeta } from './project-registry.js';
 import type { IntentRegistry } from './intent-registry.js';
+import type { WorkflowRegistry } from './workflow-registry.js';
 import type { WorktreeManager } from './worktree-manager.js';
 import type { CheckRunnerRequest } from './check-runner.js';
 import type { CheckRunResult, Step } from './types.js';
 import { parseSlicesOutput, parseReviewPassedOutput } from './output-selectors.js';
 import { OrchestratorError, type OrchestratorFailureCode } from './errors.js';
 import type { PullRequestCreator } from './pull-request-creator.js';
-import type { WorkflowPrEffect } from './workflow-registry.js';
-import {
-  parseForgeWorkflow,
-  toMastraWorkflow,
-  ReviewLoopMaxIterationsError,
-  type AdapterContext,
-  type AgentRunResult as AdapterAgentRunResult,
-  type InterpolationSource,
-  type ResolvedStep as AdapterResolvedStep,
-  type StepOutputView,
-} from '../dsl/to-mastra.js';
+import { toMastraWorkflow, ReviewLoopMaxIterationsError } from '../dsl/to-mastra.js';
+import type {
+  AdapterContext,
+  AgentRunResult as AdapterAgentRunResult,
+  InterpolationSource,
+  ResolvedStep as AdapterResolvedStep,
+  StepOutputView,
+  WorkflowPrEffect,
+  ResolvedWorkflow,
+} from '../workflow/types.js';
 import { AdapterValidationError } from '../dsl/dsl-errors.js';
 import { StepCollaborators } from './engine/step-collaborators.js';
 import { PullRequestExternalEffect } from './engine/pull-request-external-effect.js';
@@ -93,16 +93,6 @@ export interface ForgeMapStager {
   stage(input: { taskId: string; worktreePath: string; projectId: string }): Promise<void>;
 }
 
-/**
- * Source of workflow yaml. WorkflowRegistry validates structure; the adapter
- * (#6) re-parses the raw yaml into its own typed view, so the engine resolves
- * the yaml source for the chosen workflow id here. Tests supply yaml inline.
- */
-export interface WorkflowSourceProvider {
-  /** The raw yaml document that defines `workflowId` (and possibly others). */
-  source(workflowId: string): string;
-}
-
 /** Pluggable Mastra storage + snapshot bridge (proven OQ-M01 pattern). */
 export interface MastraSnapshotBridge {
   /** Read the durable snapshot for a run, or null when absent. */
@@ -126,6 +116,7 @@ export interface PullRequestTarget {
 
 export interface PipelineEngineDeps {
   projectRegistry: ProjectRegistry;
+  workflowRegistry: WorkflowRegistry;
   intentRegistry: IntentRegistry;
   taskStore: TaskStore;
   worktreeManager: WorktreeManager;
@@ -141,7 +132,6 @@ export interface PipelineEngineDeps {
    */
   reporter: Reporter;
   forgeMap: ForgeMapStager;
-  workflowSource: WorkflowSourceProvider;
   snapshotBridge: MastraSnapshotBridge;
   /**
    * PR external effect (ADR-019). Runs after workflow/check success and before
@@ -593,21 +583,14 @@ export class MastraPipelineEngine implements PipelineEngine {
 
   private buildWorkflow(input: { task: Task; project: ProjectMeta; opts: RunOpts }) {
     const { task, project } = input;
-    const source = this.deps.workflowSource.source(task.workflow_id);
-    let parsed;
-    try {
-      parsed = parseForgeWorkflow(source, task.workflow_id);
-    } catch (error) {
-      if (error instanceof AdapterValidationError) {
-        // Adapter validation is a build failure (ADR-016); surface as-is.
-        throw error;
-      }
-      throw error;
+    const workflow = this.deps.workflowRegistry.get(task.workflow_id);
+    if (workflow === null || workflow.executableSteps === undefined) {
+      throw new AdapterValidationError(`workflow not found: ${task.workflow_id}`, task.workflow_id);
     }
 
     const ctx = this.buildAdapterContext({ task, project, opts: input.opts });
-    const built = toMastraWorkflow(parsed, this.deps.intentRegistry, ctx);
-    return { ...built, prEffect: parsed.effects.external.pr };
+    const built = toMastraWorkflow(workflow as ResolvedWorkflow, ctx);
+    return { ...built, prEffect: workflow.effects.external.pr };
   }
 
   private buildAdapterContext(input: {

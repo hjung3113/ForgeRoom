@@ -9,161 +9,31 @@
  * step bodies this adapter constructs. #8 (pipeline) and #7 (conductor) supply
  * the concrete collaborators; this adapter defines the seam.
  *
- * Wire order (ADR-016): WorkflowRegistry.load -> workflow-parser ->
- * adapter.validate (here, throws {@link AdapterValidationError}) -> Mastra build.
+ * Wire order (ADR-020): WorkflowRegistry parses/validates/resolves workflows,
+ * then this adapter builds Mastra from the resolved workflow tree.
  */
 import { createHash } from 'node:crypto';
 
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 
-import type { IntentRegistry } from '../core/intent-registry.js';
-import { parseWorkflowConfig } from './workflow-parser.js';
 import { AdapterValidationError } from './dsl-errors.js';
-
-// ---------------------------------------------------------------------------
-// Parsed ForgeRoom workflow shape (typed view over the generic parser output)
-// ---------------------------------------------------------------------------
-
-export interface WorkflowEffects {
-  worktree: 'read_only' | 'modifies';
-  external: {
-    report: 'none' | 'status' | 'final';
-    pr: 'none' | 'draft' | 'ready';
-  };
-}
-
-/** An Executable Step (`type: run`, or a review_loop's review/refine spec). */
-export interface ParsedRunStep {
-  type: 'run';
-  id: string;
-  intent: string;
-  prompt_template: string;
-  input_refs: Record<string, string>;
-  vars: Record<string, string>;
-  /** Output selectors to parse in the body, e.g. ['slices']. */
-  output_selectors: SelectorName[];
-  pause_after: boolean;
-}
-
-/** Executable spec used inside a review_loop (no `type`, no `pause_after`). */
-export interface ParsedExecutableSpec {
-  id: string;
-  intent: string;
-  prompt_template: string;
-  input_refs: Record<string, string>;
-  vars: Record<string, string>;
-}
-
-export interface ParsedGroupStep {
-  type: 'group';
-  id: string;
-  foreach: string;
-  as: string;
-  steps: ParsedRunStep[];
-}
-
-export interface ParsedReviewLoopStep {
-  type: 'review_loop';
-  id: string;
-  until: string;
-  max_iterations: number;
-  review: ParsedExecutableSpec;
-  refine: ParsedExecutableSpec;
-}
-
-export type ParsedStep = ParsedRunStep | ParsedGroupStep | ParsedReviewLoopStep;
-
-export interface ParsedForgeWorkflow {
-  id: string;
-  description: string;
-  effects: WorkflowEffects;
-  steps: ParsedStep[];
-}
-
-export type SelectorName = 'slices';
-
-// ---------------------------------------------------------------------------
-// Adapter context: interpolation source + injected collaborators + selectors
-// ---------------------------------------------------------------------------
-
-/** Resolved Step metadata (Intent + Step Harness composed at build time). */
-export interface ResolvedStep {
-  /** Mastra step id: `${intent_id}:${step_id}`. */
-  mastraStepId: string;
-  stepId: string;
-  intentId: string;
-  kind: string;
-  agent: string;
-  harness: string;
-  promptTemplate: string;
-  /** Raw (uninterpolated) vars from the DSL, evaluated at bind time. */
-  vars: Record<string, string>;
-  /** Raw (uninterpolated) input_refs from the DSL, evaluated at bind time. */
-  input_refs: Record<string, string>;
-}
-
-/** Variables made available to `${...}` interpolation. */
-export interface InterpolationSource {
-  task: {
-    title: string;
-    description: string;
-    project: string;
-    branch: string;
-    worktree_path: string;
-    issue_number: string;
-    full_diff_path: string;
-    final_slices: string[];
-  };
-  vars: Record<string, string>;
-  /** Prior step outputs keyed by step id (filled by the pipeline at runtime). */
-  stepOutputs: Record<string, StepOutputView>;
-}
-
-export interface StepOutputView {
-  output?: string;
-  output_path?: string;
-  diff_path?: string | null;
-  passed?: boolean;
-  slices?: string[];
-}
-
-/** Values produced by interpolating a step's vars / input_refs. */
-export interface InterpolatedInputs {
-  vars: Record<string, unknown>;
-  input_refs: Record<string, unknown>;
-}
-
-export interface AgentRunResult {
-  outputPath: string;
-  output: string;
-  diffPath: string | null;
-}
-
-/**
- * The collaborators the step bodies call. Concrete implementations are wired by
- * #8 / #7; tests pass fakes. The adapter only orchestrates call ORDER.
- */
-export interface AdapterCollaborators {
-  renderPrompt(resolved: ResolvedStep, inputs: InterpolatedInputs): Promise<string>;
-  runAgent(resolved: ResolvedStep, promptPath: string, inputs: InterpolatedInputs): Promise<AgentRunResult>;
-  runChecks(resolved: ResolvedStep, run: AgentRunResult): Promise<{ allPassed: boolean }>;
-  saveDiff(resolved: ResolvedStep, run: AgentRunResult): Promise<string | null>;
-  conductorUpdate(resolved: ResolvedStep, run: AgentRunResult): Promise<void>;
-  /** Called from the dedicated pauseAfterGate step (suspend lives in the gate). */
-  suspend(resolved: ResolvedStep): Promise<void>;
-}
-
-export interface SelectorParsers {
-  parseSlices(output: string): string[];
-  parseReviewPassed(output: string): boolean;
-}
-
-export interface AdapterContext {
-  interpolation: InterpolationSource;
-  collaborators: AdapterCollaborators;
-  selectors: SelectorParsers;
-}
+import type {
+  AdapterContext,
+  InterpolatedInputs,
+  ResolvedWorkflow,
+  ResolvedWorkflowExecutableStep,
+  ResolvedWorkflowGroupStep,
+  ResolvedWorkflowReviewLoopStep,
+  ResolvedStep,
+  SelectorName,
+  WorkflowEffects,
+} from '../workflow/types.js';
+import {
+  parseRuntimeExpressionRef,
+  replaceExpressionRefs,
+  wholeExpressionRef,
+} from '../workflow/expression.js';
 
 // ---------------------------------------------------------------------------
 // Step execution output shape (what every worker step body returns)
@@ -213,159 +83,44 @@ export interface BuiltMastraWorkflow {
 }
 
 // ---------------------------------------------------------------------------
-// Public: parse a single named workflow out of yaml
-// ---------------------------------------------------------------------------
-
-export function parseForgeWorkflow(source: string, workflowId: string): ParsedForgeWorkflow {
-  const { config } = parseWorkflowConfig(source, { source: workflowId });
-  const raw = config[workflowId];
-  if (raw === undefined) {
-    throw new AdapterValidationError(`workflow not found in source`, workflowId);
-  }
-  return normalizeWorkflow(workflowId, raw);
-}
-
-function normalizeWorkflow(id: string, raw: Record<string, unknown>): ParsedForgeWorkflow {
-  const effects = normalizeEffects(id, raw.effects);
-  const rawSteps = raw.steps;
-  if (!Array.isArray(rawSteps)) {
-    throw new AdapterValidationError('workflow.steps must be a list', id, 'steps');
-  }
-  const steps = rawSteps.map((s, i) => normalizeStep(id, s, `steps[${String(i)}]`));
-  return {
-    id,
-    description: typeof raw.description === 'string' ? raw.description : '',
-    effects,
-    steps,
-  };
-}
-
-function normalizeEffects(id: string, raw: unknown): WorkflowEffects {
-  if (!isRecord(raw)) {
-    throw new AdapterValidationError('workflow.effects must be a mapping', id, 'effects');
-  }
-  const external = isRecord(raw.external) ? raw.external : {};
-  return {
-    worktree: raw.worktree === 'modifies' ? 'modifies' : 'read_only',
-    external: {
-      report: oneOf(external.report, ['none', 'status', 'final'], 'none'),
-      pr: oneOf(external.pr, ['none', 'draft', 'ready'], 'none'),
-    },
-  };
-}
-
-function normalizeStep(workflowId: string, raw: unknown, field: string): ParsedStep {
-  if (!isRecord(raw)) {
-    throw new AdapterValidationError('step must be a mapping', workflowId, field);
-  }
-  const type = raw.type;
-  if (type === 'group') {
-    return {
-      type: 'group',
-      id: requireStringField(workflowId, raw.id, `${field}.id`),
-      foreach: requireStringField(workflowId, raw.foreach, `${field}.foreach`),
-      as: requireStringField(workflowId, raw.as, `${field}.as`),
-      steps: Array.isArray(raw.steps)
-        ? raw.steps.map((s, i) => normalizeRunStep(workflowId, s, `${field}.steps[${String(i)}]`))
-        : (() => {
-            throw new AdapterValidationError('group.steps must be a list', workflowId, `${field}.steps`);
-          })(),
-    };
-  }
-  if (type === 'review_loop') {
-    return {
-      type: 'review_loop',
-      id: requireStringField(workflowId, raw.id, `${field}.id`),
-      until: requireStringField(workflowId, raw.until, `${field}.until`),
-      max_iterations: requireNumberField(workflowId, raw.max_iterations, `${field}.max_iterations`),
-      review: normalizeExecutableSpec(workflowId, raw.review, `${field}.review`),
-      refine: normalizeExecutableSpec(workflowId, raw.refine, `${field}.refine`),
-    };
-  }
-  if (type === 'run') {
-    return normalizeRunStep(workflowId, raw, field);
-  }
-  throw new AdapterValidationError(`unknown step type: ${String(type)}`, workflowId, `${field}.type`);
-}
-
-function normalizeRunStep(workflowId: string, raw: unknown, field: string): ParsedRunStep {
-  if (!isRecord(raw) || raw.type !== 'run') {
-    throw new AdapterValidationError('expected a `type: run` step', workflowId, field);
-  }
-  return {
-    type: 'run',
-    id: requireStringField(workflowId, raw.id, `${field}.id`),
-    intent: requireStringField(workflowId, raw.intent, `${field}.intent`),
-    prompt_template: typeof raw.prompt_template === 'string' ? raw.prompt_template : '',
-    input_refs: normalizeStringMap(raw.input_refs),
-    vars: normalizeStringMap(raw.vars),
-    output_selectors: normalizeSelectors(raw.output_selectors),
-    pause_after: raw.pause_after === true,
-  };
-}
-
-function normalizeExecutableSpec(workflowId: string, raw: unknown, field: string): ParsedExecutableSpec {
-  if (!isRecord(raw)) {
-    throw new AdapterValidationError('expected an executable spec mapping', workflowId, field);
-  }
-  return {
-    id: requireStringField(workflowId, raw.id, `${field}.id`),
-    intent: requireStringField(workflowId, raw.intent, `${field}.intent`),
-    prompt_template: typeof raw.prompt_template === 'string' ? raw.prompt_template : '',
-    input_refs: normalizeStringMap(raw.input_refs),
-    vars: normalizeStringMap(raw.vars),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Public: build the Mastra workflow (validate -> compile)
+// Public: build the Mastra workflow
 // ---------------------------------------------------------------------------
 
 export function toMastraWorkflow(
-  parsed: ParsedForgeWorkflow,
-  intents: IntentRegistry,
+  workflow: ResolvedWorkflow,
   ctx: AdapterContext,
 ): BuiltMastraWorkflow {
-  validateWorkflow(parsed, intents);
-
-  const resolvedSteps: ResolvedStep[] = [];
-  const resolve: ResolveFn = (spec): ResolvedStep => {
-    const intent = intents.resolve(spec.intent);
-    const r: ResolvedStep = {
-      mastraStepId: `${spec.intent}:${spec.id}`,
-      stepId: spec.id,
-      intentId: spec.intent,
-      kind: intent.kind,
-      agent: intent.agent,
-      harness: intent.harness,
-      promptTemplate: spec.prompt_template,
-      vars: spec.vars,
-      input_refs: spec.input_refs,
-    };
-    resolvedSteps.push(r);
-    return r;
+  const resolvedStepCache = new WeakMap<ResolvedWorkflowExecutableStep, ResolvedStep>();
+  const adapterStepFor = (step: ResolvedWorkflowExecutableStep): ResolvedStep => {
+    const cached = resolvedStepCache.get(step);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const resolved = toAdapterResolvedStep(step);
+    resolvedStepCache.set(step, resolved);
+    return resolved;
   };
 
   let wf = createWorkflow({
-    id: sanitizeWorkflowId(parsed.id),
+    id: sanitizeWorkflowId(workflow.id),
     inputSchema: z.object({}).passthrough(),
     outputSchema: z.unknown(),
   });
 
-  for (const step of parsed.steps) {
+  for (const step of workflow.steps) {
     if (step.type === 'run') {
-      wf = appendRunStep(wf, step, ctx, resolve);
+      wf = appendRunStep(wf, step, ctx, adapterStepFor);
     } else if (step.type === 'group') {
-      wf = appendForeach(wf, step, ctx, resolve);
+      wf = appendForeach(wf, step, ctx, adapterStepFor);
     } else {
-      wf = appendReviewLoop(wf, step, ctx, resolve);
+      wf = appendReviewLoop(wf, step, ctx, adapterStepFor);
     }
   }
 
   return {
     workflow: wf.commit(),
-    effects: parsed.effects,
-    resolvedSteps,
+    effects: workflow.effects,
+    resolvedSteps: workflow.executableSteps.map(adapterStepFor),
   };
 }
 
@@ -375,21 +130,33 @@ export function toMastraWorkflow(
 // re-impose type safety at the public boundary (BuiltMastraWorkflow).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyWf = any;
-interface ResolvableSpec {
-  id: string;
-  intent: string;
-  prompt_template: string;
-  vars: Record<string, string>;
-  input_refs: Record<string, string>;
+type AdapterStepFor = (step: ResolvedWorkflowExecutableStep) => ResolvedStep;
+
+function toAdapterResolvedStep(step: ResolvedWorkflowExecutableStep): ResolvedStep {
+  return {
+    mastraStepId: `${step.intent}:${step.id}`,
+    stepId: step.id,
+    intentId: step.intent,
+    kind: step.kind,
+    agent: step.agent,
+    harness: step.harness,
+    promptTemplate: step.prompt_template,
+    vars: step.vars,
+    input_refs: step.input_refs,
+  };
 }
-type ResolveFn = (spec: ResolvableSpec) => ResolvedStep;
 
 // ---------------------------------------------------------------------------
 // Sequential `type: run` -> `.then(step)` (+ optional pauseAfterGate)
 // ---------------------------------------------------------------------------
 
-function appendRunStep(wf: AnyWf, step: ParsedRunStep, ctx: AdapterContext, resolve: ResolveFn): AnyWf {
-  const resolved = resolve(step);
+function appendRunStep(
+  wf: AnyWf,
+  step: ResolvedWorkflowExecutableStep,
+  ctx: AdapterContext,
+  adapterStepFor: AdapterStepFor,
+): AnyWf {
+  const resolved = adapterStepFor(step);
   const worker = buildWorkerStep(resolved, step, ctx);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let next = (wf as any).then(worker) as AnyWf;
@@ -408,7 +175,7 @@ function appendRunStep(wf: AnyWf, step: ParsedRunStep, ctx: AdapterContext, reso
  */
 function buildWorkerStep(
   resolved: ResolvedStep,
-  step: ParsedRunStep,
+  step: ResolvedWorkflowExecutableStep,
   ctx: AdapterContext,
 ): ReturnType<typeof createStep> {
   return createStep({
@@ -480,7 +247,12 @@ function buildPauseGate(resolved: ResolvedStep, ctx: AdapterContext): ReturnType
 // `type: group` + foreach -> `.foreach(step, { concurrency: 1 })`
 // ---------------------------------------------------------------------------
 
-function appendForeach(wf: AnyWf, step: ParsedGroupStep, ctx: AdapterContext, resolve: ResolveFn): AnyWf {
+function appendForeach(
+  wf: AnyWf,
+  step: ResolvedWorkflowGroupStep,
+  ctx: AdapterContext,
+  adapterStepFor: AdapterStepFor,
+): AnyWf {
   // The foreach list expression is RESOLVED LAZILY at iteration bind time
   // (ADR-016 "bind time" = step input bind at runtime, NOT workflow build).
   // MVP only supports `${task.final_slices}` and `${<step>.output.slices}`.
@@ -495,7 +267,7 @@ function appendForeach(wf: AnyWf, step: ParsedGroupStep, ctx: AdapterContext, re
   // Compose the group's inner steps (worker + optional pause gate per item)
   // into a single nested committed workflow, which `.foreach()` accepts as a
   // Step (codex-verified for @mastra/core 1.36).
-  const innerStep = buildForeachItemStep(step, ctx, resolve);
+  const innerStep = buildForeachItemStep(step, ctx, adapterStepFor);
 
   // The list step resolves the array at RUNTIME from the (current) runtime
   // interpolation source, then `.foreach()` iterates that returned array.
@@ -514,14 +286,14 @@ function appendForeach(wf: AnyWf, step: ParsedGroupStep, ctx: AdapterContext, re
 }
 
 function buildForeachItemStep(
-  step: ParsedGroupStep,
+  step: ResolvedWorkflowGroupStep,
   ctx: AdapterContext,
-  resolve: ResolveFn,
+  adapterStepFor: AdapterStepFor,
 ): ReturnType<typeof createStep> {
   // Resolve all inner steps up front for metadata; bodies bind `as` from input.
   const inner = step.steps.map((s) => ({
     spec: s,
-    resolved: resolve(s),
+    resolved: adapterStepFor(s),
   }));
 
   return createStep({
@@ -559,7 +331,7 @@ const FOREACH_STEP_SLICES_RE = /^\$\{(\w+)\.output\.slices\}$/;
  * mid-run. The VALUE behind a supported shape is resolved lazily at runtime by
  * {@link evaluateForeachList}.
  */
-function assertForeachExprSupported(expr: string, step: ParsedGroupStep): void {
+function assertForeachExprSupported(expr: string, step: ResolvedWorkflowGroupStep): void {
   if (expr === '${task.final_slices}' || FOREACH_STEP_SLICES_RE.test(expr)) {
     return;
   }
@@ -572,7 +344,7 @@ function assertForeachExprSupported(expr: string, step: ParsedGroupStep): void {
  * reads the run's own slices — never a build-time snapshot. MVP supports
  * `${task.final_slices}` and `${<step>.output.slices}`.
  */
-function evaluateForeachList(expr: string, ctx: AdapterContext, step: ParsedGroupStep): string[] {
+function evaluateForeachList(expr: string, ctx: AdapterContext, step: ResolvedWorkflowGroupStep): string[] {
   if (expr === '${task.final_slices}') {
     return ctx.interpolation.task.final_slices;
   }
@@ -591,12 +363,12 @@ function evaluateForeachList(expr: string, ctx: AdapterContext, step: ParsedGrou
 
 function appendReviewLoop(
   wf: AnyWf,
-  step: ParsedReviewLoopStep,
+  step: ResolvedWorkflowReviewLoopStep,
   ctx: AdapterContext,
-  resolve: ResolveFn,
+  adapterStepFor: AdapterStepFor,
 ): AnyWf {
-  const reviewResolved = resolve(step.review);
-  const refineResolved = resolve(step.refine);
+  const reviewResolved = adapterStepFor(step.review);
+  const refineResolved = adapterStepFor(step.refine);
   const maxIterations = step.max_iterations;
 
   // Seed step: provides the initial loop state (iteration 0, not passed).
@@ -707,50 +479,48 @@ function evaluateExpression(
   varsOverride?: Record<string, unknown>,
 ): unknown {
   // Whole-string single expression -> return typed value.
-  const whole = /^\$\{([^}]+)\}$/.exec(expr.trim());
-  if (whole) {
-    return resolveRef(whole[1] as string, ctx, varsOverride);
+  const whole = wholeExpressionRef(expr);
+  if (whole !== null) {
+    return resolveRef(whole, ctx, varsOverride);
   }
   // Mixed text -> string interpolation.
-  return expr.replace(/\$\{([^}]+)\}/g, (_m, ref: string) => {
-    const value = resolveRef(ref.trim(), ctx, varsOverride);
+  return replaceExpressionRefs(expr, (ref) => {
+    const value = resolveRef(ref, ctx, varsOverride);
     return value === undefined || value === null ? '' : String(value);
   });
 }
 
 function resolveRef(ref: string, ctx: AdapterContext, varsOverride?: Record<string, unknown>): unknown {
   const { interpolation } = ctx;
+  const parsed = parseRuntimeExpressionRef(ref, new Set(Object.keys(varsOverride ?? {})));
 
   // foreach `as` binding (e.g. ${slice}).
-  if (varsOverride && ref in varsOverride) {
-    return varsOverride[ref];
+  if (parsed.kind === 'scoped') {
+    return varsOverride?.[parsed.name];
   }
 
-  if (ref.startsWith('vars.')) {
-    const name = ref.slice('vars.'.length);
-    if (!(name in interpolation.vars)) {
+  if (parsed.kind === 'vars') {
+    if (!(parsed.name in interpolation.vars)) {
       throw new MissingVariableError(ref);
     }
-    return interpolation.vars[name];
+    return interpolation.vars[parsed.name];
   }
 
-  if (ref.startsWith('task.')) {
-    const name = ref.slice('task.'.length);
+  if (parsed.kind === 'task') {
     const task = interpolation.task as unknown as Record<string, unknown>;
-    if (!(name in task)) {
+    if (!(parsed.field in task)) {
       throw new MissingVariableError(ref);
     }
-    return task[name];
+    return task[parsed.field];
   }
 
   // ${<step>.output}, .output_path, .output.slices, .diff_path, .passed
-  const stepMatch = /^(\w+)\.(output\.slices|output_path|output|diff_path|passed)$/.exec(ref);
-  if (stepMatch) {
-    const view = interpolation.stepOutputs[stepMatch[1] as string];
+  if (parsed.kind === 'step') {
+    const view = interpolation.stepOutputs[parsed.stepId];
     if (view === undefined) {
       throw new MissingVariableError(ref);
     }
-    switch (stepMatch[2]) {
+    switch (parsed.field) {
       case 'output.slices':
         return view.slices;
       case 'output_path':
@@ -773,64 +543,6 @@ export class MissingVariableError extends Error {
   constructor(readonly ref: string) {
     super(`missing variable: \${${ref}}`);
     this.name = 'MissingVariableError';
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Validation (ADR-016): unknown intent, missing prompt_template, invalid until
-// ---------------------------------------------------------------------------
-
-export function validateWorkflow(parsed: ParsedForgeWorkflow, intents: IntentRegistry): void {
-  for (const step of parsed.steps) {
-    if (step.type === 'run') {
-      validateExecutable(parsed.id, step.id, step.intent, step.prompt_template, intents);
-    } else if (step.type === 'group') {
-      for (const inner of step.steps) {
-        validateExecutable(parsed.id, inner.id, inner.intent, inner.prompt_template, intents);
-      }
-    } else {
-      validateReviewLoop(parsed.id, step, intents);
-    }
-  }
-}
-
-function validateExecutable(
-  workflowId: string,
-  stepId: string,
-  intentId: string,
-  promptTemplate: string,
-  intents: IntentRegistry,
-): void {
-  if (!intents.has(intentId)) {
-    throw new AdapterValidationError(`unknown intent reference: ${intentId}`, workflowId, `${stepId}.intent`);
-  }
-  if (promptTemplate.trim() === '') {
-    throw new AdapterValidationError('missing prompt_template', workflowId, `${stepId}.prompt_template`);
-  }
-}
-
-function validateReviewLoop(workflowId: string, step: ParsedReviewLoopStep, intents: IntentRegistry): void {
-  validateExecutable(workflowId, step.review.id, step.review.intent, step.review.prompt_template, intents);
-  validateExecutable(workflowId, step.refine.id, step.refine.intent, step.refine.prompt_template, intents);
-
-  // until must be exactly ${<review.id>.passed}.
-  const expected = `\${${step.review.id}.passed}`;
-  if (step.until.trim() !== expected) {
-    throw new AdapterValidationError(
-      `invalid until expression: expected ${expected}`,
-      workflowId,
-      `${step.id}.until`,
-    );
-  }
-
-  // review intent must be kind: review.
-  const reviewIntent = intents.resolve(step.review.intent);
-  if (reviewIntent.kind !== 'review') {
-    throw new AdapterValidationError(
-      `review_loop.review intent must be kind: review`,
-      workflowId,
-      `${step.id}.review.intent`,
-    );
   }
 }
 
@@ -873,42 +585,6 @@ export function buildMastraWorkflowCached(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
-}
-
-function requireStringField(workflowId: string, value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AdapterValidationError(`missing required field`, workflowId, field);
-  }
-  return value;
-}
-
-function requireNumberField(workflowId: string, value: unknown, field: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new AdapterValidationError(`missing required numeric field`, workflowId, field);
-  }
-  return value;
-}
-
-function normalizeStringMap(raw: unknown): Record<string, string> {
-  if (!isRecord(raw)) return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(raw)) {
-    out[k] = typeof v === 'string' ? v : String(v);
-  }
-  return out;
-}
-
-function normalizeSelectors(raw: unknown): SelectorName[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((s): s is SelectorName => s === 'slices');
-}
 
 function sanitizeWorkflowId(id: string): string {
   return id;

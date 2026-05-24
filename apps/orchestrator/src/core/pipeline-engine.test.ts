@@ -18,6 +18,7 @@ import { SqliteTaskStore } from '../db/sqlite-task-store.js';
 import { IntentRegistry } from './intent-registry.js';
 import { ProjectRegistry } from './project-registry.js';
 import { WorkflowRegistry } from './workflow-registry.js';
+import { parseWorkflowConfig } from '../dsl/workflow-parser.js';
 import { AgentRegistry } from './agent-registry.js';
 import { HarnessRegistry } from './harness-registry.js';
 import { ApprovalGate, type GateDecision } from './approval-gate.js';
@@ -90,17 +91,11 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     harnessRegistry,
   );
   const intentRegistry = IntentRegistry.fromConfig(INTENTS);
-  const workflowRegistry = WorkflowRegistry.fromConfig(
-    {
-      mvp: {
-        description: 't',
-        effects: { worktree: 'modifies', external: { report: 'status', pr: 'draft' } },
-        steps: [{ type: 'run', id: 'plan', intent: 'write_plan', prompt_template: 'plan.md' }],
-      },
-    },
-    { intentRegistry, agentRegistry, harnessRegistry },
-    { templateExists: () => true },
-  );
+  const workflowRegistry = overrides.workflowRegistry ?? workflowRegistryFor(SINGLE_STEP_YAML, {
+    intentRegistry,
+    agentRegistry,
+    harnessRegistry,
+  });
   const projectRegistry = ProjectRegistry.fromConfig(
     {
       proj: {
@@ -168,6 +163,7 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
 
   return {
     projectRegistry,
+    workflowRegistry,
     intentRegistry,
     taskStore: store,
     worktreeManager,
@@ -177,7 +173,6 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     approvalGate: new ApprovalGate(),
     reporter,
     forgeMap,
-    workflowSource: { source: (): string => SINGLE_STEP_YAML },
     snapshotBridge: new FileSnapshotBridge(path.join(tempDir, 'snap')),
     allowedWorktreeRoots: [worktreeRoot],
     worktreePathFor: ({ taskId }): string => path.join(worktreeRoot, taskId),
@@ -187,6 +182,24 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     log: () => {},
     ...overrides,
   };
+}
+
+function workflowRegistryFor(
+  yaml: string,
+  registries?: Parameters<typeof WorkflowRegistry.fromConfig>[1],
+): WorkflowRegistry {
+  const harnessRegistry = HarnessRegistry.fromConfig({ planning: { source: 'h/p.md' } });
+  const agentRegistry = AgentRegistry.fromConfig(
+    { planner: { provider: 'openclaw', runtime: 'r', model: 'm', harness: 'planning' } },
+    harnessRegistry,
+  );
+  const intentRegistry = IntentRegistry.fromConfig(INTENTS);
+  const parsedWorkflowSource = parseWorkflowConfig(yaml);
+  return WorkflowRegistry.fromConfig(
+    parsedWorkflowSource.config,
+    registries ?? { intentRegistry, agentRegistry, harnessRegistry },
+    { templateExists: () => true },
+  );
 }
 
 describe('MastraPipelineEngine admission gate (pre-Mastra)', () => {
@@ -249,7 +262,7 @@ describe('MastraPipelineEngine.resume guards', () => {
   it('throws when resuming a canceled task', async () => {
     // A pausing workflow leaves the task non-terminal (paused) so cancel can
     // transition it to canceled, then resume must refuse.
-    const d = deps({ workflowSource: { source: (): string => PAUSING_YAML } });
+    const d = deps({ workflowRegistry: workflowRegistryFor(PAUSING_YAML) });
     const engine = new MastraPipelineEngine(d);
     const taskId = await engine.runFull('proj', {
       title: 't',
@@ -375,7 +388,7 @@ describe('MastraPipelineEngine PR external-effect phase (ADR-019)', () => {
     const { client, calls } = fakePrClient();
     const events: ReporterEvent[] = [];
     const d = deps({
-      workflowSource: { source: (): string => PR_NONE_YAML },
+      workflowRegistry: workflowRegistryFor(PR_NONE_YAML),
       pullRequestCreator: new PullRequestCreator({ client, sleep: async () => {} }),
       prTargetFor: prTarget,
       reporter: capturingReporter(events),
