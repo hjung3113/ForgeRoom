@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,34 +9,68 @@ import {
   OpenClawCliClient,
   OpenClawCliConfigError,
   classifyFailure,
-  parseOutputPath,
+  extractReplyText,
+  extractSessionId,
+  parseAgentJson,
   resolveOpenClawCliConfig,
 } from './openclaw-ipc.js';
 
-// A fake OpenClaw CLI: a node script driven by FAKE_OPENCLAW_MODE. It honours
-// the adapter's documented argv/markers so the subprocess lifecycle, session
-// parsing, output-file measurement, and error mapping are exercised end to end
-// against a real child process (no live OpenClaw runtime needed).
+// A fake `openclaw agent --json` CLI: a node script driven by FAKE_OPENCLAW_MODE.
+// It emits the REAL OpenClaw 2026.5.18 JSON envelope on stdout (status / result
+// with payloads + meta.agentMeta.sessionId + meta.completion), so the adapter's
+// argv build, JSON parse, output-file write, session-id surface, and error
+// mapping are exercised end to end against a real child process.
 const FAKE_CLI = `
-const fs = require('node:fs');
 const args = process.argv.slice(2);
 function arg(name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; }
 const mode = process.env.FAKE_OPENCLAW_MODE || 'ok';
 const message = arg('--message') || '';
-const m = /Write your response to (.+?)\\.?$/.exec(message.trim());
-const session = arg('--session') || 'fake-session-1';
+const session = arg('--session-id') || 'fake-session-1';
+function envelope(extra) {
+  return JSON.stringify(Object.assign({
+    status: 'ok',
+    result: {
+      payloads: [{ text: 'fake agent output that is well over fifty bytes long for the runner.' }],
+      meta: {
+        finalAssistantVisibleText: 'fake agent output that is well over fifty bytes long for the runner.',
+        agentMeta: { sessionId: session, cliSessionBinding: { sessionId: session + '-cli' } },
+        completion: { refusal: false, finishReason: 'stop' },
+        durationMs: 1234,
+      },
+    },
+  }, extra));
+}
 if (mode === 'ok') {
-  process.stdout.write('OPENCLAW_SESSION_ID=' + session + '\\n');
-  if (m) { fs.mkdirSync(require('node:path').dirname(m[1]), { recursive: true }); fs.writeFileSync(m[1], 'fake agent output that is well over fifty bytes long for the runner.'); }
+  process.stdout.write(envelope({}));
   process.exit(0);
-} else if (mode === 'auth') {
-  process.stdout.write('OPENCLAW_SESSION_ID=' + session + '\\n');
-  process.stderr.write('OPENCLAW_AUTH_FAILED=1\\n');
-  process.exit(41);
-} else if (mode === 'agent_error') {
-  process.stdout.write('OPENCLAW_SESSION_ID=' + session + '\\n');
+} else if (mode === 'echo_message') {
+  // Echo the received --message back inside the reply text for argv assertions.
+  process.stdout.write(JSON.stringify({
+    status: 'ok',
+    result: { payloads: [{ text: 'MSG:' + message }], meta: { agentMeta: { sessionId: session } } },
+  }));
+  process.exit(0);
+} else if (mode === 'multi') {
+  process.stdout.write(JSON.stringify({
+    status: 'ok',
+    result: { payloads: [{ text: 'first chunk' }, { text: 'second chunk' }], meta: { agentMeta: { sessionId: session } } },
+  }));
+  process.exit(0);
+} else if (mode === 'refusal') {
+  process.stdout.write(JSON.stringify({
+    status: 'ok',
+    result: { payloads: [{ text: 'I cannot help with that.' }], meta: { agentMeta: { sessionId: session }, completion: { refusal: true, finishReason: 'refusal' } } },
+  }));
+  process.exit(0);
+} else if (mode === 'not_ok') {
+  process.stdout.write(JSON.stringify({ status: 'error', error: { message: 'gateway said no' } }));
+  process.exit(0);
+} else if (mode === 'nonzero') {
   process.stderr.write('boom\\n');
   process.exit(7);
+} else if (mode === 'refused_conn') {
+  process.stderr.write('connect ECONNREFUSED 127.0.0.1:18789\\n');
+  process.exit(1);
 } else if (mode === 'hang') {
   setTimeout(() => process.exit(0), 60000);
 }
@@ -48,24 +82,32 @@ let cliPath: string;
 beforeEach(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'openclaw-ipc-'));
   cliPath = join(workdir, 'fake-openclaw.cjs');
-  await import('node:fs/promises').then((fs) => fs.writeFile(cliPath, FAKE_CLI));
+  await writeFile(cliPath, FAKE_CLI);
 });
 
 afterEach(async () => {
   await rm(workdir, { recursive: true, force: true });
 });
 
-function request(overrides: Partial<OpenClawExecutionRequest> = {}): OpenClawExecutionRequest {
+async function request(overrides: Partial<OpenClawExecutionRequest> = {}): Promise<OpenClawExecutionRequest> {
+  const promptPath = join(workdir, 'prompts', '01_plan.md');
   const outputPath = join(workdir, 'outputs', '01_plan.md');
+  if (overrides.promptPath === undefined) {
+    await writeFile(join(workdir, 'prompts', '01_plan.md'), 'Plan the work.', { flag: 'w' }).catch(async () => {
+      await import('node:fs/promises').then((fs) => fs.mkdir(join(workdir, 'prompts'), { recursive: true }));
+      await writeFile(promptPath, 'Plan the work.');
+    });
+  }
   return {
-    endpoint: 'http://127.0.0.1:4317',
+    endpoint: 'http://127.0.0.1:18789',
     token: 'tok',
     runtime: 'claude-cli',
-    model: 'anthropic/claude-opus-4-7',
+    model: 'claude-cli/claude-opus-4-7',
+    agentId: 'main',
     cwd: workdir,
     mode: 'headless',
-    promptInstruction: `Read ${join(workdir, 'prompts', '01_plan.md')}. Follow the instructions inside.`,
-    outputInstruction: `Write your response to ${outputPath}.`,
+    promptPath,
+    outputPath,
     stdoutPath: join(workdir, 'logs', '01.stdout.log'),
     stderrPath: join(workdir, 'logs', '01.stderr.log'),
     timeoutMs: 5_000,
@@ -75,19 +117,26 @@ function request(overrides: Partial<OpenClawExecutionRequest> = {}): OpenClawExe
 
 function client(mode: string): OpenClawCliClient {
   return new OpenClawCliClient({
-    config: { bin: process.execPath, baseArgs: [cliPath], extraEnv: { FAKE_OPENCLAW_MODE: mode } },
+    config: { bin: process.execPath, baseArgs: [cliPath, 'agent', '--json'], agentId: 'main', extraEnv: { FAKE_OPENCLAW_MODE: mode } },
   });
 }
 
 describe('resolveOpenClawCliConfig', () => {
-  it('defaults bin to openclaw and base args to exec', () => {
-    expect(resolveOpenClawCliConfig({})).toEqual({ bin: 'openclaw', baseArgs: ['exec'] });
+  it('defaults bin to openclaw, base args to agent --json, and agent to main', () => {
+    expect(resolveOpenClawCliConfig({})).toEqual({
+      bin: 'openclaw',
+      baseArgs: ['agent', '--json'],
+      agentId: 'main',
+    });
   });
 
   it('honours overrides', () => {
-    expect(resolveOpenClawCliConfig({ cliBin: 'oc', cliArgsJson: '["run","--json"]' })).toEqual({
+    expect(
+      resolveOpenClawCliConfig({ cliBin: 'oc', cliArgsJson: '["agent","--json"]', agentId: 'reviewer' }),
+    ).toEqual({
       bin: 'oc',
-      baseArgs: ['run', '--json'],
+      baseArgs: ['agent', '--json'],
+      agentId: 'reviewer',
     });
   });
 
@@ -100,20 +149,53 @@ describe('resolveOpenClawCliConfig', () => {
   });
 });
 
-describe('parseOutputPath', () => {
-  it('extracts the output path from the instruction', () => {
-    expect(parseOutputPath('Write your response to /a/b/01_plan.md.')).toBe('/a/b/01_plan.md');
+describe('parseAgentJson + extractors', () => {
+  it('extracts the session id from agentMeta.sessionId, preferred over cliSessionBinding', () => {
+    const parsed = parseAgentJson(
+      JSON.stringify({
+        status: 'ok',
+        result: { meta: { agentMeta: { sessionId: 'agent-sid', cliSessionBinding: { sessionId: 'cli-sid' } } } },
+      }),
+    );
+    expect(extractSessionId(parsed)).toBe('agent-sid');
   });
 
-  it('returns null for an unrecognised instruction', () => {
-    expect(parseOutputPath('do something else')).toBeNull();
+  it('falls back to cliSessionBinding.sessionId when agentMeta.sessionId is absent', () => {
+    const parsed = parseAgentJson(
+      JSON.stringify({ status: 'ok', result: { meta: { agentMeta: { cliSessionBinding: { sessionId: 'cli-sid' } } } } }),
+    );
+    expect(extractSessionId(parsed)).toBe('cli-sid');
+  });
+
+  it('joins multiple payload texts with a blank line', () => {
+    const parsed = parseAgentJson(
+      JSON.stringify({ status: 'ok', result: { payloads: [{ text: 'a' }, { text: 'b' }] } }),
+    );
+    expect(extractReplyText(parsed)).toBe('a\n\nb');
+  });
+
+  it('falls back to finalAssistantVisibleText when payloads are empty', () => {
+    const parsed = parseAgentJson(
+      JSON.stringify({ status: 'ok', result: { payloads: [], meta: { finalAssistantVisibleText: 'final text' } } }),
+    );
+    expect(extractReplyText(parsed)).toBe('final text');
+  });
+
+  it('returns null on non-JSON stdout', () => {
+    expect(parseAgentJson('not json at all')).toBeNull();
   });
 });
 
 describe('classifyFailure', () => {
-  const base = { timedOut: false, spawnError: null, exitCode: 0, stdout: '', stderr: '' };
+  const base = {
+    timedOut: false,
+    spawnError: null,
+    exitCode: 0,
+    parsed: { status: 'ok' } as Record<string, unknown>,
+    stderr: '',
+  };
 
-  it('maps a clean exit to no failure', () => {
+  it('maps a clean ok envelope to no failure', () => {
     expect(classifyFailure(base)).toBeUndefined();
   });
 
@@ -126,81 +208,114 @@ describe('classifyFailure', () => {
     expect(classifyFailure({ ...base, spawnError: err })).toBe('runtime_unavailable');
   });
 
-  it('maps the auth marker to auth_failed', () => {
-    expect(classifyFailure({ ...base, exitCode: 1, stderr: 'OPENCLAW_AUTH_FAILED=1\n' })).toBe('auth_failed');
+  it('maps a refusal completion to agent_error', () => {
+    const parsed = { status: 'ok', result: { meta: { completion: { refusal: true } } } };
+    expect(classifyFailure({ ...base, parsed })).toBe('agent_error');
   });
 
-  it('maps exit 41 to auth_failed', () => {
-    expect(classifyFailure({ ...base, exitCode: 41 })).toBe('auth_failed');
+  it('maps a non-ok status to agent_error', () => {
+    expect(classifyFailure({ ...base, parsed: { status: 'error' } })).toBe('agent_error');
+  });
+
+  it('maps ECONNREFUSED in stderr to runtime_unavailable', () => {
+    expect(
+      classifyFailure({ ...base, exitCode: 1, parsed: null, stderr: 'connect ECONNREFUSED 127.0.0.1:18789' }),
+    ).toBe('runtime_unavailable');
   });
 
   it('maps exit 127 to runtime_unavailable', () => {
-    expect(classifyFailure({ ...base, exitCode: 127 })).toBe('runtime_unavailable');
+    expect(classifyFailure({ ...base, exitCode: 127, parsed: null })).toBe('runtime_unavailable');
   });
 
   it('maps other nonzero exits to agent_error', () => {
-    expect(classifyFailure({ ...base, exitCode: 7 })).toBe('agent_error');
+    expect(classifyFailure({ ...base, exitCode: 7, parsed: null })).toBe('agent_error');
   });
 });
 
 describe('OpenClawCliClient subprocess lifecycle', () => {
-  it('runs a task: writes the output file, parses the session id, succeeds', async () => {
-    const response = await client('ok').run(request());
+  it('runs a task: writes the reply to the output file, surfaces the session id, succeeds', async () => {
+    const req = await request();
+    const response = await client('ok').run(req);
 
     expect(response.exitCode).toBe(0);
     expect(response.failureKind).toBeUndefined();
     expect(response.sessionId).toBe('fake-session-1');
     expect(response.output.exists).toBe(true);
     expect(response.output.bytes).toBeGreaterThan(50);
-    const written = await readFile(join(workdir, 'outputs', '01_plan.md'), 'utf8');
+    const written = await readFile(req.outputPath, 'utf8');
     expect(written).toContain('fake agent output');
   });
 
-  it('streams stdout/stderr to the request log paths', async () => {
-    await client('ok').run(request());
-    const stdout = await readFile(join(workdir, 'logs', '01.stdout.log'), 'utf8');
-    expect(stdout).toContain('OPENCLAW_SESSION_ID=');
+  it('passes the prompt FILE content as --message', async () => {
+    const req = await request();
+    await import('node:fs/promises').then((fs) => fs.mkdir(join(workdir, 'prompts'), { recursive: true }));
+    await writeFile(req.promptPath, 'PROMPT-BODY-MARKER');
+    await client('echo_message').run(req);
+    const written = await readFile(req.outputPath, 'utf8');
+    expect(written).toContain('PROMPT-BODY-MARKER');
   });
 
-  it('maps an auth failure to auth_failed and no output', async () => {
-    const response = await client('auth').run(request());
-    expect(response.failureKind).toBe('auth_failed');
-    expect(response.exitCode).toBe(41);
-    expect(response.output.exists).toBe(false);
+  it('joins multiple payloads into the output file', async () => {
+    const req = await request();
+    await client('multi').run(req);
+    const written = await readFile(req.outputPath, 'utf8');
+    expect(written).toBe('first chunk\n\nsecond chunk');
+  });
+
+  it('streams stdout/stderr to the request log paths', async () => {
+    const req = await request();
+    await client('ok').run(req);
+    const stdout = await readFile(req.stdoutPath, 'utf8');
+    expect(stdout).toContain('"status"');
+  });
+
+  it('maps a refusal to agent_error and still writes the refusal text', async () => {
+    const req = await request();
+    const response = await client('refusal').run(req);
+    expect(response.failureKind).toBe('agent_error');
+    expect(response.exitCode).toBe(0);
+  });
+
+  it('maps a non-ok status to agent_error', async () => {
+    const req = await request();
+    const response = await client('not_ok').run(req);
+    expect(response.failureKind).toBe('agent_error');
   });
 
   it('maps a generic nonzero exit to agent_error', async () => {
-    const response = await client('agent_error').run(request());
+    const req = await request();
+    const response = await client('nonzero').run(req);
     expect(response.failureKind).toBe('agent_error');
     expect(response.exitCode).toBe(7);
   });
 
+  it('maps a connection-refused gateway to runtime_unavailable', async () => {
+    const req = await request();
+    const response = await client('refused_conn').run(req);
+    expect(response.failureKind).toBe('runtime_unavailable');
+  });
+
   it('maps a missing binary to runtime_unavailable', async () => {
-    const c = new OpenClawCliClient({ config: { bin: '/does/not/exist/openclaw-xyz', baseArgs: [] } });
-    const response = await c.run(request());
+    const req = await request();
+    const c = new OpenClawCliClient({
+      config: { bin: '/does/not/exist/openclaw-xyz', baseArgs: ['agent', '--json'], agentId: 'main' },
+    });
+    const response = await c.run(req);
     expect(response.failureKind).toBe('runtime_unavailable');
   });
 
   it('enforces the timeout budget and reports timeout', async () => {
-    const response = await client('hang').run(request({ timeoutMs: 150 }));
+    const req = await request({ timeoutMs: 150 });
+    const response = await client('hang').run(req);
     expect(response.failureKind).toBe('timeout');
     expect(response.exitCode).toBe(1);
   });
 
-  it('resume threads --session and parses the runtime-echoed session id', async () => {
-    const response = await client('ok').resume({ ...request(), sessionId: 'resumed-session-9' });
+  it('resume threads --session-id and surfaces the runtime session id', async () => {
+    const req = await request();
+    const response = await client('ok').resume({ ...req, sessionId: 'resumed-session-9' });
     expect(response.sessionId).toBe('resumed-session-9');
-    const stdout = await readFile(join(workdir, 'logs', '01.stdout.log'), 'utf8');
-    expect(stdout).toContain('OPENCLAW_SESSION_ID=resumed-session-9');
-  });
-
-  it('falls back to the prior session id when the runtime emits no marker', async () => {
-    // agent_error mode still emits a marker; use a fresh client whose CLI omits
-    // the marker by overriding the message so no output marker is parseable.
-    const c = new OpenClawCliClient({
-      config: { bin: process.execPath, baseArgs: ['-e', 'process.exit(0)'] },
-    });
-    const response = await c.resume({ ...request(), sessionId: 'kept-session' });
-    expect(response.sessionId).toBe('kept-session');
+    const stdout = await readFile(req.stdoutPath, 'utf8');
+    expect(stdout).toContain('resumed-session-9');
   });
 });

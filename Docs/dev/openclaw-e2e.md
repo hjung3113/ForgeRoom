@@ -1,9 +1,9 @@
 ---
 status: living
-last_reviewed: 2026-05-23
+last_reviewed: 2026-05-24
 ---
 
-# OpenClaw provider e2e verification (#31)
+# OpenClaw provider e2e verification (#31, reworked #45)
 
 How to run the real `OpenClawProvider` against an OpenClaw runtime, and what
 was verified locally vs what needs a live runtime + credentials.
@@ -11,13 +11,15 @@ was verified locally vs what needs a live runtime + credentials.
 ## What this proves
 
 The real `OpenClawProvider` (core) drives the real `OpenClawCliClient`
-subprocess transport (`apps/orchestrator/src/app/openclaw-ipc.ts`) through the
-[prompt-file protocol](../concepts/prompt-file-protocol.md):
+subprocess transport (`apps/orchestrator/src/app/openclaw-ipc.ts`) over the real
+`openclaw agent --json` contract (#45):
 
 - shallow readiness `health()` (ADR-012),
-- session creation + prompt-file-in (`.forgeroom/prompts/NN_*.md`) →
-  output-file-out (`.forgeroom/outputs/NN_*.md`),
-- auth-failure path → `failureKind: 'auth_failed'`,
+- prompt-file-in (`.forgeroom/prompts/NN_*.md`) → the adapter reads it and passes
+  the content inline as `--message`; the agent returns JSON; the adapter parses
+  the reply and WRITES it to the output file (`.forgeroom/outputs/NN_*.md`), and
+  surfaces the runtime session id for resume,
+- connection-refused gateway → `failureKind: 'runtime_unavailable'`,
 - timeout path → `failureKind: 'timeout'`.
 
 ## Run it
@@ -30,26 +32,27 @@ pnpm -F orchestrator test:e2e
 
 ### Default (fake CLI) mode
 
-With no extra env, the harness uses a bundled fake OpenClaw CLI that honours the
-adapter's documented argv + marker convention. It exercises the FULL provider →
-subprocess → output-file path (spawn lifecycle, session-id parsing, output-file
-measurement, auth + timeout mapping) without a live runtime. This is what runs
-in CI/sandbox and is what was verified locally.
+With no extra env, the harness uses a bundled fake OpenClaw CLI that emits the
+real `agent --json` JSON envelope on stdout. It exercises the FULL provider →
+subprocess → output-file path (spawn lifecycle, JSON parse, session-id
+extraction, the adapter writing the output file, connection-refused + timeout
+mapping) without a live runtime. This is what runs in CI/sandbox.
 
 ### Live runtime mode
 
 ```sh
 FORGEROOM_OPENCLAW_E2E_LIVE=1 \
 FORGEROOM_OPENCLAW_BIN=openclaw \
-FORGEROOM_OPENCLAW_ENDPOINT=http://127.0.0.1:4317 \
+FORGEROOM_OPENCLAW_ENDPOINT=http://127.0.0.1:18789 \
 FORGEROOM_OPENCLAW_TOKEN=<real-token> \
 FORGEROOM_OPENCLAW_RUNTIME=claude-cli \
+FORGEROOM_OPENCLAW_AGENT=main \
 pnpm -F orchestrator test:e2e
 ```
 
-In LIVE mode the auth-failure and timeout assertions are skipped (they need
-deliberately-invalid credentials / a deliberately-slow task); run those manually
-(see below). The success path runs a real agent task end to end.
+In LIVE mode the connection-refused and timeout assertions are skipped (they
+need a stopped gateway / a deliberately-slow task); run those manually. The
+success path runs a real agent task end to end.
 
 ## Required env / credentials
 
@@ -57,55 +60,65 @@ deliberately-invalid credentials / a deliberately-slow task); run those manually
 |---|---|---|
 | `FORGEROOM_OPENCLAW_E2E_LIVE` | `1` selects the live runtime | unset (fake) |
 | `FORGEROOM_OPENCLAW_BIN` | OpenClaw CLI binary | `openclaw` |
-| `FORGEROOM_OPENCLAW_ARGS` | JSON string-array leading argv | `["exec"]` |
-| `FORGEROOM_OPENCLAW_ENDPOINT` | runtime endpoint (loopback) | `http://127.0.0.1:4317` |
-| `FORGEROOM_OPENCLAW_TOKEN` | runtime auth token | — (required for live) |
+| `FORGEROOM_OPENCLAW_ARGS` | JSON string-array leading argv | `["agent","--json"]` |
+| `FORGEROOM_OPENCLAW_AGENT` | OpenClaw agent id | `main` |
+| `FORGEROOM_OPENCLAW_ENDPOINT` | gateway endpoint (loopback) | `http://127.0.0.1:18789` |
+| `FORGEROOM_OPENCLAW_TOKEN` | gateway auth token | — (required for live) |
 | `FORGEROOM_OPENCLAW_RUNTIME` | runtime id | `claude-cli` |
 
 The token is passed to the child via the `OPENCLAW_TOKEN` env var, never argv.
 
-## ForgeRoom OpenClaw CLI adapter convention
+## The real `openclaw agent --json` contract (#45)
 
-The exact OpenClaw CLI command line is NOT pinned by the upstream docs, so the
-adapter defines a documented convention (overridable via `FORGEROOM_OPENCLAW_BIN`
-/ `FORGEROOM_OPENCLAW_ARGS`). The default invocation is:
+Verified against OpenClaw 2026.5.18. The adapter builds:
 
 ```
-<bin> <baseArgs...> --runtime <runtime> --model <model> --cwd <cwd> \
-      --mode <headless|pty> --message "<promptInstruction> <outputInstruction>" \
-      [--session <id>]   # resume only
+<bin> agent --json --agent <agentId> [--session-id <id>] --message <promptText> \
+      [--model <provider/model>] [--timeout <seconds>]
 ```
 
-Markers the adapter parses from the runtime's output:
+(`<baseArgs...>` defaults to `agent --json`; override via `FORGEROOM_OPENCLAW_ARGS`.)
+There is NO `openclaw exec`. The prompt file (`.forgeroom/prompts/NN_*.md`) is
+read by the adapter and its content passed inline as `--message` (the file is
+kept for audit; note the OS argv-size caveat for very large prompts). The agent
+returns a JSON envelope on stdout — the adapter parses it and writes the reply
+to the output file (`.forgeroom/outputs/NN_*.md`); the agent no longer writes a
+file.
 
-- `OPENCLAW_SESSION_ID=<id>` (stdout, strict full-line) → `sessionId`.
-- `OPENCLAW_AUTH_FAILED=1` (stdout/stderr) → `auth_failed`.
+JSON fields the adapter reads:
 
-Exit-code fallbacks: `41` → `auth_failed`, `127` / spawn `ENOENT` →
-`runtime_unavailable`, any other nonzero → `agent_error`, `0` → success. A
-SIGTERM-on-timeout (escalating to SIGKILL) → `timeout`. The provider/runner own
+- `status === "ok"` → success; otherwise `agent_error`.
+- reply text = join of `result.payloads[].text` (blank-line separated), fallback
+  `result.meta.finalAssistantVisibleText`.
+- resume session id = `result.meta.agentMeta.sessionId` (fallback
+  `result.meta.agentMeta.cliSessionBinding.sessionId`).
+- `result.meta.completion.refusal === true` → `agent_error`.
+
+Process-level mapping: spawn `ENOENT` / exit `127` → `runtime_unavailable`;
+nonzero exit with `ECONNREFUSED` in stderr → `runtime_unavailable`; any other
+nonzero → `agent_error`; a SIGTERM-on-timeout (escalating to SIGKILL, plus the
+forwarded CLI `--timeout`) → `timeout`. The provider/runner own
 `output_contract_failed`; this adapter never sets it (ADR-012).
 
 If your real OpenClaw CLI differs, override `FORGEROOM_OPENCLAW_BIN` /
-`FORGEROOM_OPENCLAW_ARGS`, or wrap it in a thin shim emitting these markers.
+`FORGEROOM_OPENCLAW_ARGS` / `FORGEROOM_OPENCLAW_AGENT`.
 
 ## Verified locally vs needs live runtime
 
 Verified here (no live runtime needed):
 
 - Subprocess spawn/stream/exit lifecycle against a real child process.
-- Session-id marker parsing + prior-session fallback.
-- Output-file measurement (exists/bytes) from the output instruction.
-- Error mapping: timeout, auth (marker + exit 41), `runtime_unavailable`
-  (missing binary), `agent_error` — unit-tested (`openclaw-ipc.test.ts`) and
-  via the e2e harness fake path.
-- Full provider → subprocess → `.forgeroom/outputs/NN_*.md` path.
+- JSON envelope parse: payload joining, `finalAssistantVisibleText` fallback,
+  session-id extraction (`agentMeta.sessionId` preferred, `cliSessionBinding`
+  fallback), prior-session fallback on resume.
+- The adapter writing the reply to `.forgeroom/outputs/NN_*.md` (exists/bytes).
+- Error mapping: timeout, refusal / non-ok status → `agent_error`,
+  connection-refused → `runtime_unavailable`, missing binary →
+  `runtime_unavailable`, nonzero exit → `agent_error` — unit-tested
+  (`openclaw-ipc.test.ts`) and via the e2e harness fake path.
 
 Needs a live OpenClaw runtime + credentials (NOT performed in this sandbox):
 
-- A real agent producing a real `.forgeroom/outputs/NN_*.md` file.
-- Confirming the real CLI's actual argv/markers match (or shimming this
-  convention onto it). The argv/marker contract above is the ForgeRoom-side
-  expectation, not an upstream OpenClaw guarantee.
-- Live auth-failure with truly invalid credentials and a live timeout against a
-  genuinely slow task.
+- A real agent returning a real JSON envelope written to `.forgeroom/outputs/`.
+- Confirming the captured field paths still hold on your install version.
+- A live timeout against a genuinely slow task and a live connection-refusal.

@@ -141,10 +141,13 @@ export interface OpenClawEnv {
   cliBin?: string;
   /**
    * Raw `FORGEROOM_OPENCLAW_ARGS` JSON string-array override for the leading
-   * argv, or undefined to use the adapter default. Parsed by the IPC client so
-   * the parse-error surface stays with the adapter that owns the convention.
+   * argv, or undefined to use the adapter default (`["agent","--json"]`).
+   * Parsed by the IPC client so the parse-error surface stays with the adapter
+   * that owns the convention.
    */
   cliArgsJson?: string | undefined;
+  /** OpenClaw agent id to drive (FORGEROOM_OPENCLAW_AGENT, default `main`). */
+  agentId: string;
 }
 
 export interface OrchestratorEnv {
@@ -203,7 +206,8 @@ function parseGitHubRepos(value: string | undefined): GitHubEnv['repos'] {
  *   FORGEROOM_OPENCLAW_TOKEN        OpenClaw token (required)
  *   FORGEROOM_OPENCLAW_RUNTIME      default runtime id (default: claude-cli)
  *   FORGEROOM_OPENCLAW_BIN          OpenClaw CLI binary (default: openclaw)
- *   FORGEROOM_OPENCLAW_ARGS         JSON string-array leading argv (default: ["exec"])
+ *   FORGEROOM_OPENCLAW_ARGS         JSON string-array leading argv (default: ["agent","--json"])
+ *   FORGEROOM_OPENCLAW_AGENT        OpenClaw agent id (default: main)
  *   DISCORD_BOT_TOKEN / DISCORD_APPLICATION_ID / DISCORD_GUILD_IDS /
  *     DISCORD_ALLOWED_USER_IDS      Discord source (omit all to skip the source)
  *   GITHUB_TOKEN / FORGEROOM_GITHUB_REPOS   GitHub source (omit to skip)
@@ -224,6 +228,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): OrchestratorEn
   const openclawRuntime = env.FORGEROOM_OPENCLAW_RUNTIME ?? 'claude-cli';
   const openclawCliBin = env.FORGEROOM_OPENCLAW_BIN?.trim() || 'openclaw';
   const openclawCliArgsJson = env.FORGEROOM_OPENCLAW_ARGS;
+  const openclawAgentId = env.FORGEROOM_OPENCLAW_AGENT?.trim() || 'main';
 
   const discord = resolveDiscordEnv(env);
   const github = resolveGitHubEnv(env);
@@ -241,6 +246,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): OrchestratorEn
       runtime: openclawRuntime,
       cliBin: openclawCliBin,
       cliArgsJson: openclawCliArgsJson,
+      agentId: openclawAgentId,
     },
   };
 }

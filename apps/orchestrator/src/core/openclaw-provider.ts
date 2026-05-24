@@ -19,10 +19,21 @@ export interface OpenClawExecutionRequest {
   token: string;
   runtime: string;
   model: string;
+  /** OpenClaw agent id to drive (`openclaw agent --agent <id>`). */
+  agentId: string;
   cwd: string;
   mode: 'headless' | 'pty';
-  promptInstruction: string;
-  outputInstruction: string;
+  /**
+   * ForgeRoom prompt file (`.forgeroom/prompts/NN_*.md`). The adapter reads its
+   * content and passes it inline as `--message` (the real CLI takes the prompt
+   * inline, not as a file path). The file is kept for audit.
+   */
+  promptPath: string;
+  /**
+   * ForgeRoom output file (`.forgeroom/outputs/NN_*.md`). The adapter parses the
+   * agent's JSON reply and WRITES it here (the agent no longer writes the file).
+   */
+  outputPath: string;
   stdoutPath: string;
   stderrPath: string;
   timeoutMs?: number;
@@ -56,6 +67,8 @@ export interface OpenClawProviderConfig {
   endpoint: string;
   token: string;
   runtime: string;
+  /** OpenClaw agent id every run drives (FORGEROOM_OPENCLAW_AGENT, default `main`). */
+  agentId: string;
   client: OpenClawIpcClient;
 }
 
@@ -81,10 +94,11 @@ export class OpenClawProvider implements AgentRuntimeProvider {
       token: this.config.token,
       runtime: agent.runtime,
       model: agent.model,
+      agentId: this.config.agentId,
       cwd: req.cwd,
       mode: req.mode,
-      promptInstruction: promptInstruction(req.promptPath),
-      outputInstruction: outputInstruction(req.outputPath),
+      promptPath: req.promptPath,
+      outputPath: req.outputPath,
       stdoutPath: req.stdoutPath,
       stderrPath: req.stderrPath,
       ...(req.timeoutMs === undefined ? {} : { timeoutMs: req.timeoutMs }),
@@ -100,10 +114,11 @@ export class OpenClawProvider implements AgentRuntimeProvider {
       sessionId: req.sessionId,
       runtime: agent.runtime,
       model: agent.model,
+      agentId: this.config.agentId,
       cwd: req.cwd,
       mode: req.mode,
-      promptInstruction: promptInstruction(req.addendumPromptPath),
-      outputInstruction: outputInstruction(req.outputPath),
+      promptPath: req.addendumPromptPath,
+      outputPath: req.outputPath,
       stdoutPath: req.stdoutPath,
       stderrPath: req.stderrPath,
       ...(req.timeoutMs === undefined ? {} : { timeoutMs: req.timeoutMs }),
@@ -125,14 +140,6 @@ export class OpenClawProvider implements AgentRuntimeProvider {
 
     return null;
   }
-}
-
-function promptInstruction(promptPath: string): string {
-  return `Read ${promptPath}. Follow the instructions inside.`;
-}
-
-function outputInstruction(outputPath: string): string {
-  return `Write your response to ${outputPath}.`;
 }
 
 function mapRunResponse(response: OpenClawRunResponse): AgentRunResult {

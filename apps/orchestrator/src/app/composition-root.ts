@@ -172,12 +172,14 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
       config: resolveOpenClawCliConfig({
         cliBin: env.openclaw.cliBin,
         cliArgsJson: env.openclaw.cliArgsJson,
+        agentId: env.openclaw.agentId,
       }),
     });
   const provider = new OpenClawProvider({
     endpoint: env.openclaw.endpoint,
     token: env.openclaw.token,
     runtime: env.openclaw.runtime,
+    agentId: env.openclaw.agentId,
     client: ipcClient,
   });
   const agentRunner = new DefaultAgentRunner({

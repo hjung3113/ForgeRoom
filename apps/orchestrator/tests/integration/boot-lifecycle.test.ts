@@ -213,7 +213,7 @@ function makeEnv(overrides: Partial<OrchestratorEnv> = {}): OrchestratorEnv {
     studioEnabled: false,
     discord: { token: 't', applicationId: 'app', guildIds: ['g'], allowedUserIds: ['111'] },
     github: { token: 'gh', repos: [{ projectId: 'demo', owner: 'octocat', repo: 'demo' }] },
-    openclaw: { endpoint: 'http://localhost', token: 'tok', runtime: 'claude-cli' },
+    openclaw: { endpoint: 'http://localhost', token: 'tok', runtime: 'claude-cli', agentId: 'main' },
     ...overrides,
   };
 }
@@ -386,5 +386,11 @@ describe('orchestrator composition root boot lifecycle (#30)', () => {
     expect(env.discord?.guildIds).toEqual(['g1', 'g2']);
     expect(env.discord?.allowedUserIds).toEqual(['111', '222']);
     expect(env.studioEnabled).toBe(false);
+  });
+
+  it('resolveEnv defaults the OpenClaw agent id to main and honours an override', () => {
+    const base = { FORGEROOM_WORKTREE_ROOTS: '/tmp/wt' };
+    expect(resolveEnv(base).openclaw.agentId).toBe('main');
+    expect(resolveEnv({ ...base, FORGEROOM_OPENCLAW_AGENT: 'reviewer' }).openclaw.agentId).toBe('reviewer');
   });
 });

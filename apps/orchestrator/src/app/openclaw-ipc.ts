@@ -1,38 +1,45 @@
 /**
- * Real OpenClaw IPC transport (#31).
+ * Real OpenClaw IPC transport (#45 — reworked from the #31 convention).
  *
  * ADR-012 makes OpenClawProvider the MVP AgentRuntimeProvider; the provider is
  * REAL and provider-neutral. This module owns the subprocess transport that
- * actually drives the OpenClaw CLI runtime gateway, satisfying the
- * {@link OpenClawIpcClient} seam declared by `core/openclaw-provider.ts`.
+ * drives the real OpenClaw CLI gateway, satisfying the {@link OpenClawIpcClient}
+ * seam declared by `core/openclaw-provider.ts`.
+ *
+ * The contract was verified against a real OpenClaw install (2026.5.18). The
+ * one-shot command is:
+ *
+ *   openclaw agent --json --agent <id> [--session-id <id>] --message <prompt> \
+ *     [--model <provider/model>] [--timeout <seconds>]
+ *
+ * There is NO `openclaw exec`. The gateway runs on `http://127.0.0.1:18789`;
+ * the token is passed via the `OPENCLAW_TOKEN` env var, never argv. The prompt
+ * is passed inline (`--message`) — the adapter reads the ForgeRoom prompt file
+ * (kept for audit) and passes its content. The agent returns a JSON envelope on
+ * stdout; the adapter parses it, WRITES the reply text to the ForgeRoom output
+ * file (the agent no longer writes a file), and surfaces the runtime session id
+ * for AgentRunner resume.
  *
  * Per the core/ rules, `child_process` lives in this app/gateway adapter, never
- * in core. The provider passes a provider-neutral request (the file-based
- * execution contract: `cwd`, prompt/output instructions that point the agent at
- * the `.forgeroom/prompts` / `.forgeroom/outputs` files, plus stdout/stderr log
- * paths and a timeout budget) and this client:
- *
- *   1. spawns the OpenClaw CLI subprocess (`shell: false`, argv built from a
- *      documented ForgeRoom adapter convention; token passed via env, never
- *      argv);
+ * in core. The client:
+ *   1. reads the prompt file and builds the `agent --json` argv (`shell: false`,
+ *      token via env);
  *   2. streams stdout/stderr to the request-provided log paths;
  *   3. enforces the timeout budget by SIGTERM-ing the process group, escalating
- *      to SIGKILL after a grace window;
- *   4. parses a strict session-id marker line from stdout so AgentRunner can
- *      `resume` the same session;
- *   5. measures the produced output file and maps the outcome onto the common
- *      ForgeRoom `failureKind` set (runtime/auth/timeout/agent_error). The
+ *      to SIGKILL after a grace window (also forwarded as CLI `--timeout`);
+ *   4. parses the JSON envelope: `status`, `result.payloads[].text`,
+ *      `result.meta.agentMeta.sessionId`, `result.meta.completion.refusal`;
+ *   5. writes the reply text to the output file and maps the outcome onto the
+ *      common ForgeRoom `failureKind` set (runtime/timeout/agent_error). The
  *      runner owns `output_contract_failed`.
  *
- * The exact OpenClaw CLI invocation is NOT pinned by the project docs, so the
- * default argv + markers below are a *documented ForgeRoom adapter convention*,
- * not an upstream OpenClaw guarantee. They are overridable via env so a real
- * runtime whose CLI differs can be wired without code changes. See
- * `Docs/dev/openclaw-e2e.md`.
+ * The default argv (`["agent","--json"]`), agent id (`main`), and bin
+ * (`openclaw`) are overridable via env so a differing install can be wired
+ * without code changes. See `Docs/dev/openclaw-e2e.md`.
  */
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { finished } from 'node:stream/promises';
 
@@ -48,27 +55,26 @@ import type {
 /** Grace window between SIGTERM and the escalation SIGKILL on timeout. */
 const KILL_GRACE_MS = 200;
 
-/** Strict marker lines the adapter parses out of the runtime's stdout/stderr. */
-const SESSION_ID_MARKER = /^OPENCLAW_SESSION_ID=([A-Za-z0-9._:-]+)$/m;
-const AUTH_FAILED_MARKER = /^OPENCLAW_AUTH_FAILED=1$/m;
+/** Separator used to join multiple assistant payloads into one reply. */
+const PAYLOAD_SEPARATOR = '\n\n';
 
-/**
- * Documented exit-code convention for the ForgeRoom OpenClaw adapter. Marker
- * lines take precedence; these are the fallback when only an exit code is seen.
- */
-const EXIT_AUTH_FAILED = 41;
 /** A shell/wrapper "command not found" exit; treated as runtime unavailable. */
 const EXIT_COMMAND_NOT_FOUND = 127;
+
+/** Connection-refused signature in CLI stderr → the gateway is not reachable. */
+const CONNECTION_REFUSED = /ECONNREFUSED|ECONNRESET|connection refused/i;
 
 export interface OpenClawCliConfig {
   /** The OpenClaw CLI binary (FORGEROOM_OPENCLAW_BIN, default "openclaw"). */
   bin: string;
   /**
-   * Extra leading argv inserted before the adapter-built flags
-   * (FORGEROOM_OPENCLAW_ARGS as a JSON string array). Lets a differing CLI be
-   * wired without code changes. Defaults to `["exec"]`.
+   * Leading argv inserted before the adapter-built flags
+   * (FORGEROOM_OPENCLAW_ARGS as a JSON string array). Defaults to
+   * `["agent","--json"]`.
    */
   baseArgs: string[];
+  /** OpenClaw agent id (FORGEROOM_OPENCLAW_AGENT, default "main"). */
+  agentId: string;
   /** Extra environment merged into the child (e.g. for the runtime). */
   extraEnv?: Record<string, string>;
 }
@@ -81,10 +87,12 @@ export interface OpenClawCliConfig {
 export function resolveOpenClawCliConfig(input: {
   cliBin?: string | undefined;
   cliArgsJson?: string | undefined;
+  agentId?: string | undefined;
 }): OpenClawCliConfig {
   const bin = input.cliBin?.trim() || 'openclaw';
-  const baseArgs = parseArgs(input.cliArgsJson) ?? ['exec'];
-  return { bin, baseArgs };
+  const baseArgs = parseArgs(input.cliArgsJson) ?? ['agent', '--json'];
+  const agentId = input.agentId?.trim() || 'main';
+  return { bin, baseArgs, agentId };
 }
 
 function parseArgs(raw: string | undefined): string[] | null {
@@ -151,32 +159,39 @@ export class OpenClawCliClient implements OpenClawIpcClient {
     };
   }
 
-  run(request: OpenClawExecutionRequest): Promise<OpenClawRunResponse> {
-    return this.execute(this.buildRunArgs(request), request, null);
+  async run(request: OpenClawExecutionRequest): Promise<OpenClawRunResponse> {
+    const message = await readFile(request.promptPath, 'utf8');
+    return this.execute(this.buildArgs(request, message, null), request, null);
   }
 
-  resume(request: OpenClawResumeRequest): Promise<OpenClawRunResponse> {
-    return this.execute(this.buildResumeArgs(request), request, request.sessionId);
+  async resume(request: OpenClawResumeRequest): Promise<OpenClawRunResponse> {
+    const message = await readFile(request.promptPath, 'utf8');
+    return this.execute(this.buildArgs(request, message, request.sessionId), request, request.sessionId);
   }
 
-  private buildRunArgs(request: OpenClawExecutionRequest): string[] {
-    return [
-      ...this.config.baseArgs,
-      '--runtime',
-      request.runtime,
-      '--model',
-      request.model,
-      '--cwd',
-      request.cwd,
-      '--mode',
-      request.mode,
-      '--message',
-      `${request.promptInstruction} ${request.outputInstruction}`,
-    ];
-  }
-
-  private buildResumeArgs(request: OpenClawResumeRequest): string[] {
-    return [...this.buildRunArgs(request), '--session', request.sessionId];
+  /**
+   * Build `agent --json --agent <id> [--session-id <id>] --message <prompt>
+   * [--model <model>] [--timeout <seconds>]`. The prompt content is passed
+   * inline; for very large prompts this hits the OS argv-size limit (see PR
+   * note) — the prompt file is still written for audit.
+   */
+  private buildArgs(
+    request: OpenClawExecutionRequest,
+    message: string,
+    sessionId: string | null,
+  ): string[] {
+    const args = [...this.config.baseArgs, '--agent', request.agentId];
+    if (sessionId !== null) {
+      args.push('--session-id', sessionId);
+    }
+    args.push('--message', message);
+    if (request.model.trim() !== '') {
+      args.push('--model', request.model);
+    }
+    if (request.timeoutMs !== undefined) {
+      args.push('--timeout', String(Math.ceil(request.timeoutMs / 1000)));
+    }
+    return args;
   }
 
   private childEnv(request: OpenClawExecutionRequest): NodeJS.ProcessEnv {
@@ -283,16 +298,21 @@ export class OpenClawCliClient implements OpenClawIpcClient {
     await Promise.all([finished(stdout), finished(stderr)]);
 
     const durationMs = this.now() - startedAt;
-    const sessionId = SESSION_ID_MARKER.exec(stdoutBuf)?.[1] ?? fallbackSessionId;
-    const output = await measureOutput(request.cwd, request.outputInstruction);
+    const parsed = timedOut ? null : parseAgentJson(stdoutBuf);
+    const sessionId = extractSessionId(parsed) ?? fallbackSessionId;
 
     const failureKind = classifyFailure({
       timedOut,
       spawnError,
       exitCode: rawExit,
-      stdout: stdoutBuf,
+      parsed,
       stderr: stderrBuf,
     });
+
+    // Write the agent's reply to the ForgeRoom output file (the adapter owns
+    // this now — the agent returns JSON, not a file). Skip on spawn/timeout
+    // failures where there is no reply to persist.
+    const output = await this.writeOutput(request.outputPath, parsed);
 
     const response: OpenClawRunResponse = {
       exitCode: timedOut ? 1 : rawExit,
@@ -307,6 +327,103 @@ export class OpenClawCliClient implements OpenClawIpcClient {
     }
     return response;
   }
+
+  /**
+   * Write the reply text to the output file. Returns existence + byte size so
+   * the runner's output-contract check sees what was produced. A refusal / agent
+   * error may still carry reply text worth persisting; only spawn/timeout
+   * failures with no parsed envelope skip the write.
+   */
+  private async writeOutput(
+    outputPath: string,
+    parsed: ParsedAgentJson | null,
+  ): Promise<{ exists: boolean; bytes: number }> {
+    const reply = extractReplyText(parsed);
+    if (reply === null || reply === '') {
+      // Nothing to write (timeout, spawn error, unparseable, or empty reply).
+      return { exists: false, bytes: 0 };
+    }
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, reply, 'utf8');
+    try {
+      const info = await stat(outputPath);
+      return info.isFile() ? { exists: true, bytes: info.size } : { exists: false, bytes: 0 };
+    } catch {
+      return { exists: false, bytes: 0 };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// JSON envelope parsing (exported for direct unit testing)
+// ---------------------------------------------------------------------------
+
+/** The subset of the OpenClaw `agent --json` envelope the adapter reads. */
+export type ParsedAgentJson = Record<string, unknown>;
+
+/** Parse the CLI stdout as the OpenClaw JSON envelope; null on non-JSON. */
+export function parseAgentJson(stdout: string): ParsedAgentJson | null {
+  const trimmed = stdout.trim();
+  if (trimmed === '') {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    return typeof parsed === 'object' && parsed !== null ? (parsed as ParsedAgentJson) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reply text = join of `result.payloads[].text` (blank-line separated), with a
+ * fallback to `result.meta.finalAssistantVisibleText`.
+ */
+export function extractReplyText(parsed: ParsedAgentJson | null): string | null {
+  if (parsed === null) {
+    return null;
+  }
+  const result = asRecord(parsed['result']);
+  if (result === null) {
+    return null;
+  }
+  const payloads = result['payloads'];
+  if (Array.isArray(payloads)) {
+    const texts = payloads
+      .map((payload) => asRecord(payload)?.['text'])
+      .filter((text): text is string => typeof text === 'string' && text !== '');
+    if (texts.length > 0) {
+      return texts.join(PAYLOAD_SEPARATOR);
+    }
+  }
+  const meta = asRecord(result['meta']);
+  const finalText = meta?.['finalAssistantVisibleText'];
+  return typeof finalText === 'string' && finalText !== '' ? finalText : null;
+}
+
+/**
+ * Resume session id = `result.meta.agentMeta.sessionId`, falling back to
+ * `result.meta.agentMeta.cliSessionBinding.sessionId`. Per #45 the agentMeta
+ * sessionId is the resumable one to prefer.
+ */
+export function extractSessionId(parsed: ParsedAgentJson | null): string | null {
+  if (parsed === null) {
+    return null;
+  }
+  const agentMeta = asRecord(asRecord(asRecord(parsed['result'])?.['meta'])?.['agentMeta']);
+  if (agentMeta === null) {
+    return null;
+  }
+  const direct = agentMeta['sessionId'];
+  if (typeof direct === 'string' && direct !== '') {
+    return direct;
+  }
+  const binding = asRecord(agentMeta['cliSessionBinding'])?.['sessionId'];
+  return typeof binding === 'string' && binding !== '' ? binding : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 /**
@@ -318,7 +435,7 @@ export function classifyFailure(input: {
   timedOut: boolean;
   spawnError: NodeJS.ErrnoException | null;
   exitCode: number;
-  stdout: string;
+  parsed: ParsedAgentJson | null;
   stderr: string;
 }): AgentRunFailureKind | undefined {
   if (input.timedOut) {
@@ -327,46 +444,25 @@ export function classifyFailure(input: {
   if (input.spawnError !== null) {
     return input.spawnError.code === 'ENOENT' ? 'runtime_unavailable' : 'agent_error';
   }
-  if (AUTH_FAILED_MARKER.test(input.stdout) || AUTH_FAILED_MARKER.test(input.stderr)) {
-    return 'auth_failed';
-  }
-  if (input.exitCode === EXIT_AUTH_FAILED) {
-    return 'auth_failed';
-  }
   if (input.exitCode === EXIT_COMMAND_NOT_FOUND) {
     return 'runtime_unavailable';
   }
   if (input.exitCode !== 0) {
+    return CONNECTION_REFUSED.test(input.stderr) ? 'runtime_unavailable' : 'agent_error';
+  }
+  // Exit 0: trust the JSON envelope.
+  const parsed = input.parsed;
+  if (parsed === null) {
+    return 'agent_error';
+  }
+  if (parsed['status'] !== 'ok') {
+    return 'agent_error';
+  }
+  const completion = asRecord(asRecord(asRecord(parsed['result'])?.['meta'])?.['completion']);
+  if (completion?.['refusal'] === true) {
     return 'agent_error';
   }
   return undefined;
-}
-
-/**
- * The output file the agent was told to write. We recover its path from the
- * `outputInstruction` ("Write your response to <path>.") so the provider need
- * not change its provider-neutral shape. Returns existence + byte size.
- */
-async function measureOutput(
-  cwd: string,
-  outputInstruction: string,
-): Promise<{ exists: boolean; bytes: number }> {
-  const outputPath = parseOutputPath(outputInstruction);
-  if (outputPath === null) {
-    return { exists: false, bytes: 0 };
-  }
-  const resolved = outputPath.startsWith('/') ? outputPath : `${cwd}/${outputPath}`;
-  try {
-    const info = await stat(resolved);
-    return info.isFile() ? { exists: true, bytes: info.size } : { exists: false, bytes: 0 };
-  } catch {
-    return { exists: false, bytes: 0 };
-  }
-}
-
-export function parseOutputPath(outputInstruction: string): string | null {
-  const match = /Write your response to (.+?)\.?$/.exec(outputInstruction.trim());
-  return match?.[1]?.trim() ?? null;
 }
 
 function terminate(pid: number | undefined, signal: NodeJS.Signals): void {
