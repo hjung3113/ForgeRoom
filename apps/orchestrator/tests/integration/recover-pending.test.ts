@@ -38,7 +38,6 @@ import {
   FileSnapshotBridge,
   type ForgeMapStager,
   type PipelineEngineDeps,
-  type WorkflowSourceProvider,
 } from '../../src/core/pipeline-engine.js';
 
 // ---------------------------------------------------------------------------
@@ -315,8 +314,6 @@ async function setup(yaml: string): Promise<Harness> {
     ensureForgeroomDir: async (): Promise<void> => Promise.resolve(),
   } as unknown as PipelineEngineDeps['worktreeManager'];
 
-  const workflowSource: WorkflowSourceProvider = { source: (): string => yaml };
-
   const deps: PipelineEngineDeps = {
     projectRegistry,
     workflowRegistry,
@@ -329,7 +326,6 @@ async function setup(yaml: string): Promise<Harness> {
     approvalGate: new ApprovalGate(),
     reporter,
     forgeMap,
-    workflowSource,
     snapshotBridge: new FileSnapshotBridge(snapshotDir),
     allowedWorktreeRoots: [worktreeRoot],
     worktreePathFor: ({ taskId }): string => path.join(worktreeRoot, taskId),

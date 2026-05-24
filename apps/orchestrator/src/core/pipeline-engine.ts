@@ -93,16 +93,6 @@ export interface ForgeMapStager {
   stage(input: { taskId: string; worktreePath: string; projectId: string }): Promise<void>;
 }
 
-/**
- * Source of workflow yaml. WorkflowRegistry validates structure; the adapter
- * (#6) re-parses the raw yaml into its own typed view, so the engine resolves
- * the yaml source for the chosen workflow id here. Tests supply yaml inline.
- */
-export interface WorkflowSourceProvider {
-  /** The raw yaml document that defines `workflowId` (and possibly others). */
-  source(workflowId: string): string;
-}
-
 /** Pluggable Mastra storage + snapshot bridge (proven OQ-M01 pattern). */
 export interface MastraSnapshotBridge {
   /** Read the durable snapshot for a run, or null when absent. */
@@ -142,7 +132,6 @@ export interface PipelineEngineDeps {
    */
   reporter: Reporter;
   forgeMap: ForgeMapStager;
-  workflowSource: WorkflowSourceProvider;
   snapshotBridge: MastraSnapshotBridge;
   /**
    * PR external effect (ADR-019). Runs after workflow/check success and before

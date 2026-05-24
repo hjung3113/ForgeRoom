@@ -9,19 +9,18 @@
  * step bodies this adapter constructs. #8 (pipeline) and #7 (conductor) supply
  * the concrete collaborators; this adapter defines the seam.
  *
- * Wire order (ADR-016): WorkflowRegistry.load -> workflow-parser ->
- * adapter.validate (here, throws {@link AdapterValidationError}) -> Mastra build.
+ * Wire order (ADR-020): WorkflowRegistry parses/validates/resolves workflows,
+ * then this adapter builds Mastra from the resolved workflow tree.
  */
 import { createHash } from 'node:crypto';
 
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 
-import { AdapterValidationError, WorkflowParseError } from './dsl-errors.js';
+import { AdapterValidationError } from './dsl-errors.js';
 import type {
   AdapterContext,
   InterpolatedInputs,
-  ParsedForgeWorkflow,
   ResolvedWorkflow,
   ResolvedWorkflowExecutableStep,
   ResolvedWorkflowGroupStep,
@@ -30,11 +29,6 @@ import type {
   SelectorName,
   WorkflowEffects,
 } from '../workflow/types.js';
-import {
-  parseForgeWorkflow as parseWorkflowSchema,
-  WorkflowSchemaError,
-  WorkflowSourceParseError,
-} from '../workflow/schema.js';
 import {
   parseRuntimeExpressionRef,
   replaceExpressionRefs,
@@ -89,25 +83,7 @@ export interface BuiltMastraWorkflow {
 }
 
 // ---------------------------------------------------------------------------
-// Public: parse a single named workflow out of yaml
-// ---------------------------------------------------------------------------
-
-export function parseForgeWorkflow(source: string, workflowId: string): ParsedForgeWorkflow {
-  try {
-    return parseWorkflowSchema(source, workflowId);
-  } catch (error) {
-    if (error instanceof WorkflowSchemaError) {
-      throw new AdapterValidationError(error.message, error.workflowId, error.field);
-    }
-    if (error instanceof WorkflowSourceParseError) {
-      throw new WorkflowParseError(error.message, null, workflowId);
-    }
-    throw error;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Public: build the Mastra workflow (validate -> compile)
+// Public: build the Mastra workflow
 // ---------------------------------------------------------------------------
 
 export function toMastraWorkflow(

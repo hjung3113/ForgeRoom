@@ -50,7 +50,6 @@ import {
   FileSnapshotBridge,
   type PipelineEngineDeps,
   type PullRequestTarget,
-  type WorkflowSourceProvider,
 } from '../../src/core/pipeline-engine.js';
 import { OrchestratorGatewayPortImpl } from '../../src/app/gateway-port.js';
 import type {
@@ -540,16 +539,6 @@ function assemble(tempDir: string, options: HarnessOptions): AcceptanceHarness {
 
   const prCreator = new FakePullRequestCreator();
 
-  const workflowSource: WorkflowSourceProvider = {
-    source: (workflowId) => {
-      const yaml = ALL_WORKFLOWS[workflowId];
-      if (yaml === undefined) {
-        throw new Error(`no workflow source for ${workflowId}`);
-      }
-      return yaml;
-    },
-  };
-
   const worktreeManager = {
     create: async (task: Task): Promise<{ path: string; branch: string }> => {
       for (const dir of [
@@ -581,7 +570,6 @@ function assemble(tempDir: string, options: HarnessOptions): AcceptanceHarness {
     approvalGate,
     reporter,
     forgeMap,
-    workflowSource,
     snapshotBridge: new FileSnapshotBridge(snapshotDir),
     pullRequestCreator: prCreator as unknown as PullRequestCreator,
     prTargetFor,

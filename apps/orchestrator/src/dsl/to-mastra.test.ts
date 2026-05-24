@@ -7,10 +7,10 @@ import { AdapterValidationError } from './dsl-errors.js';
 import {
   adapterCacheKey,
   buildMastraWorkflowCached,
-  parseForgeWorkflow,
   toMastraWorkflow,
   type StepExecution,
 } from './to-mastra.js';
+import { parseForgeWorkflow } from '../workflow/schema.js';
 import type {
   AdapterContext,
   ParsedForgeWorkflow,
