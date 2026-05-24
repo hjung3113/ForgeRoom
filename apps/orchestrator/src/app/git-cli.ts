@@ -48,6 +48,13 @@ export class GitCli {
     return stdout;
   }
 
+  async statusPorcelainZPaths(cwd: string): Promise<string[]> {
+    const { stdout } = await this.execFile('git', ['status', '--porcelain', '--untracked-files=all', '-z'], {
+      cwd,
+    });
+    return parsePorcelainZ(stdout);
+  }
+
   async worktreeExists(input: { cwd: string; path: string }): Promise<boolean> {
     const { stdout } = await this.execFile('git', ['worktree', 'list', '--porcelain'], {
       cwd: input.cwd,
@@ -60,4 +67,38 @@ export class GitCli {
       cwd: input.cwd,
     });
   }
+
+  async restoreFromHead(input: { cwd: string; paths: string[] }): Promise<void> {
+    await this.execFile('git', ['restore', '--source=HEAD', '--worktree', '--', ...input.paths], {
+      cwd: input.cwd,
+    });
+  }
+
+  async isTracked(input: { cwd: string; rel: string }): Promise<boolean> {
+    try {
+      await this.execFile('git', ['ls-files', '--error-unmatch', '--', input.rel], {
+        cwd: input.cwd,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function parsePorcelainZ(stdout: string): string[] {
+  const records = stdout.split('\0').filter((record) => record.length > 0);
+  const paths: string[] = [];
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i];
+    if (record === undefined || record.length < 4) {
+      continue;
+    }
+    const status = record.slice(0, 2);
+    paths.push(record.slice(3));
+    if (status[0] === 'R' || status[1] === 'R') {
+      i += 1;
+    }
+  }
+  return paths;
 }

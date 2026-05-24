@@ -18,6 +18,7 @@ runnable entry (`main.ts`).
 |---|---|---|
 | `config.ts` | `configs/*.yaml` → registries; env → `OrchestratorEnv` (isolated env loading) | [Docs/phases/phase-1-mvp.md](../../../../Docs/phases/phase-1-mvp.md) |
 | `composition-root.ts` | `composeOrchestrator()` → `OrchestratorApp.boot()` | ADR-012, ADR-013, ADR-015, ADR-019 |
+| `conductor-git.ts` | Git-backed Conductor scope-guard adapter | [Docs/modules/conductor.md](../../../../Docs/modules/conductor.md) |
 | `git-cli.ts` | Shared Git CLI primitive adapter for app-level git integrations | — |
 | `gateway-port.ts` | `OrchestratorGatewayPort` facade over PipelineEngine / Conductor / TaskStore | [Docs/modules/discord-gateway.md](../../../../Docs/modules/discord-gateway.md) |
 | `openclaw-ipc.ts` | Boot OpenClaw IPC client (real subprocess: #31) | [ADR-012](../../../../Docs/decisions/2026-05-22-012-agent-runtime-provider-boundary.md) |

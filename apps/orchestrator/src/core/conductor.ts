@@ -1,13 +1,9 @@
-import { mkdir, readFile, writeFile, appendFile, access, rm } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { mkdir, readFile, writeFile, appendFile, access } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { AgentRunner } from './agent-runner.js';
 import type { Conductor, StepResult, Task } from './types.js';
 import type { TaskStore } from './task-store.js';
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Git surface the Conductor needs for its post-run scope guard. Kept narrow so
@@ -444,80 +440,6 @@ function buildAnswerPrompt(summary: string, question: string): string {
     '[INSTRUCTION]',
     'Answer factually. If you do not know, say so.',
   ].join('\n');
-}
-
-/**
- * Production ConductorGit backed by the git CLI. `status` returns the porcelain
- * change set (worktree-relative); `revert` restores tracked files to HEAD and
- * deletes untracked files. Untracked files are not restorable by `git restore`,
- * so they must be removed explicitly.
- */
-export class GitCliConductorGit implements ConductorGit {
-  async status(cwd: string): Promise<string[]> {
-    // --untracked-files=all lists individual untracked files rather than
-    // collapsing them under a directory entry, so the scope guard can revert
-    // (delete) each offending file precisely.
-    const { stdout } = await execFileAsync(
-      'git',
-      ['status', '--porcelain', '--untracked-files=all', '-z'],
-      { cwd },
-    );
-    return parsePorcelainZ(stdout);
-  }
-
-  async revert(cwd: string, paths: string[]): Promise<void> {
-    if (paths.length === 0) {
-      return;
-    }
-
-    // Restore tracked files to HEAD. Files that are untracked are ignored here
-    // (git restore errors on pathspec-only-untracked), so we also rm each path.
-    try {
-      await execFileAsync('git', ['restore', '--source=HEAD', '--worktree', '--', ...paths], { cwd });
-    } catch {
-      // Path may be entirely untracked (no HEAD entry); the rm below handles it.
-    }
-
-    await Promise.all(
-      paths.map(async (rel) => {
-        // Re-running restore can resurrect tracked content; for untracked files
-        // we delete. We only delete files that are still present and untracked.
-        const isTracked = await pathIsTracked(cwd, rel);
-        if (!isTracked) {
-          await rm(path.join(cwd, rel), { force: true, recursive: true });
-        }
-      }),
-    );
-  }
-}
-
-async function pathIsTracked(cwd: string, rel: string): Promise<boolean> {
-  try {
-    await execFileAsync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function parsePorcelainZ(stdout: string): string[] {
-  // `-z` records are NUL-separated; each entry is "XY <path>". Renames carry an
-  // extra NUL-separated origin path which we skip.
-  const records = stdout.split('\0').filter((r) => r.length > 0);
-  const paths: string[] = [];
-  for (let i = 0; i < records.length; i += 1) {
-    const record = records[i];
-    if (record === undefined || record.length < 4) {
-      continue;
-    }
-    const status = record.slice(0, 2);
-    const file = record.slice(3);
-    paths.push(file);
-    if (status[0] === 'R' || status[1] === 'R') {
-      i += 1; // skip the rename origin path
-    }
-  }
-  return paths;
 }
 
 /**

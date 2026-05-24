@@ -8,11 +8,18 @@ interface ExecCall {
   options: { cwd?: string };
 }
 
-function fakeExecFile(outputs: string[]): { execFileFn: GitExecFileFn; calls: ExecCall[] } {
+type ExecResult = string | Error;
+
+function fakeExecFile(outputs: ExecResult[]): { execFileFn: GitExecFileFn; calls: ExecCall[] } {
   const calls: ExecCall[] = [];
   const execFileFn: GitExecFileFn = (file, args, options, callback) => {
     calls.push({ file, args, options });
-    const stdout = outputs.shift() ?? '';
+    const next = outputs.shift() ?? '';
+    if (next instanceof Error) {
+      callback(next as NodeJS.ErrnoException, '', '');
+      return;
+    }
+    const stdout = next;
     callback(null, stdout, '');
   };
   return { execFileFn, calls };
@@ -79,5 +86,52 @@ describe('GitCli', () => {
         options: { cwd: '/repo' },
       },
     ]);
+  });
+
+  it('returns porcelain -z paths and skips rename origin records', async () => {
+    const fake = fakeExecFile([' M changed.ts\0R  renamed.ts\0old.ts\0?? new.ts\0']);
+    const git = new GitCli({ execFileFn: fake.execFileFn });
+
+    await expect(git.statusPorcelainZPaths('/repo')).resolves.toEqual([
+      'changed.ts',
+      'renamed.ts',
+      'new.ts',
+    ]);
+
+    expect(fake.calls).toEqual([
+      {
+        file: 'git',
+        args: ['status', '--porcelain', '--untracked-files=all', '-z'],
+        options: { cwd: '/repo' },
+      },
+    ]);
+  });
+
+  it('restores paths from HEAD and lets restore errors throw', async () => {
+    const fake = fakeExecFile(['', new Error('restore failed')]);
+    const git = new GitCli({ execFileFn: fake.execFileFn });
+
+    await expect(git.restoreFromHead({ cwd: '/repo', paths: ['a.ts', 'b.ts'] })).resolves.toBeUndefined();
+    await expect(git.restoreFromHead({ cwd: '/repo', paths: ['missing.ts'] })).rejects.toThrow('restore failed');
+
+    expect(fake.calls[0]).toEqual({
+      file: 'git',
+      args: ['restore', '--source=HEAD', '--worktree', '--', 'a.ts', 'b.ts'],
+      options: { cwd: '/repo' },
+    });
+  });
+
+  it('maps ls-files success and failure to tracked booleans', async () => {
+    const fake = fakeExecFile(['tracked.ts', new Error('not tracked')]);
+    const git = new GitCli({ execFileFn: fake.execFileFn });
+
+    await expect(git.isTracked({ cwd: '/repo', rel: 'tracked.ts' })).resolves.toBe(true);
+    await expect(git.isTracked({ cwd: '/repo', rel: 'untracked.ts' })).resolves.toBe(false);
+
+    expect(fake.calls[0]).toEqual({
+      file: 'git',
+      args: ['ls-files', '--error-unmatch', '--', 'tracked.ts'],
+      options: { cwd: '/repo' },
+    });
   });
 });

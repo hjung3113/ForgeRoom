@@ -36,7 +36,6 @@ import { DefaultCheckRunner } from '../core/check-runner.js';
 import {
   AgentRunnerConductorAgent,
   FileConductor,
-  GitCliConductorGit,
 } from '../core/conductor.js';
 import { ForgeMapStagerImpl } from '../core/forgemap.js';
 import { OpenClawProvider, type OpenClawIpcClient } from '../core/openclaw-provider.js';
@@ -78,6 +77,7 @@ import {
 import { createGitHubClient } from '../gateway/github-client.js';
 import { OctokitGitHubStatusClient } from '../gateway/github-status-client.js';
 
+import { GitCliConductorGit } from './conductor-git.js';
 import type { LoadedRegistries, OrchestratorEnv } from './config.js';
 import {
   BootstrapForgeMapStore,
