@@ -18,21 +18,23 @@ import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 
 import type { IntentRegistry } from '../core/intent-registry.js';
-import { parseWorkflowConfig } from './workflow-parser.js';
-import { AdapterValidationError } from './dsl-errors.js';
+import { AdapterValidationError, WorkflowParseError } from './dsl-errors.js';
 import type {
   AdapterContext,
   InterpolatedInputs,
-  ParsedExecutableSpec,
   ParsedForgeWorkflow,
   ParsedGroupStep,
   ParsedReviewLoopStep,
   ParsedRunStep,
-  ParsedStep,
   ResolvedStep,
   SelectorName,
   WorkflowEffects,
 } from '../workflow/types.js';
+import {
+  parseForgeWorkflow as parseWorkflowSchema,
+  WorkflowSchemaError,
+  WorkflowSourceParseError,
+} from '../workflow/schema.js';
 import {
   parseRuntimeExpressionRef,
   replaceExpressionRefs,
@@ -91,104 +93,17 @@ export interface BuiltMastraWorkflow {
 // ---------------------------------------------------------------------------
 
 export function parseForgeWorkflow(source: string, workflowId: string): ParsedForgeWorkflow {
-  const { config } = parseWorkflowConfig(source, { source: workflowId });
-  const raw = config[workflowId];
-  if (raw === undefined) {
-    throw new AdapterValidationError(`workflow not found in source`, workflowId);
+  try {
+    return parseWorkflowSchema(source, workflowId);
+  } catch (error) {
+    if (error instanceof WorkflowSchemaError) {
+      throw new AdapterValidationError(error.message, error.workflowId, error.field);
+    }
+    if (error instanceof WorkflowSourceParseError) {
+      throw new WorkflowParseError(error.message, null, workflowId);
+    }
+    throw error;
   }
-  return normalizeWorkflow(workflowId, raw);
-}
-
-function normalizeWorkflow(id: string, raw: Record<string, unknown>): ParsedForgeWorkflow {
-  const effects = normalizeEffects(id, raw.effects);
-  const rawSteps = raw.steps;
-  if (!Array.isArray(rawSteps)) {
-    throw new AdapterValidationError('workflow.steps must be a list', id, 'steps');
-  }
-  const steps = rawSteps.map((s, i) => normalizeStep(id, s, `steps[${String(i)}]`));
-  return {
-    id,
-    description: typeof raw.description === 'string' ? raw.description : '',
-    effects,
-    steps,
-  };
-}
-
-function normalizeEffects(id: string, raw: unknown): WorkflowEffects {
-  if (!isRecord(raw)) {
-    throw new AdapterValidationError('workflow.effects must be a mapping', id, 'effects');
-  }
-  const external = isRecord(raw.external) ? raw.external : {};
-  return {
-    worktree: raw.worktree === 'modifies' ? 'modifies' : 'read_only',
-    external: {
-      report: oneOf(external.report, ['none', 'status', 'final'], 'none'),
-      pr: oneOf(external.pr, ['none', 'draft', 'ready'], 'none'),
-    },
-  };
-}
-
-function normalizeStep(workflowId: string, raw: unknown, field: string): ParsedStep {
-  if (!isRecord(raw)) {
-    throw new AdapterValidationError('step must be a mapping', workflowId, field);
-  }
-  const type = raw.type;
-  if (type === 'group') {
-    return {
-      type: 'group',
-      id: requireStringField(workflowId, raw.id, `${field}.id`),
-      foreach: requireStringField(workflowId, raw.foreach, `${field}.foreach`),
-      as: requireStringField(workflowId, raw.as, `${field}.as`),
-      steps: Array.isArray(raw.steps)
-        ? raw.steps.map((s, i) => normalizeRunStep(workflowId, s, `${field}.steps[${String(i)}]`))
-        : (() => {
-            throw new AdapterValidationError('group.steps must be a list', workflowId, `${field}.steps`);
-          })(),
-    };
-  }
-  if (type === 'review_loop') {
-    return {
-      type: 'review_loop',
-      id: requireStringField(workflowId, raw.id, `${field}.id`),
-      until: requireStringField(workflowId, raw.until, `${field}.until`),
-      max_iterations: requireNumberField(workflowId, raw.max_iterations, `${field}.max_iterations`),
-      review: normalizeExecutableSpec(workflowId, raw.review, `${field}.review`),
-      refine: normalizeExecutableSpec(workflowId, raw.refine, `${field}.refine`),
-    };
-  }
-  if (type === 'run') {
-    return normalizeRunStep(workflowId, raw, field);
-  }
-  throw new AdapterValidationError(`unknown step type: ${String(type)}`, workflowId, `${field}.type`);
-}
-
-function normalizeRunStep(workflowId: string, raw: unknown, field: string): ParsedRunStep {
-  if (!isRecord(raw) || raw.type !== 'run') {
-    throw new AdapterValidationError('expected a `type: run` step', workflowId, field);
-  }
-  return {
-    type: 'run',
-    id: requireStringField(workflowId, raw.id, `${field}.id`),
-    intent: requireStringField(workflowId, raw.intent, `${field}.intent`),
-    prompt_template: typeof raw.prompt_template === 'string' ? raw.prompt_template : '',
-    input_refs: normalizeStringMap(raw.input_refs),
-    vars: normalizeStringMap(raw.vars),
-    output_selectors: normalizeSelectors(raw.output_selectors),
-    pause_after: raw.pause_after === true,
-  };
-}
-
-function normalizeExecutableSpec(workflowId: string, raw: unknown, field: string): ParsedExecutableSpec {
-  if (!isRecord(raw)) {
-    throw new AdapterValidationError('expected an executable spec mapping', workflowId, field);
-  }
-  return {
-    id: requireStringField(workflowId, raw.id, `${field}.id`),
-    intent: requireStringField(workflowId, raw.intent, `${field}.intent`),
-    prompt_template: typeof raw.prompt_template === 'string' ? raw.prompt_template : '',
-    input_refs: normalizeStringMap(raw.input_refs),
-    vars: normalizeStringMap(raw.vars),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -745,42 +660,6 @@ export function buildMastraWorkflowCached(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
-}
-
-function requireStringField(workflowId: string, value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AdapterValidationError(`missing required field`, workflowId, field);
-  }
-  return value;
-}
-
-function requireNumberField(workflowId: string, value: unknown, field: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new AdapterValidationError(`missing required numeric field`, workflowId, field);
-  }
-  return value;
-}
-
-function normalizeStringMap(raw: unknown): Record<string, string> {
-  if (!isRecord(raw)) return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(raw)) {
-    out[k] = typeof v === 'string' ? v : String(v);
-  }
-  return out;
-}
-
-function normalizeSelectors(raw: unknown): SelectorName[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((s): s is SelectorName => s === 'slices');
-}
 
 function sanitizeWorkflowId(id: string): string {
   return id;
