@@ -171,9 +171,11 @@ export class OpenClawCliClient implements OpenClawIpcClient {
 
   /**
    * Build `agent --json --agent <id> [--session-id <id>] --message <prompt>
-   * [--model <model>] [--timeout <seconds>]`. The prompt content is passed
-   * inline; for very large prompts this hits the OS argv-size limit (see PR
-   * note) — the prompt file is still written for audit.
+   * [--model <runtime/modelBase>] [--timeout <seconds>]`. The `--model` value is
+   * derived from the runtime via {@link deriveModelArg} (OpenClaw names models by
+   * runtime, not vendor — #47). The prompt content is passed inline; for very
+   * large prompts this hits the OS argv-size limit (see PR note) — the prompt
+   * file is still written for audit.
    */
   private buildArgs(
     request: OpenClawExecutionRequest,
@@ -185,8 +187,9 @@ export class OpenClawCliClient implements OpenClawIpcClient {
       args.push('--session-id', sessionId);
     }
     args.push('--message', message);
-    if (request.model.trim() !== '') {
-      args.push('--model', request.model);
+    const model = deriveModelArg(request.runtime, request.model);
+    if (model !== null) {
+      args.push('--model', model);
     }
     if (request.timeoutMs !== undefined) {
       args.push('--timeout', String(Math.ceil(request.timeoutMs / 1000)));
@@ -352,6 +355,38 @@ export class OpenClawCliClient implements OpenClawIpcClient {
       return { exists: false, bytes: 0 };
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Model-id derivation (exported for direct unit testing)
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive the OpenClaw `--model` value from the agent's runtime + ForgeRoom model
+ * id. ForgeRoom names models by VENDOR (`anthropic/claude-opus-4-7`), but
+ * OpenClaw names them by RUNTIME (`claude-cli/claude-opus-4-7`); passing the
+ * vendor-prefixed id to `--model` errors (#47, live-verified).
+ *
+ * We take the model's base segment (everything after the first `/`, i.e. the
+ * vendor prefix stripped) and re-prefix it with the runtime:
+ *   `claude-cli` + `anthropic/claude-opus-4-7` → `claude-cli/claude-opus-4-7`
+ *   `openai-codex` + `openai/gpt-5`            → `openai-codex/gpt-5`
+ *   `claude-cli` + `claude-opus-4-7` (no `/`)  → `claude-cli/claude-opus-4-7`
+ *
+ * Returns `null` when there is nothing to pass (empty model). With an empty
+ * runtime, falls back to the raw model so `--model` is still emitted.
+ */
+export function deriveModelArg(runtime: string, model: string): string | null {
+  const trimmedModel = model.trim();
+  if (trimmedModel === '') {
+    return null;
+  }
+  const modelBase = trimmedModel.slice(trimmedModel.indexOf('/') + 1);
+  const trimmedRuntime = runtime.trim();
+  if (trimmedRuntime === '') {
+    return trimmedModel;
+  }
+  return `${trimmedRuntime}/${modelBase}`;
 }
 
 // ---------------------------------------------------------------------------
