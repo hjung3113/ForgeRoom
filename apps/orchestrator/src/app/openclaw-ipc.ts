@@ -38,10 +38,8 @@
  * without code changes. See `Docs/dev/openclaw-e2e.md`.
  */
 import { spawn } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { finished } from 'node:stream/promises';
 
 import type { AgentRunFailureKind, ProviderHealth } from '../core/agent-runner.js';
 import type {
@@ -51,7 +49,7 @@ import type {
   OpenClawResumeRequest,
   OpenClawRunResponse,
 } from '../core/openclaw-provider.js';
-import { terminateProcessGroup } from '../utils/subprocess.js';
+import { spawnCaptured } from '../utils/subprocess.js';
 
 /** Grace window between SIGTERM and the escalation SIGKILL on timeout. */
 const KILL_GRACE_MS = 200;
@@ -233,75 +231,27 @@ export class OpenClawCliClient implements OpenClawIpcClient {
     request: OpenClawExecutionRequest,
     fallbackSessionId: string | null,
   ): Promise<OpenClawRunResponse> {
-    await Promise.all([
-      mkdir(dirname(request.stdoutPath), { recursive: true }),
-      mkdir(dirname(request.stderrPath), { recursive: true }),
-    ]);
-
-    const startedAt = this.now();
-    const stdout = createWriteStream(request.stdoutPath);
-    const stderr = createWriteStream(request.stderrPath);
-
-    const child = this.spawnFn(this.config.bin, args, {
+    const result = await spawnCaptured({
+      bin: this.config.bin,
+      args,
       cwd: request.cwd,
       env: this.childEnv(request),
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
       shell: false,
+      stdoutPath: request.stdoutPath,
+      stderrPath: request.stderrPath,
+      capture: true,
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+      killGraceMs: KILL_GRACE_MS,
+      spawnFn: this.spawnFn,
+      now: this.now,
+      writeSpawnErrorToStderr: false,
     });
-
-    let stdoutBuf = '';
-    let stderrBuf = '';
-    child.stdout?.on('data', (chunk: Buffer) => {
-      stdoutBuf += chunk.toString('utf8');
-    });
-    child.stderr?.on('data', (chunk: Buffer) => {
-      stderrBuf += chunk.toString('utf8');
-    });
-    child.stdout?.pipe(stdout);
-    child.stderr?.pipe(stderr);
-
-    let timedOut = false;
-    let spawnError: NodeJS.ErrnoException | null = null;
-    const timeoutMs = request.timeoutMs;
-
-    const timeout =
-      timeoutMs === undefined
-        ? null
-        : setTimeout(() => {
-            timedOut = true;
-            terminateProcessGroup(child.pid, 'SIGTERM');
-          }, timeoutMs);
-    const killTimer =
-      timeoutMs === undefined
-        ? null
-        : setTimeout(() => {
-            if (timedOut) {
-              terminateProcessGroup(child.pid, 'SIGKILL');
-            }
-          }, timeoutMs + KILL_GRACE_MS);
-
-    const rawExit = await new Promise<number>((resolve) => {
-      child.once('error', (error: NodeJS.ErrnoException) => {
-        spawnError = error;
-        resolve(error.code === 'ENOENT' ? EXIT_COMMAND_NOT_FOUND : 1);
-      });
-      child.once('close', (code) => {
-        resolve(code ?? 1);
-      });
-    });
-
-    if (timeout !== null) {
-      clearTimeout(timeout);
-    }
-    if (killTimer !== null) {
-      clearTimeout(killTimer);
-    }
-    stdout.end();
-    stderr.end();
-    await Promise.all([finished(stdout), finished(stderr)]);
-
-    const durationMs = this.now() - startedAt;
+    const rawExit = result.spawnError?.code === 'ENOENT' ? EXIT_COMMAND_NOT_FOUND : result.rawExit;
+    const stdoutBuf = result.stdoutBuf;
+    const stderrBuf = result.stderrBuf;
+    const timedOut = result.timedOut;
+    const spawnError = result.spawnError;
+    const durationMs = result.durationMs;
     const parsed = timedOut ? null : parseAgentJson(stdoutBuf);
     const sessionId = extractSessionId(parsed) ?? fallbackSessionId;
 
