@@ -14,7 +14,7 @@ types used by `core/` and `dsl/` without either folder importing from the other.
 
 | File | Role |
 |---|---|
-| `types.ts` | Parsed workflow types and Mastra adapter collaborator contract types |
+| `types.ts` | Parsed workflow types, resolved workflow types, and Mastra adapter collaborator contract types |
 | `expression.ts` | Shared workflow expression grammar, reference field sets, and ref parsers |
 | `schema.ts` | Source yaml to `ParsedForgeWorkflow` parser with lenient structural normalization |
 

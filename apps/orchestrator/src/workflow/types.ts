@@ -64,6 +64,82 @@ export interface ParsedForgeWorkflow {
   steps: ParsedStep[];
 }
 
+export interface ResolvedWorkflow {
+  id: string;
+  description: string;
+  effects: WorkflowEffects;
+  steps: ResolvedWorkflowStep[];
+  executableSteps: ResolvedWorkflowExecutableStep[];
+}
+
+export type ResolvedWorkflowStep =
+  | ResolvedWorkflowExecutableStep
+  | ResolvedWorkflowGroupStep
+  | ResolvedWorkflowReviewLoopStep;
+
+export interface ResolvedWorkflowExecutableStep {
+  type: 'run';
+  id: string;
+  intent: string;
+  prompt_template: string;
+  input_refs: Record<string, string>;
+  vars: Record<string, string>;
+  output_selectors: SelectorName[];
+  foreach: null;
+  as: null;
+  steps: [];
+  review: null;
+  refine: null;
+  until: null;
+  max_iterations: null;
+  pause_after: boolean;
+  kind: string;
+  agent: string;
+  harness: string;
+}
+
+export interface ResolvedWorkflowGroupStep {
+  type: 'group';
+  id: string;
+  intent: null;
+  prompt_template: null;
+  input_refs: Record<string, never>;
+  vars: Record<string, never>;
+  output_selectors: [];
+  foreach: string;
+  as: string;
+  steps: ResolvedWorkflowStep[];
+  review: null;
+  refine: null;
+  until: null;
+  max_iterations: null;
+  pause_after: false;
+  kind: null;
+  agent: null;
+  harness: null;
+}
+
+export interface ResolvedWorkflowReviewLoopStep {
+  type: 'review_loop';
+  id: string;
+  intent: null;
+  prompt_template: null;
+  input_refs: Record<string, never>;
+  vars: Record<string, never>;
+  output_selectors: [];
+  foreach: null;
+  as: null;
+  steps: [];
+  review: ResolvedWorkflowExecutableStep;
+  refine: ResolvedWorkflowExecutableStep;
+  until: string;
+  max_iterations: number;
+  pause_after: false;
+  kind: null;
+  agent: null;
+  harness: null;
+}
+
 // ---------------------------------------------------------------------------
 // Mastra adapter contract shared by dsl builder and core collaborators
 // ---------------------------------------------------------------------------

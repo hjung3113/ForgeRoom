@@ -2,12 +2,22 @@ import { AgentRegistry } from './agent-registry.js';
 import { HarnessRegistry } from './harness-registry.js';
 import { IntentRegistry } from './intent-registry.js';
 import type {
+  ParsedExecutableSpec,
+  ParsedForgeWorkflow,
+  ParsedGroupStep,
+  ParsedReviewLoopStep,
+  ParsedRunStep,
+  ParsedStep,
+  ResolvedWorkflow,
+  ResolvedWorkflowExecutableStep,
+  ResolvedWorkflowStep,
   WorkflowEffects,
   WorkflowPrEffect,
   WorkflowReportEffect,
   WorkflowWorktreeEffect,
 } from '../workflow/types.js';
 import { extractExpressionRefs, parseValidationExpressionRef } from '../workflow/expression.js';
+import { normalizeWorkflow, WorkflowSchemaError } from '../workflow/schema.js';
 
 export type { WorkflowEffects, WorkflowPrEffect, WorkflowReportEffect, WorkflowWorktreeEffect };
 
@@ -31,41 +41,11 @@ interface WorkflowValidationErrorOptions {
   sourceContext?: WorkflowValidationSourceContext;
 }
 
-export interface ParsedWorkflow {
-  id: string;
-  description: string;
-  effects: WorkflowEffects;
-  steps: ResolvedStep[];
-}
-
-export interface ResolvedStep {
-  type: 'run' | 'group' | 'review_loop';
-  id: string;
-  intent: string | null;
-  prompt_template: string | null;
-  input_refs: Record<string, string>;
-  vars: Record<string, string>;
-  foreach: string | null;
-  as: string | null;
-  steps: ResolvedStep[];
-  review: ResolvedExecutableStep | null;
-  refine: ResolvedExecutableStep | null;
-  until: string | null;
-  max_iterations: number | null;
-  pause_after: boolean;
-  kind: string | null;
-  agent: string | null;
-  harness: string | null;
-}
-
-export type ResolvedExecutableStep = ResolvedStep & {
-  type: 'run';
-  intent: string;
-  prompt_template: string;
-  kind: string;
-  agent: string;
-  harness: string;
+export type ParsedWorkflow = Omit<ResolvedWorkflow, 'executableSteps'> & {
+  executableSteps?: ResolvedExecutableStep[];
 };
+export type ResolvedStep = ResolvedWorkflowStep;
+export type ResolvedExecutableStep = ResolvedWorkflowExecutableStep;
 
 interface RegistryDeps {
   intentRegistry: IntentRegistry;
@@ -156,7 +136,7 @@ export class WorkflowRegistry {
       }
 
       try {
-        const workflow = parseWorkflow(id, raw, deps, options);
+        const workflow = resolveWorkflow(id, raw, deps, options);
         workflows.set(id, workflow);
       } catch (error) {
         const enrichedError = enrichWorkflowValidationError(id, error, options.sourceMap);
@@ -251,44 +231,146 @@ function parentField(field: string): string | null {
   return field.slice(0, dotIndex);
 }
 
-function parseWorkflow(
+function resolveWorkflow(
   id: string,
   raw: RawWorkflow,
   deps: RegistryDeps,
   options: WorkflowRegistryOptions,
 ): ParsedWorkflow {
-  const description = stringOrDefault(raw.description, '', 'description', id);
-  const effects = parseEffects(raw.effects, id);
-  if (!Array.isArray(raw.steps) || raw.steps.length === 0) {
+  validateRawWorkflow(id, raw);
+  const parsed = normalizeConfigWorkflow(id, raw);
+  if (parsed.steps.length === 0) {
     throw new WorkflowValidationError(`workflow ${id}.steps must be a non-empty array`, {
       workflowId: id,
       field: 'steps',
     });
   }
-  const knownStepIds = collectStepIds(raw.steps, id);
-
-  const workflow = {
-    id,
-    description,
-    effects,
-    steps: raw.steps.map((step, index) =>
-      parseStep(
-        asRawStep(step, `${id}.steps[${String(index)}]`, `steps[${String(index)}]`, id),
-        deps,
-        options,
-        {
-          workflowId: id,
-          path: `steps[${String(index)}]`,
-        },
-      ),
+  const knownStepIds = collectStepIds(parsed.steps, id);
+  const executableSteps: ResolvedExecutableStep[] = [];
+  const workflow: ParsedWorkflow = {
+    id: parsed.id,
+    description: parsed.description,
+    effects: resolveEffects(raw.effects, id),
+    steps: parsed.steps.map((step, index) =>
+      resolveStep(step, deps, options, {
+        workflowId: id,
+        path: `steps[${String(index)}]`,
+        executableSteps,
+      }),
     ),
+    executableSteps,
   };
   validateWorkflowReferences(workflow, knownStepIds);
 
   return workflow;
 }
 
-function parseEffects(raw: unknown, workflowId: string): WorkflowEffects {
+function normalizeConfigWorkflow(id: string, raw: RawWorkflow): ParsedForgeWorkflow {
+  try {
+    return normalizeWorkflow(id, raw as Record<string, unknown>);
+  } catch (error) {
+    if (error instanceof WorkflowSchemaError) {
+      throw new WorkflowValidationError(error.message, { workflowId: error.workflowId, field: error.field ?? undefined });
+    }
+    throw error;
+  }
+}
+
+function validateRawWorkflow(workflowId: string, raw: RawWorkflow): void {
+  validateRawEffects(raw.effects, workflowId);
+  if (!Array.isArray(raw.steps) || raw.steps.length === 0) {
+    throw new WorkflowValidationError(`workflow ${workflowId}.steps must be a non-empty array`, {
+      workflowId,
+      field: 'steps',
+    });
+  }
+  raw.steps.forEach((step, index) => {
+    validateRawStep(asRawStep(step, `${workflowId}.steps[${String(index)}]`, `steps[${String(index)}]`, workflowId), {
+      workflowId,
+      path: `steps[${String(index)}]`,
+    });
+  });
+}
+
+function validateRawStep(raw: RawStep, context: Omit<StepParseContext, 'executableSteps'>): void {
+  if (raw.type === 'run') {
+    validateRawExecutableStep(raw, context);
+    return;
+  }
+  if (raw.type === 'group') {
+    if (raw.intent !== undefined || raw.prompt_template !== undefined || raw.prompt !== undefined) {
+      throw new WorkflowValidationError('group step cannot define intent, prompt_template, or prompt', {
+        workflowId: context.workflowId,
+        field: context.path,
+      });
+    }
+    if (Array.isArray(raw.steps)) {
+      raw.steps.forEach((step, index) => {
+        validateRawStep(
+          asRawStep(
+            step,
+            `${String(raw.id)}.steps[${String(index)}]`,
+            `${context.path}.steps[${String(index)}]`,
+            context.workflowId,
+          ),
+          {
+            workflowId: context.workflowId,
+            path: `${context.path}.steps[${String(index)}]`,
+          },
+        );
+      });
+    }
+    return;
+  }
+  if (raw.type === 'review_loop') {
+    validateRawExecutableStep(
+      asRawStep(raw.review, `review_loop ${String(raw.id)}.review`, `${context.path}.review`, context.workflowId),
+      {
+        workflowId: context.workflowId,
+        path: `${context.path}.review`,
+      },
+    );
+    validateRawExecutableStep(
+      asRawStep(raw.refine, `review_loop ${String(raw.id)}.refine`, `${context.path}.refine`, context.workflowId),
+      {
+        workflowId: context.workflowId,
+        path: `${context.path}.refine`,
+      },
+    );
+  }
+}
+
+function validateRawExecutableStep(raw: RawStep, context: Omit<StepParseContext, 'executableSteps'>): void {
+  for (const field of ['agent', 'kind', 'harness', 'prompt'] as const) {
+    if (raw[field] !== undefined) {
+      throw new WorkflowValidationError(`executable step cannot define ${field}`, {
+        workflowId: context.workflowId,
+        field: `${context.path}.${field}`,
+      });
+    }
+  }
+  validateRawStringRecord(raw.input_refs, `${context.path}.input_refs`, context.workflowId);
+  validateRawStringRecord(raw.vars, `${context.path}.vars`, context.workflowId);
+}
+
+function validateRawStringRecord(value: unknown, field: string, workflowId: string): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new WorkflowValidationError('expected string record', { workflowId, field });
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== 'string') {
+      throw new WorkflowValidationError(`expected string value for ${key}`, {
+        workflowId,
+        field: `${field}.${key}`,
+      });
+    }
+  }
+}
+
+function validateRawEffects(raw: unknown, workflowId: string): void {
   if (!isRecord(raw)) {
     throw new WorkflowValidationError(`workflow ${workflowId}.effects is required`, {
       workflowId,
@@ -302,30 +384,37 @@ function parseEffects(raw: unknown, workflowId: string): WorkflowEffects {
       field: 'effects.external',
     });
   }
+  requireOneOf(
+    raw.worktree,
+    ['read_only', 'modifies'],
+    `${workflowId}.effects.worktree`,
+    'effects.worktree',
+    workflowId,
+  );
+  requireOneOf(
+    external.report,
+    ['none', 'status', 'final'],
+    `${workflowId}.effects.external.report`,
+    'effects.external.report',
+    workflowId,
+  );
+  requireOneOf(
+    external.pr,
+    ['none', 'draft', 'ready'],
+    `${workflowId}.effects.external.pr`,
+    'effects.external.pr',
+    workflowId,
+  );
+}
 
+function resolveEffects(raw: unknown, workflowId: string): WorkflowEffects {
+  validateRawEffects(raw, workflowId);
+  const effectRaw = raw as { worktree: WorkflowEffects['worktree']; external: WorkflowEffects['external'] };
   return {
-    worktree: oneOf(
-      raw.worktree,
-      ['read_only', 'modifies'],
-      `${workflowId}.effects.worktree`,
-      'effects.worktree',
-      workflowId,
-    ),
+    worktree: effectRaw.worktree,
     external: {
-      report: oneOf(
-        external.report,
-        ['none', 'status', 'final'],
-        `${workflowId}.effects.external.report`,
-        'effects.external.report',
-        workflowId,
-      ),
-      pr: oneOf(
-        external.pr,
-        ['none', 'draft', 'ready'],
-        `${workflowId}.effects.external.pr`,
-        'effects.external.pr',
-        workflowId,
-      ),
+      report: effectRaw.external.report,
+      pr: effectRaw.external.pr,
     },
   };
 }
@@ -333,49 +422,37 @@ function parseEffects(raw: unknown, workflowId: string): WorkflowEffects {
 interface StepParseContext {
   workflowId: string;
   path: string;
+  executableSteps: ResolvedExecutableStep[];
 }
 
 const STEP_SOURCE_PATHS = new WeakMap<ResolvedStep, string>();
 
-function parseStep(
-  raw: RawStep,
+function resolveStep(
+  step: ParsedStep,
   deps: RegistryDeps,
   options: WorkflowRegistryOptions,
   context: StepParseContext,
 ): ResolvedStep {
-  const type = oneOf(
-    raw.type,
-    ['run', 'group', 'review_loop'],
-    'step.type',
-    `${context.path}.type`,
-    context.workflowId,
-  );
-  if (type === 'run') {
-    return parseExecutableStep(raw, deps, options, context);
+  if (step.type === 'run') {
+    return resolveExecutableStep(step, deps, options, context);
   }
-  if (type === 'group') {
-    return parseGroupStep(raw, deps, options, context);
+  if (step.type === 'group') {
+    return resolveGroupStep(step, deps, options, context);
   }
 
-  return parseReviewLoopStep(raw, deps, options, context);
+  return resolveReviewLoopStep(step, deps, options, context);
 }
 
-function parseExecutableStep(
-  raw: RawStep,
+function resolveExecutableStep(
+  spec: ParsedRunStep | ParsedExecutableSpec,
   deps: RegistryDeps,
   options: WorkflowRegistryOptions,
   context: StepParseContext,
 ): ResolvedExecutableStep {
-  rejectExecutableOverrides(raw, context);
-  const id = requiredString(raw.id, 'step.id', `${context.path}.id`, context.workflowId);
-  const intentId = requiredString(raw.intent, `step ${id}.intent`, `${context.path}.intent`, context.workflowId);
+  const id = spec.id;
+  const intentId = spec.intent;
   const promptTemplate = validatePromptTemplate(
-    requiredString(
-      raw.prompt_template,
-      `step ${id}.prompt_template`,
-      `${context.path}.prompt_template`,
-      context.workflowId,
-    ),
+    spec.prompt_template,
     options,
     `${context.path}.prompt_template`,
     context.workflowId,
@@ -389,9 +466,10 @@ function parseExecutableStep(
     id,
     intent: intentId,
     prompt_template: promptTemplate,
-    input_refs: stringRecord(raw.input_refs, `${context.path}.input_refs`, context.workflowId),
-    vars: stringRecord(raw.vars, `${context.path}.vars`, context.workflowId),
-    pause_after: raw.pause_after === true,
+    input_refs: spec.input_refs,
+    vars: spec.vars,
+    output_selectors: 'output_selectors' in spec ? spec.output_selectors : [],
+    pause_after: 'pause_after' in spec ? spec.pause_after : false,
     foreach: null,
     as: null,
     steps: [],
@@ -404,33 +482,26 @@ function parseExecutableStep(
     harness: intent.harness,
   };
   STEP_SOURCE_PATHS.set(step, context.path);
+  context.executableSteps.push(step);
 
   return step;
 }
 
-function parseGroupStep(
-  raw: RawStep,
+function resolveGroupStep(
+  parsed: ParsedGroupStep,
   deps: RegistryDeps,
   options: WorkflowRegistryOptions,
   context: StepParseContext,
 ): ResolvedStep {
-  if (raw.intent !== undefined || raw.prompt_template !== undefined || raw.prompt !== undefined) {
-    throw new WorkflowValidationError('group step cannot define intent, prompt_template, or prompt', {
-      workflowId: context.workflowId,
-      field: context.path,
-    });
-  }
-
-  const id = requiredString(raw.id, 'group.id', `${context.path}.id`, context.workflowId);
-  const foreach = requiredString(raw.foreach, `group ${id}.foreach`, `${context.path}.foreach`, context.workflowId);
+  const id = parsed.id;
+  const foreach = parsed.foreach;
   if (foreach !== '${task.final_slices}') {
     throw new WorkflowValidationError('MVP group foreach must be ${task.final_slices}', {
       workflowId: context.workflowId,
       field: `${context.path}.foreach`,
     });
   }
-  const as = requiredString(raw.as, `group ${id}.as`, `${context.path}.as`, context.workflowId);
-  if (!Array.isArray(raw.steps) || raw.steps.length === 0) {
+  if (parsed.steps.length === 0) {
     throw new WorkflowValidationError(`group ${id}.steps must be a non-empty array`, {
       workflowId: context.workflowId,
       field: `${context.path}.steps`,
@@ -444,21 +515,18 @@ function parseGroupStep(
     prompt_template: null,
     input_refs: {},
     vars: {},
+    output_selectors: [],
     foreach,
-    as,
-    steps: raw.steps.map((step, index) =>
-      parseStep(
-        asRawStep(
-          step,
-          `${id}.steps[${String(index)}]`,
-          `${context.path}.steps[${String(index)}]`,
-          context.workflowId,
-        ),
+    as: parsed.as,
+    steps: parsed.steps.map((step, index) =>
+      resolveStep(
+        step,
         deps,
         options,
         {
           workflowId: context.workflowId,
           path: `${context.path}.steps[${String(index)}]`,
+          executableSteps: context.executableSteps,
         },
       ),
     ),
@@ -476,32 +544,34 @@ function parseGroupStep(
   return step;
 }
 
-function parseReviewLoopStep(
-  raw: RawStep,
+function resolveReviewLoopStep(
+  parsed: ParsedReviewLoopStep,
   deps: RegistryDeps,
   options: WorkflowRegistryOptions,
   context: StepParseContext,
 ): ResolvedStep {
-  const id = requiredString(raw.id, 'review_loop.id', `${context.path}.id`, context.workflowId);
-  const review = parseExecutableStep(
-    asRawStep(raw.review, `review_loop ${id}.review`, `${context.path}.review`, context.workflowId),
+  const id = parsed.id;
+  const review = resolveExecutableStep(
+    parsed.review,
     deps,
     options,
     {
       workflowId: context.workflowId,
       path: `${context.path}.review`,
+      executableSteps: context.executableSteps,
     },
   );
-  const refine = parseExecutableStep(
-    asRawStep(raw.refine, `review_loop ${id}.refine`, `${context.path}.refine`, context.workflowId),
+  const refine = resolveExecutableStep(
+    parsed.refine,
     deps,
     options,
     {
       workflowId: context.workflowId,
       path: `${context.path}.refine`,
+      executableSteps: context.executableSteps,
     },
   );
-  const until = requiredString(raw.until, `review_loop ${id}.until`, `${context.path}.until`, context.workflowId);
+  const until = parsed.until;
   if (until !== `\${${review.id}.passed}`) {
     throw new WorkflowValidationError(`review_loop ${id}.until must reference ${review.id}.passed`, {
       workflowId: context.workflowId,
@@ -509,7 +579,7 @@ function parseReviewLoopStep(
     });
   }
   const maxIterations = numberGreaterThanZero(
-    raw.max_iterations,
+    parsed.max_iterations,
     `review_loop ${id}.max_iterations`,
     `${context.path}.max_iterations`,
     context.workflowId,
@@ -528,6 +598,7 @@ function parseReviewLoopStep(
     prompt_template: null,
     input_refs: {},
     vars: {},
+    output_selectors: [],
     foreach: null,
     as: null,
     steps: [],
@@ -543,17 +614,6 @@ function parseReviewLoopStep(
   STEP_SOURCE_PATHS.set(step, context.path);
 
   return step;
-}
-
-function rejectExecutableOverrides(raw: RawStep, context: StepParseContext): void {
-  for (const field of ['agent', 'kind', 'harness', 'prompt'] as const) {
-    if (raw[field] !== undefined) {
-      throw new WorkflowValidationError(`executable step cannot define ${field}`, {
-        workflowId: context.workflowId,
-        field: `${context.path}.${field}`,
-      });
-    }
-  }
 }
 
 function validatePromptTemplate(
@@ -778,28 +838,6 @@ function asRawStep(value: unknown, field: string, sourceField?: string, workflow
   return value;
 }
 
-function stringRecord(value: unknown, field: string, workflowId: string): Record<string, string> {
-  if (value === undefined) {
-    return {};
-  }
-  if (!isRecord(value)) {
-    throw new WorkflowValidationError('expected string record', { workflowId, field });
-  }
-
-  const result: Record<string, string> = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (typeof item !== 'string') {
-      throw new WorkflowValidationError(`expected string value for ${key}`, {
-        workflowId,
-        field: `${field}.${key}`,
-      });
-    }
-    result[key] = item;
-  }
-
-  return result;
-}
-
 function requiredString(value: unknown, field: string, sourceField: string, workflowId: string): string {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new WorkflowValidationError(`Missing required field: ${field}`, { workflowId, field: sourceField });
@@ -808,18 +846,7 @@ function requiredString(value: unknown, field: string, sourceField: string, work
   return value;
 }
 
-function stringOrDefault(value: unknown, fallback: string, field: string, workflowId: string): string {
-  if (value === undefined) {
-    return fallback;
-  }
-  if (typeof value !== 'string') {
-    throw new WorkflowValidationError('expected string', { workflowId, field });
-  }
-
-  return value;
-}
-
-function oneOf<const T extends readonly string[]>(
+function requireOneOf<const T extends readonly string[]>(
   value: unknown,
   allowed: T,
   field: string,
