@@ -24,7 +24,7 @@ import type { WorkflowRunState } from '@mastra/core/workflows';
 
 import type { AgentRunner } from './agent-runner.js';
 import type { ApprovalGate } from './approval-gate.js';
-import type { Conductor, Reporter, StepResult, Task } from './types.js';
+import type { Conductor, Reporter, Task } from './types.js';
 import type { TaskStore, CreateTaskInput } from './task-store.js';
 import type { ProjectRegistry, ProjectMeta } from './project-registry.js';
 import type { IntentRegistry } from './intent-registry.js';
@@ -45,12 +45,12 @@ import {
   ReviewLoopMaxIterationsError,
   type AdapterContext,
   type AgentRunResult as AdapterAgentRunResult,
-  type InterpolatedInputs,
   type InterpolationSource,
   type ResolvedStep as AdapterResolvedStep,
   type StepOutputView,
 } from '../dsl/to-mastra.js';
 import { AdapterValidationError } from '../dsl/dsl-errors.js';
+import { StepCollaborators } from './engine/step-collaborators.js';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -708,147 +708,34 @@ export class MastraPipelineEngine implements PipelineEngine {
     };
 
     const agentOverrides = input.opts.agentOverrides ?? {};
-
-    const collaborators = {
-      renderPrompt: async (resolved: AdapterResolvedStep, inputs: InterpolatedInputs): Promise<string> => {
-        const index = (stepCounter.value += 1);
-        const fileBase = `${pad2(index)}_${resolved.stepId}`;
-        const promptPath = path.join(task.worktree_path, '.forgeroom', 'prompts', `${fileBase}.md`);
-        // Conductor.refine augments the base prompt with task context. The base
-        // prompt for MVP is the resolved prompt template id plus interpolated
-        // input refs (the real template loader is owned elsewhere).
-        const base = renderBasePrompt(resolved, inputs);
-        const refined = await this.deps.conductor.refine(task.id, resolved.stepId, base);
-        await mkdir(path.dirname(promptPath), { recursive: true });
-        await writeFile(promptPath, refined);
-        // Remember the index for output/diff paths in runAgent.
-        promptIndex.set(resolved.mastraStepId, { index, fileBase });
-        return promptPath;
-      },
-
-      runAgent: async (
-        resolved: AdapterResolvedStep,
-        promptPath: string,
-        _inputs: InterpolatedInputs,
-      ): Promise<AdapterAgentRunResult> => {
-        const meta = promptIndex.get(resolved.mastraStepId);
-        const fileBase = meta?.fileBase ?? `${pad2(stepCounter.value)}_${resolved.stepId}`;
-        const outputPath = path.join(task.worktree_path, '.forgeroom', 'outputs', `${fileBase}.md`);
-        const stdoutPath = path.join(task.worktree_path, '.forgeroom', 'logs', `${fileBase}.stdout`);
-        const stderrPath = path.join(task.worktree_path, '.forgeroom', 'logs', `${fileBase}.stderr`);
-        const agentId = agentOverrides[resolved.agent] ?? resolved.agent;
-
-        // ApprovalGate in-step runtime check (ADR-016 dual placement): the
-        // headless agent message is a fixed read-prompt/write-output command.
-        const agentCommand = `read ${promptPath} && write ${outputPath}`;
-        const decision = this.deps.approvalGate.checkCommand(agentCommand, task.worktree_path);
-        if (!decision.allowed) {
-          throw new OrchestratorError(
-            'agent_error',
-            `in-step gate denied agent command for ${resolved.stepId}: ${decision.reason ?? 'denied'}`,
-          );
-        }
-
-        await mkdir(path.dirname(outputPath), { recursive: true });
-        const result = await this.deps.agentRunner.run({
-          agentId,
-          promptPath,
-          outputPath,
-          stdoutPath,
-          stderrPath,
-          cwd: task.worktree_path,
-          mode: 'headless',
-        });
-
-        if (result.failureKind !== undefined || !result.outputExists) {
-          throw new OrchestratorError(
-            result.failureKind ?? 'output_contract_failed',
-            `agent run failed for step ${resolved.stepId}`,
-          );
-        }
-
-        const output = await readFile(outputPath, 'utf8');
-        return { outputPath, output, diffPath: null };
-      },
-
-      runChecks: async (
-        resolved: AdapterResolvedStep,
-        run: AdapterAgentRunResult,
-      ): Promise<{ allPassed: boolean }> => {
-        // Record a step row for the CheckRunner to update (it patches by id).
-        const step = await this.recordStepRow({ task, resolved, run });
-        const result = await this.deps.checkRunner.run({ task, step, project });
-        return { allPassed: result.allPassed };
-      },
-
-      saveDiff: async (_resolved: AdapterResolvedStep, run: AdapterAgentRunResult): Promise<string | null> => {
-        return run.diffPath;
-      },
-
-      conductorUpdate: async (resolved: AdapterResolvedStep, run: AdapterAgentRunResult): Promise<void> => {
-        const stepResult: StepResult = {
-          stepId: resolved.stepId,
-          promptPath: promptIndex.get(resolved.mastraStepId)?.fileBase ?? resolved.stepId,
-          outputPath: run.outputPath,
-          diffPath: run.diffPath,
-          status: 'done',
-        };
-        // Conductor.update is synchronous (ADR-016): summary/feedback committed
-        // before this resolves, so a later suspend snapshot finds them.
-        await this.deps.conductor.update(task.id, stepResult);
-
-        // Update the in-run interpolation view so downstream steps can read it.
-        let slices: string[] | null;
-        try {
-          slices = parseSlicesOutput(run.output);
-        } catch {
-          slices = null;
-        }
-        let passed: boolean | undefined;
-        if (resolved.kind === 'review') {
-          try {
-            passed = parseReviewPassedOutput(run.output);
-          } catch {
-            passed = undefined;
-          }
-        }
-        stepOutputs[resolved.stepId] = {
-          output: run.output,
-          output_path: run.outputPath,
-          diff_path: run.diffPath,
-          ...(passed === undefined ? {} : { passed }),
-          ...(slices === null ? {} : { slices }),
-        };
-        if (slices !== null) {
-          // task.final_slices is initialised/updated from plan/refine slices.
-          // The adapter's foreach list step reads `interpolation.task.final_slices`
-          // LAZILY at iteration time (ADR-016 bind-time = runtime), so the engine
-          // simply reassigns the runtime list here. No in-place array mutation is
-          // needed: the list step holds no build-time snapshot to keep in sync.
-          await this.deps.taskStore.updateTaskFinalSlices(task.id, slices);
-          interpolation.task.final_slices = slices;
-        }
-
-        // Reporter notify fires AFTER the TaskStore/Conductor commit (ADR-013).
-        await this.deps.reporter.notify({
-          type: 'step_done',
-          task,
-          step: makeReporterStep(task, resolved, run, this.createStepRowId, this.now),
-        });
-      },
-
-      suspend: async (_resolved: AdapterResolvedStep): Promise<void> => {
-        // The adapter gate calls this just before Mastra `suspend()`. Nothing
-        // else to commit here; Conductor.update already flushed.
-        await Promise.resolve();
-      },
-    };
-
     const promptIndex = new Map<string, { index: number; fileBase: string }>();
+    const collaborators = new StepCollaborators({
+      task,
+      project,
+      interpolation,
+      stepOutputs,
+      stepCounter,
+      promptIndex,
+      agentOverrides,
+      deps: {
+        conductor: this.deps.conductor,
+        approvalGate: this.deps.approvalGate,
+        agentRunner: this.deps.agentRunner,
+        checkRunner: this.deps.checkRunner,
+        taskStore: this.deps.taskStore,
+      },
+      callbacks: {
+        recordStepRow: (args) => this.recordStepRow(args),
+        createStepRowId: () => this.createStepRowId(),
+        now: () => this.now(),
+        notifyStepDone: (event) => this.deps.reporter.notify(event),
+        log: this.log,
+      },
+    });
 
     return {
       interpolation,
-      collaborators,
+      collaborators: collaborators.asAdapterCollaborators(),
       selectors: {
         parseSlices: (output: string): string[] => parseSlicesOutput(output),
         parseReviewPassed: (output: string): boolean => parseReviewPassedOutput(output),
@@ -948,50 +835,6 @@ interface WorkflowSnapshotStore {
     runId: string;
     snapshot: WorkflowRunState;
   }): Promise<void>;
-}
-
-function pad2(n: number): string {
-  return n.toString().padStart(2, '0');
-}
-
-function renderBasePrompt(resolved: AdapterResolvedStep, inputs: InterpolatedInputs): string {
-  const lines = [`# Step: ${resolved.stepId}`, `Template: ${resolved.promptTemplate}`, ''];
-  const refs = Object.entries(inputs.input_refs);
-  if (refs.length > 0) {
-    lines.push('## Inputs');
-    for (const [k, v] of refs) {
-      lines.push(`- ${k}: ${String(v)}`);
-    }
-  }
-  return lines.join('\n');
-}
-
-function makeReporterStep(
-  task: Task,
-  resolved: AdapterResolvedStep,
-  run: AdapterAgentRunResult,
-  createId: () => string,
-  now: () => Date,
-): Step {
-  return {
-    id: createId(),
-    task_id: task.id,
-    step_id: resolved.stepId,
-    parent_step_id: null,
-    iteration: 0,
-    agent_id: resolved.agent,
-    status: 'done',
-    failure_reason: null,
-    attempt: 1,
-    check_fix_attempt: 0,
-    check_status: 'not_run',
-    prompt_path: '',
-    output_path: run.outputPath,
-    diff_path: run.diffPath,
-    exit_code: 0,
-    started_at: now(),
-    finished_at: now(),
-  };
 }
 
 /**
