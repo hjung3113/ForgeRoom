@@ -38,7 +38,7 @@ import {
   FileConductor,
 } from '../core/conductor/conductor.js';
 import { ForgeMapStagerImpl } from '../core/context/forgemap.js';
-import { OpenClawProvider, type OpenClawIpcClient } from '../core/agent-runtime/openclaw-provider.js';
+import { OpenClawProvider, type OpenClawIpcClient } from './openclaw-provider.js';
 import {
   FileSnapshotBridge,
   MastraPipelineEngine,

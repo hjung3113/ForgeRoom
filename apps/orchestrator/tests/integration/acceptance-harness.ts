@@ -35,7 +35,7 @@ import { AgentRegistry } from '../../src/core/agent-runtime/agent-registry.js';
 import { HarnessRegistry } from '../../src/core/agent-runtime/harness-registry.js';
 import { ApprovalGate } from '../../src/core/checks/approval-gate.js';
 import { DefaultAgentRunner } from '../../src/core/agent-runtime/agent-runner.js';
-import { OpenClawProvider } from '../../src/core/agent-runtime/openclaw-provider.js';
+import { OpenClawProvider } from '../../src/app/openclaw-provider.js';
 import { DefaultCheckRunner } from '../../src/core/checks/check-runner.js';
 import {
   AgentRunnerConductorAgent,
@@ -60,7 +60,7 @@ import type {
   OpenClawIpcClient,
   OpenClawResumeRequest,
   OpenClawRunResponse,
-} from '../../src/core/agent-runtime/openclaw-provider.js';
+} from '../../src/app/openclaw-provider.js';
 import type { ProviderHealth } from '../../src/core/agent-runtime/agent-runner.js';
 import type { CommandRunner, CommandRunnerInput, CommandRunnerResult } from '../../src/utils/command-runner.js';
 import type {

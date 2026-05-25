@@ -9,7 +9,7 @@ Read [context-map.md](context-map.md) first.
 
 ## Core rules
 
-1. **Do not call external packages directly.** Anything talking to `discord.js`, `Octokit`, `child_process`, `fs.promises`, or OpenClaw IPC must go through an adapter in `gateway/`, `db/`, or `utils/`.
+1. **Do not call external packages directly.** Anything talking to `discord.js`, `Octokit`, `child_process`, `fs.promises`, or an agent-runtime IPC transport must go through an adapter in `gateway/`, `db/`, `utils/`, or `app/`.
 2. **Stay pure business logic.** `core` must not import from sibling folders.
 3. **Depend on interfaces.** Persistence (`TaskStore`) and similar concerns are consumed via interfaces. Implementations live in `db/`.
 4. **State changes go through `TaskStore`.** No ad-hoc in-memory state. (Exception: explicit in-process structures like `Map<projectId, Lock>` for concurrency.)

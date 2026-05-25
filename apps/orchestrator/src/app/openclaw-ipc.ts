@@ -4,7 +4,7 @@
  * ADR-012 makes OpenClawProvider the MVP AgentRuntimeProvider; the provider is
  * REAL and provider-neutral. This module owns the subprocess transport that
  * drives the real OpenClaw CLI gateway, satisfying the {@link OpenClawIpcClient}
- * seam declared by `core/openclaw-provider.ts`.
+ * seam declared by `app/openclaw-provider.ts`.
  *
  * The contract was verified against a real OpenClaw install (2026.5.18). The
  * one-shot command is:
@@ -48,7 +48,7 @@ import type {
   OpenClawIpcClient,
   OpenClawResumeRequest,
   OpenClawRunResponse,
-} from '../core/agent-runtime/openclaw-provider.js';
+} from './openclaw-provider.js';
 import { spawnCaptured } from '../utils/subprocess.js';
 
 /** Grace window between SIGTERM and the escalation SIGKILL on timeout. */

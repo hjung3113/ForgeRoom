@@ -31,7 +31,7 @@ import {
   type ExternalAdapterOverrides,
 } from '../../src/app/composition-root.js';
 import { isStudioEnabled } from '../../src/studio/gate.js';
-import type { OpenClawIpcClient } from '../../src/core/agent-runtime/openclaw-provider.js';
+import type { OpenClawIpcClient } from '../../src/app/openclaw-provider.js';
 import type { GitHubOctokitLike, GitHubIssue } from '../../src/gateway/github-gateway.js';
 import type { DiscordStatusClient, GitHubStatusClient } from '../../src/core/reporting/reporter.js';
 import type { TaskStoreDatabase } from '../../src/db/client.js';

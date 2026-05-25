@@ -9,7 +9,7 @@ describe('AgentRegistry', () => {
     implementation: { source: '.forgeroom/harnesses/implementation' },
   });
 
-  it('resolves MVP OpenClaw agents', () => {
+  it("resolves MVP 'openclaw'-provider agents", () => {
     const registry = AgentRegistry.fromConfig(
       {
         claude: {
@@ -31,7 +31,7 @@ describe('AgentRegistry', () => {
     });
   });
 
-  it('rejects non-OpenClaw providers in Phase 1', () => {
+  it("rejects non-'openclaw' providers in Phase 1", () => {
     expect(() =>
       AgentRegistry.fromConfig(
         {

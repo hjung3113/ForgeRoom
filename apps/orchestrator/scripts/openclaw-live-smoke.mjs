@@ -24,7 +24,7 @@ import { dirname } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const distDir = join(here, '..', 'dist');
 
-const { OpenClawProvider } = await import(join(distDir, 'core', 'openclaw-provider.js'));
+const { OpenClawProvider } = await import(join(distDir, 'app', 'openclaw-provider.js'));
 const { OpenClawCliClient, resolveOpenClawCliConfig } = await import(
   join(distDir, 'app', 'openclaw-ipc.js')
 );
