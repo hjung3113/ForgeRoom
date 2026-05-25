@@ -38,4 +38,4 @@ date: 2026-05-25
 
 ## Open item (P3 범위 밖, 별도 처리)
 
-- **core → dsl 경계 위반**: `core/engine/pipeline-engine.ts`가 `dsl/to-mastra.ts`(toMastraWorkflow 빌더)와 `dsl/dsl-errors.ts`를 import한다. ADR-020이 `dsl → core`를 금지하고 `core → dsl`도 금지지만 엔진이 빌더를 호출하는 구조라 잔존한다. 폴더 이동 중 함께 고치면 행동보존 슬라이스가 깨지므로, builder-port 역전은 추상화 phase의 별도 이슈로 다룬다.
+- **core → dsl 경계 위반**: `core/engine/pipeline-engine.ts`가 `dsl/to-mastra.ts`(toMastraWorkflow 빌더)와 `dsl/dsl-errors.ts`를 import한다. ADR-020이 `dsl → core`를 금지하고 `core → dsl`도 금지지만 엔진이 빌더를 호출하는 구조라 잔존한다. 폴더 이동 중 함께 고치면 행동보존 슬라이스가 깨지므로, builder-port 역전은 추상화 phase의 별도 이슈로 다룬다. → **Resolved by [ADR-022](2026-05-25-022-builder-port-inversion.md)** (WorkflowBuilder port + 에러 클래스 `workflow/`로 이전).

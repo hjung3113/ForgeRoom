@@ -16,9 +16,13 @@ import {
 } from '../../db/client.js';
 import { SqliteTaskStore } from '../../db/sqlite-task-store.js';
 import { IntentRegistry } from '../registries/intent-registry.js';
+import { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
 import { ProjectRegistry } from '../registries/project-registry.js';
 import { WorkflowRegistry } from '../registries/workflow-registry.js';
 import { parseWorkflowConfig } from '../../dsl/workflow-parser.js';
+import { mastraWorkflowBuilder } from '../../dsl/to-mastra.js';
+import type { WorkflowBuilder } from '../../workflow/builder.js';
+import { makeTestTemplateRoot } from '../test-support/template-fixtures.js';
 import { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import { HarnessRegistry } from '../agent-runtime/harness-registry.js';
 import { ApprovalGate, type GateDecision } from '../checks/approval-gate.js';
@@ -36,6 +40,16 @@ import {
   type PullRequestClient,
   type PullRequestRef,
 } from '../effects/pull-request-creator.js';
+import {
+  BranchPublisher,
+  type BranchPublishPort,
+} from '../effects/branch-publisher.js';
+import {
+  IssueLabelLifecycleEffect,
+  type IssueLabelPort,
+  type AddLabelArgs,
+  type RemoveLabelArgs,
+} from '../effects/issue-label-lifecycle.js';
 import type { ReporterEvent } from '../types.js';
 
 const INTENTS = {
@@ -71,9 +85,11 @@ mvp:
 
 let tempDir: string;
 let database: TaskStoreDatabase;
+let templateRoot: string;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(tmpdir(), 'pipeline-unit-'));
+  templateRoot = await makeTestTemplateRoot();
   database = createTaskStoreDatabase(':memory:');
   migrateTaskStoreDatabase(database);
 });
@@ -165,6 +181,8 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     projectRegistry,
     workflowRegistry,
     intentRegistry,
+    modelPolicies: ModelPolicyRegistry.fromConfig({}),
+    agentRegistry,
     taskStore: store,
     worktreeManager,
     agentRunner,
@@ -174,6 +192,8 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     reporter,
     forgeMap,
     snapshotBridge: new FileSnapshotBridge(path.join(tempDir, 'snap')),
+    workflowBuilder: mastraWorkflowBuilder,
+    templateRoot,
     allowedWorktreeRoots: [worktreeRoot],
     worktreePathFor: ({ taskId }): string => path.join(worktreeRoot, taskId),
     branchFor: ({ taskId }): string => `feat/${taskId}`,
@@ -461,5 +481,321 @@ describe('MastraPipelineEngine PR external-effect phase (ADR-019)', () => {
     expect(task?.pr_number).toBe(88);
     expect(pr.calls.create).toBe(1); // still only the original create
     expect(pr.calls.update).toBe(1); // replay reused via update
+  });
+});
+
+describe('MastraPipelineEngine builder port (ADR-022)', () => {
+  it('builds the workflow through the injected WorkflowBuilder, not a hard-wired import', async () => {
+    let buildCalls = 0;
+    const spyBuilder: WorkflowBuilder = {
+      build: (workflow, ctx) => {
+        buildCalls += 1;
+        return mastraWorkflowBuilder.build(workflow, ctx);
+      },
+    };
+    const engine = new MastraPipelineEngine(deps({ workflowBuilder: spyBuilder }));
+
+    await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    expect(buildCalls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Branch-publication external-effect phase (ADR-025, #63)
+// ---------------------------------------------------------------------------
+
+interface FakeBranchPort {
+  port: BranchPublishPort;
+  calls: { status: number; commit: number; push: number };
+}
+
+function fakeBranchPort(opts: { statusOutput?: string; pushError?: boolean } = {}): FakeBranchPort {
+  const calls = { status: 0, commit: 0, push: 0 };
+  const port: BranchPublishPort = {
+    statusPorcelain: async (): Promise<string> => {
+      calls.status += 1;
+      return opts.statusOutput ?? 'M  src/foo.ts\n';
+    },
+    commit: async (): Promise<void> => {
+      calls.commit += 1;
+    },
+    push: async (): Promise<void> => {
+      calls.push += 1;
+      if (opts.pushError === true) {
+        throw new Error('push failed');
+      }
+    },
+  };
+  return { port, calls };
+}
+
+describe('MastraPipelineEngine branch-publication external-effect phase (ADR-025)', () => {
+  it('diff present: branch-publishes then creates PR then marks done', async () => {
+    const order: string[] = [];
+    const branchPort: BranchPublishPort = {
+      statusPorcelain: async (): Promise<string> => 'M  src/foo.ts\n',
+      commit: async (): Promise<void> => { order.push('commit'); },
+      push: async (): Promise<void> => { order.push('push'); },
+    };
+    const { client, calls: prCalls } = fakePrClient({ create: { number: 55, url: 'u55' } });
+    const origCreate = client.createPR.bind(client);
+    const spyClient: PullRequestClient = {
+      ...client,
+      createPR: async (args) => { order.push('pr'); return origCreate(args); },
+    };
+    const events: ReporterEvent[] = [];
+    const d = deps({
+      branchPublisher: new BranchPublisher({ port: branchPort }),
+      pullRequestCreator: new PullRequestCreator({ client: spyClient, sleep: async () => {} }),
+      prTargetFor: prTarget,
+      reporter: capturingReporter(events),
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+    expect(task?.pr_number).toBe(55);
+    expect(prCalls.create).toBe(1);
+    // commit and push MUST come before pr
+    expect(order.indexOf('commit')).toBeLessThan(order.indexOf('pr'));
+    expect(order.indexOf('push')).toBeLessThan(order.indexOf('pr'));
+  });
+
+  it('no-diff: skips PR, emits task_done_no_diff, marks done', async () => {
+    const { port: branchPort } = fakeBranchPort({ statusOutput: '' });
+    const { client: prClient, calls: prCalls } = fakePrClient();
+    const events: ReporterEvent[] = [];
+    const d = deps({
+      branchPublisher: new BranchPublisher({ port: branchPort }),
+      pullRequestCreator: new PullRequestCreator({ client: prClient, sleep: async () => {} }),
+      prTargetFor: prTarget,
+      reporter: capturingReporter(events),
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+    expect(prCalls.create).toBe(0);
+    expect(events.some((e) => e.type === 'pr_created')).toBe(false);
+    expect(events.some((e) => e.type === 'task_done_no_diff')).toBe(true);
+  });
+
+  it('branch-publish failure fails the task with branch_publish_failed', async () => {
+    const { port: branchPort } = fakeBranchPort({ pushError: true });
+    const events: ReporterEvent[] = [];
+    const d = deps({
+      branchPublisher: new BranchPublisher({ port: branchPort }),
+      reporter: capturingReporter(events),
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('failed');
+    expect(task?.failure_reason).toBe('branch_publish_failed');
+  });
+
+  it('no-diff run without branchPublisher wired still marks task done', async () => {
+    // Engine should handle absent branchPublisher gracefully (skip publish, go directly to PR phase).
+    const events: ReporterEvent[] = [];
+    const d = deps({
+      reporter: capturingReporter(events),
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Label-lifecycle external effect (ADR-026, #64)
+// ---------------------------------------------------------------------------
+
+interface FakeLabelCalls {
+  add: AddLabelArgs[];
+  remove: RemoveLabelArgs[];
+}
+
+function fakeLabelPort(options: { error?: Error } = {}): { port: IssueLabelPort; calls: FakeLabelCalls } {
+  const calls: FakeLabelCalls = { add: [], remove: [] };
+  const port: IssueLabelPort = {
+    addLabel: async (args) => {
+      if (options.error !== undefined) {
+        throw options.error;
+      }
+      calls.add.push(args);
+    },
+    removeLabel: async (args) => {
+      if (options.error !== undefined) {
+        throw options.error;
+      }
+      calls.remove.push(args);
+    },
+  };
+  return { port, calls };
+}
+
+const labelTarget = (): { owner: string; repo: string } => ({ owner: 'acme', repo: 'widget' });
+
+const FAILING_AGENT_RUNNER: AgentRunner = {
+  run: async (req): Promise<AgentRunResult> =>
+    ({
+      exitCode: 1,
+      failureKind: 'agent_error',
+      outputExists: false,
+      outputBytes: 0,
+      durationMs: 1,
+      sessionId: null,
+      stdoutPath: req.stdoutPath,
+      stderrPath: req.stderrPath,
+    }) as AgentRunResult,
+  resume: async (req): Promise<AgentRunResult> =>
+    ({
+      exitCode: 1,
+      failureKind: 'agent_error',
+      outputExists: false,
+      outputBytes: 0,
+      durationMs: 1,
+      sessionId: null,
+      stdoutPath: req.stdoutPath,
+      stderrPath: req.stderrPath,
+    }) as AgentRunResult,
+};
+
+describe('MastraPipelineEngine label-lifecycle external effect (ADR-026)', () => {
+  it('relabels issue ready-for-human on done for an issue-triggered task', async () => {
+    const { port, calls } = fakeLabelPort();
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({ labelEffect, labelTargetFor: labelTarget });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'github-issue-label',
+      issueNumber: 99,
+    });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+    expect(calls.remove).toHaveLength(1);
+    expect(calls.remove[0]).toMatchObject({ name: 'ready-for-agent', issue_number: 99 });
+    expect(calls.add).toHaveLength(1);
+    expect(calls.add[0]).toMatchObject({ labels: ['ready-for-human'], issue_number: 99 });
+  });
+
+  it('relabels issue needs-info on failed for an issue-triggered task', async () => {
+    const { port, calls } = fakeLabelPort();
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({ agentRunner: FAILING_AGENT_RUNNER, labelEffect, labelTargetFor: labelTarget });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'github-issue-label',
+      issueNumber: 77,
+    });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('failed');
+    expect(calls.remove).toHaveLength(1);
+    expect(calls.remove[0]).toMatchObject({ name: 'ready-for-agent', issue_number: 77 });
+    expect(calls.add).toHaveLength(1);
+    expect(calls.add[0]).toMatchObject({ labels: ['needs-info'], issue_number: 77 });
+  });
+
+  it('does not call the label port for a discord-command task', async () => {
+    const { port, calls } = fakeLabelPort();
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({ labelEffect, labelTargetFor: labelTarget });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'discord-command',
+    });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+    expect(calls.add).toHaveLength(0);
+    expect(calls.remove).toHaveLength(0);
+  });
+
+  it('does not change task status when the label port throws', async () => {
+    const { port } = fakeLabelPort({ error: new Error('GitHub 500') });
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({ labelEffect, labelTargetFor: labelTarget });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'github-issue-label',
+      issueNumber: 55,
+    });
+
+    // Task must remain done despite port failure.
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+  });
+
+  it('relabels needs-info when branch publication fails (issue-triggered)', async () => {
+    const { port: branchPort } = fakeBranchPort({ pushError: true });
+    const { port, calls } = fakeLabelPort();
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({
+      branchPublisher: new BranchPublisher({ port: branchPort }),
+      labelEffect,
+      labelTargetFor: labelTarget,
+    });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'github-issue-label',
+      issueNumber: 88,
+    });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('failed');
+    expect(task?.failure_reason).toBe('branch_publish_failed');
+    expect(calls.remove[0]).toMatchObject({ name: 'ready-for-agent', issue_number: 88 });
+    expect(calls.add[0]).toMatchObject({ labels: ['needs-info'], issue_number: 88 });
+  });
+
+  it('relabels needs-info when PR creation fails (issue-triggered)', async () => {
+    const { port: branchPort } = fakeBranchPort();
+    const { client: prClient } = fakePrClient({ fail: true });
+    const { port, calls } = fakeLabelPort();
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({
+      branchPublisher: new BranchPublisher({ port: branchPort }),
+      pullRequestCreator: new PullRequestCreator({ client: prClient, sleep: async () => {} }),
+      prTargetFor: prTarget,
+      labelEffect,
+      labelTargetFor: labelTarget,
+    });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'github-issue-label',
+      issueNumber: 66,
+    });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('failed');
+    expect(task?.failure_reason).toBe('pr_create_failed');
+    expect(calls.remove[0]).toMatchObject({ name: 'ready-for-agent', issue_number: 66 });
+    expect(calls.add[0]).toMatchObject({ labels: ['needs-info'], issue_number: 66 });
   });
 });

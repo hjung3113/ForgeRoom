@@ -394,6 +394,8 @@ function bodyLine(event: ReporterEvent): string {
       return `dirty baseline approved by ${event.approvedBy}`;
     case 'pr_created':
       return `PR created: ${event.pr_url}`;
+    case 'task_done_no_diff':
+      return 'no changes produced by agent; nothing to PR';
     case 'task_failed':
       return `failed: ${event.failure_reason}`;
     case 'task_canceled':

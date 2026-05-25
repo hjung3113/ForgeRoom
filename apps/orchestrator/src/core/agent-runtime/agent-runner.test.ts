@@ -14,12 +14,18 @@ import {
   type AgentRunResult,
   type AgentRuntimeProvider,
   type ProviderHealth,
+  type ResolvedRuntimeTarget,
 } from './agent-runner.js';
 import { HarnessRegistry } from './harness-registry.js';
 
 class FakeAgentRuntimeProvider implements AgentRuntimeProvider {
+  // The injected `runtimeTarget` (ADR-023) is captured separately so the
+  // request-shape assertions below stay focused on timeout/session/retry
+  // behavior; target injection is asserted by its own dedicated test.
   runRequests: Array<{ req: AgentRunRequest; agent: ResolvedAgent }> = [];
   resumeRequests: Array<{ req: AgentResumeRequest; agent: ResolvedAgent }> = [];
+  runTargets: Array<ResolvedRuntimeTarget | undefined> = [];
+  resumeTargets: Array<ResolvedRuntimeTarget | undefined> = [];
   results: AgentRunResult[] = [];
 
   health(): Promise<ProviderHealth> {
@@ -27,12 +33,16 @@ class FakeAgentRuntimeProvider implements AgentRuntimeProvider {
   }
 
   run(req: AgentRunRequest, agent: ResolvedAgent): Promise<AgentRunResult> {
-    this.runRequests.push({ req, agent });
+    const { runtimeTarget, ...rest } = req;
+    this.runTargets.push(runtimeTarget);
+    this.runRequests.push({ req: rest, agent });
     return Promise.resolve(this.nextResult(req));
   }
 
   resume(req: AgentResumeRequest, agent: ResolvedAgent): Promise<AgentRunResult> {
-    this.resumeRequests.push({ req, agent });
+    const { runtimeTarget, ...rest } = req;
+    this.resumeTargets.push(runtimeTarget);
+    this.resumeRequests.push({ req: rest, agent });
     return Promise.resolve(this.nextResult(req));
   }
 
@@ -136,6 +146,22 @@ describe('DefaultAgentRunner', () => {
       outputBytes: 50,
     });
     expect(result.failureKind).toBeUndefined();
+  });
+
+  it('derives a provider-neutral runtimeTarget from the resolved agent (ADR-023)', async () => {
+    const req = await createRunRequest();
+    await writeOutput(req.outputPath, 'x'.repeat(50));
+    const provider = new FakeAgentRuntimeProvider();
+    provider.results = [providerResult({ outputExists: false, outputBytes: 0 })];
+    const runner = new DefaultAgentRunner({ agentRegistry: registry, provider });
+
+    await runner.run(req);
+
+    expect(provider.runTargets[0]).toEqual<ResolvedRuntimeTarget>({
+      providerId: 'openclaw',
+      runtime: 'claude-cli',
+      model: 'anthropic/claude-opus-4-7',
+    });
   });
 
   it('applies the configured default timeout when a run request omits timeoutMs', async () => {

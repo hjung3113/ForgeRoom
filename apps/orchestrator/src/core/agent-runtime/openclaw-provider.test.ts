@@ -183,6 +183,31 @@ describe('OpenClawProvider', () => {
     expect(result.failureKind).toBeUndefined();
   });
 
+  it('prefers req.runtimeTarget runtime/model over the resolved agent (ADR-023)', async () => {
+    const { client, provider } = createProvider();
+
+    await provider.run(
+      {
+        ...runRequest,
+        runtimeTarget: { providerId: 'openclaw', runtime: 'codex-cli', model: 'openai/gpt-5.5' },
+      },
+      agent,
+    );
+
+    expect(client.runRequests[0]).toMatchObject({ runtime: 'codex-cli', model: 'openai/gpt-5.5' });
+  });
+
+  it('falls back to the resolved agent runtime/model when no runtimeTarget is present', async () => {
+    const { client, provider } = createProvider();
+
+    await provider.run(runRequest, agent);
+
+    expect(client.runRequests[0]).toMatchObject({
+      runtime: 'claude-cli',
+      model: 'anthropic/claude-opus-4-7',
+    });
+  });
+
   it('maps IPC failure responses to common AgentRunResult failure kinds without raw diagnostics', async () => {
     const client = new FakeOpenClawIpcClient();
     client.runResponse = {

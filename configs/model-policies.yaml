@@ -1,0 +1,27 @@
+# Static model policies (ADR-024, Phase 2A).
+# A workflow intent may reference one of these via `model_policy: <id>`; the
+# policy's `primary` target overrides the agent's model. Only `primary` is
+# supported in Phase 2A — `fallback`/`escalate_if` are rejected (see #66).
+# These examples are available but unreferenced by default (intents.yaml keeps
+# its agent-derived models), so production behavior is unchanged.
+
+planning_balanced:
+  description: Planning-class model.
+  primary:
+    provider: openclaw
+    runtime: claude-cli
+    model: anthropic/claude-opus-4-7
+
+code_default:
+  description: Default coding model.
+  primary:
+    provider: openclaw
+    runtime: claude-cli
+    model: anthropic/claude-opus-4-7
+
+review_strict:
+  description: Stronger model for code review.
+  primary:
+    provider: openclaw
+    runtime: claude-cli
+    model: anthropic/claude-opus-4-7

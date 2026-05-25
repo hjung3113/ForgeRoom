@@ -47,6 +47,10 @@ import {
   type PullRequestTarget,
 } from '../core/engine/pipeline-engine.js';
 import { PullRequestCreator } from '../core/effects/pull-request-creator.js';
+import { mastraWorkflowBuilder } from '../dsl/to-mastra.js';
+import { BranchPublisher } from '../core/effects/branch-publisher.js';
+import { IssueLabelLifecycleEffect } from '../core/effects/issue-label-lifecycle.js';
+import { GitHubIssueLabelClient } from '../gateway/github/issue-label-client.js';
 import {
   DiscordReporterSink,
   GitHubReporterSink,
@@ -76,6 +80,7 @@ import {
 import { createGitHubClient } from '../gateway/github-client.js';
 import { OctokitGitHubStatusClient } from '../gateway/github-status-client.js';
 
+import { GitCli } from './git-cli.js';
 import { GitCliConductorGit } from './conductor-git.js';
 import type { LoadedRegistries, OrchestratorEnv } from './config.js';
 import {
@@ -267,11 +272,21 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
   // --- PR external effect (ADR-019) ----------------------------------------
   const { pullRequestCreator, prTargetFor } = buildPullRequestEffect({ env, overrides, repoTargetForTask });
 
+  // --- Branch-publication external effect (ADR-025) ------------------------
+  const gitCli = new GitCli();
+  const branchPublisher = new BranchPublisher({ port: gitCli });
+
+  // --- Label-lifecycle side-effect (ADR-026) ---------------------------------
+  const { labelEffect, labelTargetFor } = buildLabelEffect({ env, overrides, repoTargetForTask, log });
+
   // --- PipelineEngine -------------------------------------------------------
   const engineDeps: PipelineEngineDeps = {
     projectRegistry: registries.projects,
     workflowRegistry: registries.workflows,
     intentRegistry: registries.intents,
+    modelPolicies: registries.modelPolicies,
+    agentRegistry: registries.agents,
+    workflowBuilder: mastraWorkflowBuilder,
     taskStore,
     worktreeManager,
     agentRunner,
@@ -283,7 +298,11 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     snapshotBridge: new FileSnapshotBridge(env.snapshotDir),
     ...(pullRequestCreator === null ? {} : { pullRequestCreator }),
     ...(prTargetFor === null ? {} : { prTargetFor }),
+    branchPublisher,
+    ...(labelEffect === null ? {} : { labelEffect }),
+    ...(labelTargetFor === null ? {} : { labelTargetFor }),
     allowedWorktreeRoots: env.allowedWorktreeRoots,
+    templateRoot: env.templateRoot,
     worktreePathFor: (input): string =>
       worktreePathFor({ root: env.allowedWorktreeRoots[0] ?? '', projectId: input.projectId, taskId: input.taskId }),
     branchFor: (input): string => branchFor({ taskId: input.taskId, title: input.title }),
@@ -419,6 +438,33 @@ function buildPullRequestEffect(input: {
     return { owner: repoTarget.owner, repo: repoTarget.repo, base: repoTarget.baseBranch };
   };
   return { pullRequestCreator, prTargetFor };
+}
+
+function buildLabelEffect(input: {
+  env: OrchestratorEnv;
+  overrides: ExternalAdapterOverrides;
+  repoTargetForTask: (task: Task) => RepoTarget | null;
+  log: (line: string) => void;
+}): {
+  labelEffect: IssueLabelLifecycleEffect | null;
+  labelTargetFor: ((task: Task) => { owner: string; repo: string } | null) | null;
+} {
+  const { env, overrides, repoTargetForTask, log } = input;
+  if (env.github === null && overrides.gitHubOctokit === undefined) {
+    return { labelEffect: null, labelTargetFor: null };
+  }
+  const octokit = overrides.gitHubOctokit ?? createGitHubClient(env.github?.token ?? '');
+  const port = new GitHubIssueLabelClient(octokit);
+  const effect = new IssueLabelLifecycleEffect({ port, log });
+
+  const labelTargetFor = (task: Task): { owner: string; repo: string } | null => {
+    const repoTarget = repoTargetForTask(task);
+    if (repoTarget === null || repoTarget.owner === null || repoTarget.repo === null) {
+      return null;
+    }
+    return { owner: repoTarget.owner, repo: repoTarget.repo };
+  };
+  return { labelEffect: effect, labelTargetFor };
 }
 
 function buildDiscordGateway(input: {

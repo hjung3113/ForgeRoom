@@ -84,6 +84,25 @@ export class GitCli {
       return false;
     }
   }
+
+  /**
+   * Stage all changes and create a commit in the given worktree. Throws when
+   * the underlying git command fails (e.g. nothing to commit after a clean
+   * worktree — callers must check {@link statusPorcelain} first).
+   */
+  async commit(input: { cwd: string; message: string }): Promise<void> {
+    await this.execFile('git', ['add', '--all'], { cwd: input.cwd });
+    await this.execFile('git', ['commit', '--message', input.message], { cwd: input.cwd });
+  }
+
+  /**
+   * Push the branch to the remote. When `remote` is omitted the git default
+   * (origin) is used. Throws when the push fails (network error, auth, etc.).
+   */
+  async push(input: { cwd: string; branch: string; remote?: string }): Promise<void> {
+    const remote = input.remote ?? 'origin';
+    await this.execFile('git', ['push', remote, input.branch], { cwd: input.cwd });
+  }
 }
 
 function parsePorcelainZ(stdout: string): string[] {

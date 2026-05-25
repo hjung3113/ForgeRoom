@@ -14,7 +14,8 @@ Workflow yaml DSL handling for Stage 2: parsing workflow config text into regist
 | File | Role |
 |---|---|
 | `workflow-parser.ts` | yaml → workflow object parsing support; registry validation lives in `core/workflow-registry.ts` |
-| `dsl-errors.ts` | `WorkflowParseError`, `InterpolationError`, etc. |
+| `to-mastra.ts` | Resolved workflow → Mastra builder; exports `mastraWorkflowBuilder` implementing core's `workflow/builder.ts` port (ADR-022) |
+| `dsl-errors.ts` | `WorkflowParseError`, `WorkflowExpressionError` (shared adapter/review-loop errors moved to `workflow/errors.ts` per ADR-022) |
 | `types.ts` | `ParsedWorkflow`, `ParsedStep`, `ForeachSpec`, etc. |
 
 ## Future Stage 7 / PipelineEngine-owned files

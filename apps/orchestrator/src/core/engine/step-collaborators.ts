@@ -1,11 +1,14 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { AgentRunner } from '../agent-runtime/agent-runner.js';
+import type { AgentRunner, ResolvedRuntimeTarget } from '../agent-runtime/agent-runner.js';
+import type { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import type { ApprovalGate } from '../checks/approval-gate.js';
 import type { CheckRunnerRequest } from '../checks/check-runner.js';
 import { OrchestratorError } from '../errors.js';
 import { parseReviewPassedOutput, parseSlicesOutput } from './output-selectors.js';
+import type { IntentRegistry } from '../registries/intent-registry.js';
+import type { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
 import type { ProjectMeta } from '../registries/project-registry.js';
 import type { TaskStore } from '../task-store.js';
 import type { Conductor, ReporterEvent, Step, StepResult, Task } from '../types.js';
@@ -25,6 +28,12 @@ interface StepCollaboratorDeps {
   agentRunner: AgentRunner;
   checkRunner: { run(request: CheckRunnerRequest): Promise<CheckRunResult> };
   taskStore: Pick<TaskStore, 'updateTaskFinalSlices'>;
+  /** Resolves a step's intent to read its optional `model_policy` (ADR-024). */
+  intentRegistry: Pick<IntentRegistry, 'resolve'>;
+  /** Resolves a model policy to its primary runtime target (ADR-024). */
+  modelPolicies: Pick<ModelPolicyRegistry, 'resolveTarget'>;
+  /** Resolves the agent for the agent-derived runtime target fallback. */
+  agentRegistry: Pick<AgentRegistry, 'resolve'>;
 }
 
 interface StepCollaboratorCallbacks {
@@ -47,6 +56,8 @@ export interface StepCollaboratorsOptions {
   stepCounter: { value: number };
   promptIndex: Map<string, { index: number; fileBase: string }>;
   agentOverrides: Record<string, string>;
+  /** Bundled template root; `promptTemplate` is resolved relative to it (prompt-file-protocol). */
+  templateRoot: string;
   deps: StepCollaboratorDeps;
   callbacks: StepCollaboratorCallbacks;
 }
@@ -59,6 +70,7 @@ export class StepCollaborators {
   private readonly stepCounter: { value: number };
   private readonly promptIndex: Map<string, { index: number; fileBase: string }>;
   private readonly agentOverrides: Record<string, string>;
+  private readonly templateRoot: string;
   private readonly deps: StepCollaboratorDeps;
   private readonly callbacks: StepCollaboratorCallbacks;
 
@@ -70,6 +82,7 @@ export class StepCollaborators {
     this.stepCounter = options.stepCounter;
     this.promptIndex = options.promptIndex;
     this.agentOverrides = options.agentOverrides;
+    this.templateRoot = options.templateRoot;
     this.deps = options.deps;
     this.callbacks = options.callbacks;
   }
@@ -89,12 +102,26 @@ export class StepCollaborators {
     const index = (this.stepCounter.value += 1);
     const fileBase = `${pad2(index)}_${resolved.stepId}`;
     const promptPath = path.join(this.task.worktree_path, '.forgeroom', 'prompts', `${fileBase}.md`);
-    const base = renderBasePrompt(resolved, inputs);
+    const template = await this.loadTemplate(resolved.promptTemplate);
+    const base = renderTemplate(template, resolved, inputs, pad2(index));
     const refined = await this.deps.conductor.refine(this.task.id, resolved.stepId, base);
     await mkdir(path.dirname(promptPath), { recursive: true });
     await writeFile(promptPath, refined);
     this.promptIndex.set(resolved.mastraStepId, { index, fileBase });
     return promptPath;
+  }
+
+  /** Read a bundled prompt template (resolved relative to the template root). */
+  private async loadTemplate(relativePath: string): Promise<string> {
+    const templatePath = path.join(this.templateRoot, relativePath);
+    try {
+      return await readFile(templatePath, 'utf8');
+    } catch {
+      throw new OrchestratorError(
+        'agent_error',
+        `prompt template not found: ${relativePath} (template root: ${this.templateRoot})`,
+      );
+    }
   }
 
   async runAgent(
@@ -118,6 +145,9 @@ export class StepCollaborators {
       );
     }
 
+    const { runtimeTarget, policyId } = this.resolveRuntimeTarget(resolved, agentId);
+    await this.recordRoutingDecision(resolved, fileBase, policyId, runtimeTarget);
+
     await mkdir(path.dirname(outputPath), { recursive: true });
     const result = await this.deps.agentRunner.run({
       agentId,
@@ -127,6 +157,7 @@ export class StepCollaborators {
       stderrPath,
       cwd: this.task.worktree_path,
       mode: 'headless',
+      runtimeTarget,
     });
 
     if (result.failureKind !== undefined || !result.outputExists) {
@@ -138,6 +169,48 @@ export class StepCollaborators {
 
     const output = await readFile(outputPath, 'utf8');
     return { outputPath, output, diffPath: null };
+  }
+
+  /**
+   * Resolve the step's runtime target (ADR-024): the intent's model policy if
+   * set, otherwise derive from the resolved agent. Always returns a concrete
+   * target so the routing decision and the AgentRunRequest agree.
+   */
+  private resolveRuntimeTarget(
+    resolved: AdapterResolvedStep,
+    agentId: string,
+  ): { runtimeTarget: ResolvedRuntimeTarget; policyId: string | null } {
+    const intent = this.deps.intentRegistry.resolve(resolved.intentId);
+    if (intent.model_policy !== undefined) {
+      return { runtimeTarget: this.deps.modelPolicies.resolveTarget(intent.model_policy), policyId: intent.model_policy };
+    }
+    const agent = this.deps.agentRegistry.resolve(agentId);
+    return {
+      runtimeTarget: { providerId: agent.provider, runtime: agent.runtime, model: agent.model },
+      policyId: null,
+    };
+  }
+
+  /** Write the per-step routing-decision artifact (ADR-024), always. */
+  private async recordRoutingDecision(
+    resolved: AdapterResolvedStep,
+    fileBase: string,
+    policyId: string | null,
+    target: ResolvedRuntimeTarget,
+  ): Promise<void> {
+    const routingPath = path.join(this.task.worktree_path, '.forgeroom', 'routing', `${fileBase}.json`);
+    const reason =
+      policyId === null ? ['policy=none', 'source=agent'] : [`kind=${resolved.kind}`, `policy=${policyId}`, 'static=true'];
+    const decision = {
+      stepId: resolved.stepId,
+      intentId: resolved.intentId,
+      policyId,
+      selected: { providerId: target.providerId, runtime: target.runtime, model: target.model },
+      fallbackChain: [] as string[],
+      reason,
+    };
+    await mkdir(path.dirname(routingPath), { recursive: true });
+    await writeFile(routingPath, `${JSON.stringify(decision, null, 2)}\n`);
   }
 
   async runChecks(
@@ -205,16 +278,40 @@ function pad2(n: number): string {
   return n.toString().padStart(2, '0');
 }
 
-function renderBasePrompt(resolved: AdapterResolvedStep, inputs: InterpolatedInputs): string {
-  const lines = [`# Step: ${resolved.stepId}`, `Template: ${resolved.promptTemplate}`, ''];
-  const refs = Object.entries(inputs.input_refs);
-  if (refs.length > 0) {
-    lines.push('## Inputs');
-    for (const [k, v] of refs) {
-      lines.push(`- ${k}: ${String(v)}`);
-    }
+const PLACEHOLDER_RE = /\{\{\s*([\w.]+)\s*\}\}/g;
+
+/**
+ * Substitute `{{key}}` placeholders in a bundled template (prompt-file-protocol).
+ * Sources: the step's interpolated `vars` and `input_refs` (the DSL `${...}`
+ * layer is already evaluated into these), plus `{{step_id}}` / `{{step_index}}`.
+ * An unknown placeholder fails fast — silently shipping a broken prompt is worse.
+ */
+function renderTemplate(
+  template: string,
+  resolved: AdapterResolvedStep,
+  inputs: InterpolatedInputs,
+  stepIndex: string,
+): string {
+  const values: Record<string, string> = { step_id: resolved.stepId, step_index: stepIndex };
+  for (const [k, v] of Object.entries(inputs.vars)) {
+    values[k] = stringifyValue(v);
   }
-  return lines.join('\n');
+  for (const [k, v] of Object.entries(inputs.input_refs)) {
+    values[k] = stringifyValue(v);
+  }
+  return template.replace(PLACEHOLDER_RE, (_match, key: string): string => {
+    if (!(key in values)) {
+      throw new OrchestratorError(
+        'agent_error',
+        `unresolved template placeholder {{${key}}} in ${resolved.promptTemplate}`,
+      );
+    }
+    return values[key] as string;
+  });
+}
+
+function stringifyValue(value: unknown): string {
+  return value === null || value === undefined ? '' : String(value);
 }
 
 function makeReporterStep(
