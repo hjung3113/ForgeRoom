@@ -17,7 +17,8 @@ import { createHash } from 'node:crypto';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 
-import { AdapterValidationError } from './dsl-errors.js';
+import { AdapterValidationError, ReviewLoopMaxIterationsError } from '../workflow/errors.js';
+import type { WorkflowBuilder } from '../workflow/builder.js';
 import type {
   AdapterContext,
   InterpolatedInputs,
@@ -123,6 +124,13 @@ export function toMastraWorkflow(
     resolvedSteps: workflow.executableSteps.map(adapterStepFor),
   };
 }
+
+/**
+ * The dsl implementation of core's {@link WorkflowBuilder} port (ADR-022). The
+ * composition root injects this into PipelineEngine so core depends on the
+ * neutral port, never on this module.
+ */
+export const mastraWorkflowBuilder: WorkflowBuilder = { build: toMastraWorkflow };
 
 // The adapter composes heterogeneous workflow shapes; Mastra's chaining methods
 // return progressively-narrowed generic types that cannot be expressed as one
@@ -439,18 +447,6 @@ function appendReviewLoop(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (wf as any).then(seedStep).dountil(loopStep, condition).then(verifyStep) as AnyWf;
-}
-
-/** Surfaced as a run failure; the pipeline maps it to review_loop_max_iterations. */
-export class ReviewLoopMaxIterationsError extends Error {
-  readonly failure_reason = 'review_loop_max_iterations' as const;
-  constructor(
-    readonly loopId: string,
-    readonly maxIterations: number,
-  ) {
-    super(`review_loop ${loopId} exhausted max_iterations=${String(maxIterations)}`);
-    this.name = 'ReviewLoopMaxIterationsError';
-  }
 }
 
 // ---------------------------------------------------------------------------

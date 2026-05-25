@@ -21,6 +21,7 @@ import { parse as parseYaml } from 'yaml';
 import { AgentRegistry } from '../core/agent-runtime/agent-registry.js';
 import { HarnessRegistry } from '../core/agent-runtime/harness-registry.js';
 import { IntentRegistry } from '../core/registries/intent-registry.js';
+import { ModelPolicyRegistry } from '../core/registries/model-policy-registry.js';
 import { ProjectRegistry } from '../core/registries/project-registry.js';
 import { WorkflowRegistry } from '../core/registries/workflow-registry.js';
 
@@ -32,6 +33,7 @@ export interface LoadedRegistries {
   harnesses: HarnessRegistry;
   agents: AgentRegistry;
   intents: IntentRegistry;
+  modelPolicies: ModelPolicyRegistry;
   workflows: WorkflowRegistry;
   projects: ProjectRegistry;
   /** Raw workflow yaml documents keyed by file id, for WorkflowSourceProvider. */
@@ -51,6 +53,7 @@ const CONFIG_FILES = {
   harnesses: 'harnesses.yaml',
   agents: 'agents.yaml',
   intents: 'intents.yaml',
+  modelPolicies: 'model-policies.yaml',
   workflows: 'workflows.yaml',
   projects: 'projects.yaml',
 } as const;
@@ -67,19 +70,34 @@ async function readYamlDoc<T>(file: string): Promise<{ raw: string; doc: Registr
   return { raw, doc };
 }
 
+/** Like {@link readYamlDoc} but a missing file yields an empty document. */
+async function readOptionalYamlDoc<T>(file: string): Promise<{ raw: string; doc: RegistryConfig<T> }> {
+  try {
+    return await readYamlDoc<T>(file);
+  } catch (error) {
+    if (error !== null && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { raw: '', doc: {} as RegistryConfig<T> };
+    }
+    throw error;
+  }
+}
+
 /**
  * Load + validate the registry yaml documents. Validation is delegated to each
  * registry's `fromConfig` (a malformed config throws there, surfacing at boot).
  */
 export async function loadRegistries(options: LoadRegistriesOptions): Promise<LoadedRegistries> {
   const dir = options.configDir;
-  const [harnessesDoc, agentsDoc, intentsDoc, workflowsDoc, projectsDoc] = await Promise.all([
+  const [harnessesDoc, agentsDoc, intentsDoc, modelPoliciesDoc, workflowsDoc, projectsDoc] = await Promise.all([
     readYamlDoc<Parameters<typeof HarnessRegistry.fromConfig>[0][string]>(
       path.join(dir, CONFIG_FILES.harnesses),
     ),
     readYamlDoc<Parameters<typeof AgentRegistry.fromConfig>[0][string]>(path.join(dir, CONFIG_FILES.agents)),
     readYamlDoc<Parameters<typeof IntentRegistry.fromConfig>[0][string]>(
       path.join(dir, CONFIG_FILES.intents),
+    ),
+    readOptionalYamlDoc<Parameters<typeof ModelPolicyRegistry.fromConfig>[0][string]>(
+      path.join(dir, CONFIG_FILES.modelPolicies),
     ),
     readYamlDoc<Parameters<typeof WorkflowRegistry.fromConfig>[0][string]>(
       path.join(dir, CONFIG_FILES.workflows),
@@ -91,7 +109,10 @@ export async function loadRegistries(options: LoadRegistriesOptions): Promise<Lo
 
   const harnesses = HarnessRegistry.fromConfig(harnessesDoc.doc);
   const agents = AgentRegistry.fromConfig(agentsDoc.doc, harnesses);
-  const intents = IntentRegistry.fromConfig(intentsDoc.doc);
+  const modelPolicies = ModelPolicyRegistry.fromConfig(modelPoliciesDoc.doc);
+  const intents = IntentRegistry.fromConfig(intentsDoc.doc, {
+    policyExists: (policyId): boolean => modelPolicies.has(policyId),
+  });
   const workflows = WorkflowRegistry.fromConfig(
     workflowsDoc.doc,
     { intentRegistry: intents, agentRegistry: agents, harnessRegistry: harnesses },
@@ -108,7 +129,7 @@ export async function loadRegistries(options: LoadRegistriesOptions): Promise<Lo
     workflowSources[workflow.id] = workflowsDoc.raw;
   }
 
-  return { harnesses, agents, intents, workflows, projects, workflowSources };
+  return { harnesses, agents, intents, modelPolicies, workflows, projects, workflowSources };
 }
 
 // ---------------------------------------------------------------------------

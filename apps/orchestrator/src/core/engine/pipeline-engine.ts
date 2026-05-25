@@ -28,6 +28,8 @@ import type { Conductor, Reporter, Task } from '../types.js';
 import type { TaskStore, CreateTaskInput } from '../task-store.js';
 import type { ProjectRegistry, ProjectMeta } from '../registries/project-registry.js';
 import type { IntentRegistry } from '../registries/intent-registry.js';
+import type { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
+import type { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import type { WorkflowRegistry } from '../registries/workflow-registry.js';
 import type { WorktreeManager } from '../worktree/worktree-manager.js';
 import type { CheckRunnerRequest } from '../checks/check-runner.js';
@@ -35,7 +37,8 @@ import type { CheckRunResult, Step } from '../types.js';
 import { parseSlicesOutput, parseReviewPassedOutput } from './output-selectors.js';
 import { OrchestratorError, type OrchestratorFailureCode } from '../errors.js';
 import type { PullRequestCreator } from '../effects/pull-request-creator.js';
-import { toMastraWorkflow, ReviewLoopMaxIterationsError } from '../../dsl/to-mastra.js';
+import type { WorkflowBuilder } from '../../workflow/builder.js';
+import { AdapterValidationError, ReviewLoopMaxIterationsError } from '../../workflow/errors.js';
 import type {
   AdapterContext,
   AgentRunResult as AdapterAgentRunResult,
@@ -45,7 +48,6 @@ import type {
   WorkflowPrEffect,
   ResolvedWorkflow,
 } from '../../workflow/types.js';
-import { AdapterValidationError } from '../../dsl/dsl-errors.js';
 import { StepCollaborators } from './step-collaborators.js';
 import { PullRequestExternalEffect } from './pull-request-external-effect.js';
 
@@ -118,6 +120,16 @@ export interface PipelineEngineDeps {
   projectRegistry: ProjectRegistry;
   workflowRegistry: WorkflowRegistry;
   intentRegistry: IntentRegistry;
+  /** Static model policies (ADR-024); resolves a policy ref to a runtime target. */
+  modelPolicies: ModelPolicyRegistry;
+  /** Agent registry for the agent-derived runtime-target fallback (ADR-024). */
+  agentRegistry: AgentRegistry;
+  /**
+   * Resolved-workflow → Mastra builder port (ADR-022). dsl's `mastraWorkflowBuilder`
+   * is injected at the composition root so core depends on the neutral port, not
+   * on the dsl adapter.
+   */
+  workflowBuilder: WorkflowBuilder;
   taskStore: TaskStore;
   worktreeManager: WorktreeManager;
   agentRunner: AgentRunner;
@@ -589,7 +601,7 @@ export class MastraPipelineEngine implements PipelineEngine {
     }
 
     const ctx = this.buildAdapterContext({ task, project, opts: input.opts });
-    const built = toMastraWorkflow(workflow as ResolvedWorkflow, ctx);
+    const built = this.deps.workflowBuilder.build(workflow as ResolvedWorkflow, ctx);
     return { ...built, prEffect: workflow.effects.external.pr };
   }
 
@@ -635,6 +647,9 @@ export class MastraPipelineEngine implements PipelineEngine {
         agentRunner: this.deps.agentRunner,
         checkRunner: this.deps.checkRunner,
         taskStore: this.deps.taskStore,
+        intentRegistry: this.deps.intentRegistry,
+        modelPolicies: this.deps.modelPolicies,
+        agentRegistry: this.deps.agentRegistry,
       },
       callbacks: {
         recordStepRow: (args) => this.recordStepRow(args),

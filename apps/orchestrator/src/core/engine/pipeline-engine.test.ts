@@ -16,9 +16,12 @@ import {
 } from '../../db/client.js';
 import { SqliteTaskStore } from '../../db/sqlite-task-store.js';
 import { IntentRegistry } from '../registries/intent-registry.js';
+import { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
 import { ProjectRegistry } from '../registries/project-registry.js';
 import { WorkflowRegistry } from '../registries/workflow-registry.js';
 import { parseWorkflowConfig } from '../../dsl/workflow-parser.js';
+import { mastraWorkflowBuilder } from '../../dsl/to-mastra.js';
+import type { WorkflowBuilder } from '../../workflow/builder.js';
 import { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import { HarnessRegistry } from '../agent-runtime/harness-registry.js';
 import { ApprovalGate, type GateDecision } from '../checks/approval-gate.js';
@@ -165,6 +168,8 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     projectRegistry,
     workflowRegistry,
     intentRegistry,
+    modelPolicies: ModelPolicyRegistry.fromConfig({}),
+    agentRegistry,
     taskStore: store,
     worktreeManager,
     agentRunner,
@@ -174,6 +179,7 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     reporter,
     forgeMap,
     snapshotBridge: new FileSnapshotBridge(path.join(tempDir, 'snap')),
+    workflowBuilder: mastraWorkflowBuilder,
     allowedWorktreeRoots: [worktreeRoot],
     worktreePathFor: ({ taskId }): string => path.join(worktreeRoot, taskId),
     branchFor: ({ taskId }): string => `feat/${taskId}`,
@@ -461,5 +467,22 @@ describe('MastraPipelineEngine PR external-effect phase (ADR-019)', () => {
     expect(task?.pr_number).toBe(88);
     expect(pr.calls.create).toBe(1); // still only the original create
     expect(pr.calls.update).toBe(1); // replay reused via update
+  });
+});
+
+describe('MastraPipelineEngine builder port (ADR-022)', () => {
+  it('builds the workflow through the injected WorkflowBuilder, not a hard-wired import', async () => {
+    let buildCalls = 0;
+    const spyBuilder: WorkflowBuilder = {
+      build: (workflow, ctx) => {
+        buildCalls += 1;
+        return mastraWorkflowBuilder.build(workflow, ctx);
+      },
+    };
+    const engine = new MastraPipelineEngine(deps({ workflowBuilder: spyBuilder }));
+
+    await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    expect(buildCalls).toBe(1);
   });
 });

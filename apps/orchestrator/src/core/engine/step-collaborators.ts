@@ -1,11 +1,14 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { AgentRunner } from '../agent-runtime/agent-runner.js';
+import type { AgentRunner, ResolvedRuntimeTarget } from '../agent-runtime/agent-runner.js';
+import type { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import type { ApprovalGate } from '../checks/approval-gate.js';
 import type { CheckRunnerRequest } from '../checks/check-runner.js';
 import { OrchestratorError } from '../errors.js';
 import { parseReviewPassedOutput, parseSlicesOutput } from './output-selectors.js';
+import type { IntentRegistry } from '../registries/intent-registry.js';
+import type { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
 import type { ProjectMeta } from '../registries/project-registry.js';
 import type { TaskStore } from '../task-store.js';
 import type { Conductor, ReporterEvent, Step, StepResult, Task } from '../types.js';
@@ -25,6 +28,12 @@ interface StepCollaboratorDeps {
   agentRunner: AgentRunner;
   checkRunner: { run(request: CheckRunnerRequest): Promise<CheckRunResult> };
   taskStore: Pick<TaskStore, 'updateTaskFinalSlices'>;
+  /** Resolves a step's intent to read its optional `model_policy` (ADR-024). */
+  intentRegistry: Pick<IntentRegistry, 'resolve'>;
+  /** Resolves a model policy to its primary runtime target (ADR-024). */
+  modelPolicies: Pick<ModelPolicyRegistry, 'resolveTarget'>;
+  /** Resolves the agent for the agent-derived runtime target fallback. */
+  agentRegistry: Pick<AgentRegistry, 'resolve'>;
 }
 
 interface StepCollaboratorCallbacks {
@@ -118,6 +127,9 @@ export class StepCollaborators {
       );
     }
 
+    const { runtimeTarget, policyId } = this.resolveRuntimeTarget(resolved, agentId);
+    await this.recordRoutingDecision(resolved, fileBase, policyId, runtimeTarget);
+
     await mkdir(path.dirname(outputPath), { recursive: true });
     const result = await this.deps.agentRunner.run({
       agentId,
@@ -127,6 +139,7 @@ export class StepCollaborators {
       stderrPath,
       cwd: this.task.worktree_path,
       mode: 'headless',
+      runtimeTarget,
     });
 
     if (result.failureKind !== undefined || !result.outputExists) {
@@ -138,6 +151,48 @@ export class StepCollaborators {
 
     const output = await readFile(outputPath, 'utf8');
     return { outputPath, output, diffPath: null };
+  }
+
+  /**
+   * Resolve the step's runtime target (ADR-024): the intent's model policy if
+   * set, otherwise derive from the resolved agent. Always returns a concrete
+   * target so the routing decision and the AgentRunRequest agree.
+   */
+  private resolveRuntimeTarget(
+    resolved: AdapterResolvedStep,
+    agentId: string,
+  ): { runtimeTarget: ResolvedRuntimeTarget; policyId: string | null } {
+    const intent = this.deps.intentRegistry.resolve(resolved.intentId);
+    if (intent.model_policy !== undefined) {
+      return { runtimeTarget: this.deps.modelPolicies.resolveTarget(intent.model_policy), policyId: intent.model_policy };
+    }
+    const agent = this.deps.agentRegistry.resolve(agentId);
+    return {
+      runtimeTarget: { providerId: agent.provider, runtime: agent.runtime, model: agent.model },
+      policyId: null,
+    };
+  }
+
+  /** Write the per-step routing-decision artifact (ADR-024), always. */
+  private async recordRoutingDecision(
+    resolved: AdapterResolvedStep,
+    fileBase: string,
+    policyId: string | null,
+    target: ResolvedRuntimeTarget,
+  ): Promise<void> {
+    const routingPath = path.join(this.task.worktree_path, '.forgeroom', 'routing', `${fileBase}.json`);
+    const reason =
+      policyId === null ? ['policy=none', 'source=agent'] : [`kind=${resolved.kind}`, `policy=${policyId}`, 'static=true'];
+    const decision = {
+      stepId: resolved.stepId,
+      intentId: resolved.intentId,
+      policyId,
+      selected: { providerId: target.providerId, runtime: target.runtime, model: target.model },
+      fallbackChain: [] as string[],
+      reason,
+    };
+    await mkdir(path.dirname(routingPath), { recursive: true });
+    await writeFile(routingPath, `${JSON.stringify(decision, null, 2)}\n`);
   }
 
   async runChecks(
