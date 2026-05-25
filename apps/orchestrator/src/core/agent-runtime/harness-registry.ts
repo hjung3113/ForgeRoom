@@ -35,6 +35,11 @@ export class HarnessRegistry {
     return this.harnesses.has(harnessId);
   }
 
+  /** All configured harnesses (id + worktree-relative source). */
+  list(): ResolvedHarness[] {
+    return [...this.harnesses.values()];
+  }
+
   resolve(harnessId: string): ResolvedHarness {
     const harness = this.harnesses.get(harnessId);
 

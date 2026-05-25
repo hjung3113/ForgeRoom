@@ -30,6 +30,7 @@ import type { ProjectRegistry, ProjectMeta } from '../registries/project-registr
 import type { IntentRegistry } from '../registries/intent-registry.js';
 import type { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
 import type { AgentRegistry } from '../agent-runtime/agent-registry.js';
+import type { HarnessRegistry } from '../agent-runtime/harness-registry.js';
 import type { WorkflowRegistry } from '../registries/workflow-registry.js';
 import type { WorktreeManager } from '../worktree/worktree-manager.js';
 import type { CheckRunnerRequest } from '../checks/check-runner.js';
@@ -130,6 +131,8 @@ export interface PipelineEngineDeps {
   modelPolicies: ModelPolicyRegistry;
   /** Agent registry for the agent-derived runtime-target fallback (ADR-024). */
   agentRegistry: AgentRegistry;
+  /** Harness registry: resolves a step's harness id to its worktree-relative contract source (prompt-file-protocol step 8). */
+  harnessRegistry: HarnessRegistry;
   /**
    * Resolved-workflow → Mastra builder port (ADR-022). dsl's `mastraWorkflowBuilder`
    * is injected at the composition root so core depends on the neutral port, not
@@ -750,6 +753,7 @@ export class MastraPipelineEngine implements PipelineEngine {
         intentRegistry: this.deps.intentRegistry,
         modelPolicies: this.deps.modelPolicies,
         agentRegistry: this.deps.agentRegistry,
+        harnessRegistry: this.deps.harnessRegistry,
       },
       callbacks: {
         recordStepRow: (args) => this.recordStepRow(args),

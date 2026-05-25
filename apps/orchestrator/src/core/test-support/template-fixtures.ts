@@ -43,3 +43,18 @@ export async function makeTestTemplateRoot(): Promise<string> {
   );
   return dir;
 }
+
+/**
+ * Default Step Harness ids the test workflows reference (mirrors the bundled
+ * `<repo>/harnesses` set). Each id maps to a short placeholder-free contract so
+ * composition + `{{step_id}}` interpolation never throws.
+ */
+export const TEST_HARNESS_IDS = ['planning', 'implementation', 'review'] as const;
+
+/** Test harness contracts (id → content), mirroring the bundled distribution set. */
+export function makeTestHarnessContracts(): Array<{ id: string; content: string }> {
+  return TEST_HARNESS_IDS.map((id) => ({
+    id,
+    content: `# ${id} contract\n\nHarness contract for step {{step_id}} (index {{step_index}}).\n`,
+  }));
+}

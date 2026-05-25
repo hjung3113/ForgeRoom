@@ -15,15 +15,30 @@ export interface WorktreeFileSystem {
   writeFileIfMissing(filePath: string, content: string): Promise<void>;
 }
 
+/** A bundled Step Harness contract staged into the worktree at bootstrap (prompt-file-protocol step 8). */
+export interface HarnessContract {
+  /** Harness id; staged to `.forgeroom/harnesses/<id>` (the worktree-relative `source`). */
+  id: string;
+  content: string;
+}
+
 export interface WorktreeManagerDependencies {
   git: WorktreeGitClient;
   fileSystem: WorktreeFileSystem;
+  /**
+   * Bundled Step Harness contracts (id → content), read from the bundled harness
+   * root by the composition root and injected here. WorktreeManager must NOT read
+   * fs for these (core/ rule): it only writes the injected contents into the
+   * worktree at `.forgeroom/harnesses/<id>`.
+   */
+  harnessContracts: ReadonlyArray<HarnessContract>;
 }
 
 const FORGEROOM_DIRECTORIES = [
   '.forgeroom',
   '.forgeroom/context',
   '.forgeroom/context/docs',
+  '.forgeroom/harnesses',
   '.forgeroom/prompts',
   '.forgeroom/outputs',
   '.forgeroom/diffs',
@@ -35,10 +50,12 @@ const BASE_CONTEXT_FILES = ['summary.md', 'workflow.md', 'feedback.md'] as const
 export class WorktreeManager {
   private readonly git: WorktreeGitClient;
   private readonly fileSystem: WorktreeFileSystem;
+  private readonly harnessContracts: ReadonlyArray<HarnessContract>;
 
   constructor(dependencies: WorktreeManagerDependencies) {
     this.git = dependencies.git;
     this.fileSystem = dependencies.fileSystem;
+    this.harnessContracts = dependencies.harnessContracts;
   }
 
   async create(task: Task): Promise<WorktreeHandle> {
@@ -78,6 +95,13 @@ export class WorktreeManager {
       await this.fileSystem.writeFileIfMissing(
         joinWorktreePath(normalizedWorktreePath, `.forgeroom/context/${fileName}`),
         baseContextFileContent(fileName),
+      );
+    }
+
+    for (const harness of this.harnessContracts) {
+      await this.fileSystem.writeFileIfMissing(
+        joinWorktreePath(normalizedWorktreePath, `.forgeroom/harnesses/${harness.id}`),
+        harness.content,
       );
     }
   }

@@ -21,6 +21,7 @@ import { parse as parseYaml } from 'yaml';
 
 import { AgentRegistry } from '../core/agent-runtime/agent-registry.js';
 import { HarnessRegistry } from '../core/agent-runtime/harness-registry.js';
+import type { HarnessContract } from '../core/worktree/worktree-manager.js';
 import { IntentRegistry } from '../core/registries/intent-registry.js';
 import { ModelPolicyRegistry } from '../core/registries/model-policy-registry.js';
 import { ProjectRegistry } from '../core/registries/project-registry.js';
@@ -133,6 +134,30 @@ export async function loadRegistries(options: LoadRegistriesOptions): Promise<Lo
   return { harnesses, agents, intents, modelPolicies, workflows, projects, workflowSources };
 }
 
+/**
+ * Read the bundled Step Harness contracts (id → content) from the harness root.
+ * Each configured harness id maps to a bundled file `<harnessRoot>/<id>` (no
+ * extension; the filename IS the id). WorktreeManager stages these into each
+ * task worktree at `.forgeroom/harnesses/<id>` (ADR-027). A missing bundled file
+ * is a hard boot failure — a harness referenced by config must be shippable.
+ */
+export async function loadHarnessContracts(
+  harnessRoot: string,
+  harnesses: HarnessRegistry,
+): Promise<HarnessContract[]> {
+  return Promise.all(
+    harnesses.list().map(async ({ id }) => {
+      const bundledPath = path.join(harnessRoot, id);
+      try {
+        const content = await readFile(bundledPath, 'utf8');
+        return { id, content };
+      } catch {
+        throw new ConfigError(`bundled harness contract not found: ${id} (expected at ${bundledPath})`);
+      }
+    }),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Runtime environment
 // ---------------------------------------------------------------------------
@@ -181,6 +206,8 @@ export interface OrchestratorEnv {
   snapshotDir: string;
   /** Bundled prompt-template root; `prompt_template` paths resolve under it. */
   templateRoot: string;
+  /** Bundled Step Harness root; each `<id>` file holds that harness's prompt/output contract. */
+  harnessRoot: string;
   /** Whether Mastra Studio opt-in is set (production start must be false). */
   studioEnabled: boolean;
   discord: DiscordEnv | null;
@@ -193,6 +220,11 @@ const TRUTHY = new Set(['1', 'true', 'yes', 'on']);
 /** Default bundled template root: `<repo-root>/templates` (sibling of `configs`). */
 function defaultTemplateRoot(): string {
   return fileURLToPath(new URL('../../../../templates', import.meta.url));
+}
+
+/** Default bundled harness root: `<repo-root>/harnesses` (sibling of `templates`). */
+function defaultHarnessRoot(): string {
+  return fileURLToPath(new URL('../../../../harnesses', import.meta.url));
 }
 
 function splitList(value: string | undefined): string[] {
@@ -232,6 +264,7 @@ function parseGitHubRepos(value: string | undefined): GitHubEnv['repos'] {
  *   FORGEROOM_WORKTREE_ROOTS        comma-list of allowed worktree roots (required)
  *   FORGEROOM_SNAPSHOT_DIR          snapshot dir (default <db dir>/snapshots)
  *   FORGEROOM_TEMPLATE_ROOT         bundled prompt-template root (default <repo>/templates)
+ *   FORGEROOM_HARNESS_ROOT          bundled Step Harness root (default <repo>/harnesses)
  *   FORGEROOM_OPENCLAW_ENDPOINT     OpenClaw endpoint (required)
  *   FORGEROOM_OPENCLAW_TOKEN        OpenClaw token (required)
  *   FORGEROOM_OPENCLAW_RUNTIME      default runtime id (default: claude-cli)
@@ -254,6 +287,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): OrchestratorEn
     (dbPath === ':memory:' ? 'data/snapshots' : path.join(path.dirname(dbPath), 'snapshots'));
 
   const templateRoot = env.FORGEROOM_TEMPLATE_ROOT?.trim() || defaultTemplateRoot();
+  const harnessRoot = env.FORGEROOM_HARNESS_ROOT?.trim() || defaultHarnessRoot();
 
   const openclawEndpoint = env.FORGEROOM_OPENCLAW_ENDPOINT ?? '';
   const openclawToken = env.FORGEROOM_OPENCLAW_TOKEN ?? '';
@@ -270,6 +304,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): OrchestratorEn
     allowedWorktreeRoots: worktreeRoots,
     snapshotDir,
     templateRoot,
+    harnessRoot,
     studioEnabled: TRUTHY.has((env.FORGEROOM_STUDIO ?? '').trim().toLowerCase()),
     discord,
     github,

@@ -16,6 +16,7 @@ Reusable test-only fakes and fixture builders for core module tests.
 | `check-runner-fixtures.ts` | CheckRunner fake AgentRunner, CommandRunner, TaskStore, artifact store, and fixture builders |
 | `pipeline-engine-fixtures.ts` | PipelineEngine fake registries, task store, AgentRunner, CheckRunner, WorktreeManager, and artifact store |
 | `pipeline-task-fixtures.ts` | Shared Task and Step builders for PipelineEngine recovery tests |
+| `template-fixtures.ts` | Temp prompt-template root builder (`makeTestTemplateRoot`) and bundled Step Harness contracts (`makeTestHarnessContracts`, ADR-027) |
 
 ## Dependencies
 

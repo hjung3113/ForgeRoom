@@ -144,6 +144,7 @@ function buildWorkflowRegistry(yaml: string): {
   workflowRegistry: WorkflowRegistry;
   intents: IntentRegistry;
   agents: AgentRegistry;
+  harnesses: HarnessRegistry;
 } {
   const harnessRegistry = HarnessRegistry.fromConfig({
     planning: { source: 'harnesses/planning.md' },
@@ -165,7 +166,7 @@ function buildWorkflowRegistry(yaml: string): {
     { intentRegistry, agentRegistry, harnessRegistry },
     { templateExists: () => true },
   );
-  return { workflowRegistry, intents: intentRegistry, agents: agentRegistry };
+  return { workflowRegistry, intents: intentRegistry, agents: agentRegistry, harnesses: harnessRegistry };
 }
 
 function buildProjectRegistry(projectPath: string, workflowRegistry: WorkflowRegistry): ProjectRegistry {
@@ -261,7 +262,7 @@ async function setup(yaml: string, outputs: Record<string, string>): Promise<{
   };
   const forgeMap: ForgeMapStager = { stage: async (): Promise<void> => Promise.resolve() };
   const conductor = makeFakeConductor(commits);
-  const { workflowRegistry, intents, agents } = buildWorkflowRegistry(yaml);
+  const { workflowRegistry, intents, agents, harnesses } = buildWorkflowRegistry(yaml);
   const projectRegistry = buildProjectRegistry(projectPath, workflowRegistry);
   const snapshotDir = path.join(tempDir, 'snapshots');
 
@@ -281,12 +282,18 @@ async function setup(yaml: string, outputs: Record<string, string>): Promise<{
       for (const dir of [
         '.forgeroom',
         '.forgeroom/context',
+        '.forgeroom/harnesses',
         '.forgeroom/prompts',
         '.forgeroom/outputs',
         '.forgeroom/diffs',
         '.forgeroom/logs',
       ]) {
         await mkdir(path.join(task.worktree_path, dir), { recursive: true });
+      }
+      // Stage the harness contracts so renderPrompt composes them (ADR-027).
+      await mkdir(path.join(task.worktree_path, 'harnesses'), { recursive: true });
+      for (const harness of harnesses.list()) {
+        await writeFile(path.join(task.worktree_path, harness.source), `# harness {{step_id}}\n`);
       }
       return { path: task.worktree_path, branch: task.branch_name };
     },
@@ -299,6 +306,7 @@ async function setup(yaml: string, outputs: Record<string, string>): Promise<{
     intentRegistry: intents,
     modelPolicies: ModelPolicyRegistry.fromConfig({}),
     agentRegistry: agents,
+    harnessRegistry: harnesses,
     taskStore: store,
     worktreeManager,
     agentRunner,

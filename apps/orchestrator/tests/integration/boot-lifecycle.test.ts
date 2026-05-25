@@ -217,6 +217,7 @@ function makeEnv(overrides: Partial<OrchestratorEnv> = {}): OrchestratorEnv {
     allowedWorktreeRoots: [path.join(tempDir, 'worktrees')],
     snapshotDir: path.join(tempDir, 'snapshots'),
     templateRoot,
+    harnessRoot: templateRoot,
     studioEnabled: false,
     discord: { token: 't', applicationId: 'app', guildIds: ['g'], allowedUserIds: ['111'] },
     github: { token: 'gh', repos: [{ projectId: 'demo', owner: 'octocat', repo: 'demo' }] },
@@ -240,7 +241,7 @@ async function buildApp(input?: { issues?: GitHubIssue[]; pollCalls?: { n: numbe
     gitHubOctokit: fakeOctokit(input?.issues ?? [], input?.pollCalls ?? { n: 0 }),
     buildDiscordGateway: () => fakeDiscord,
   };
-  const app = composeOrchestrator({ registries, env, taskStore, overrides, log: () => {} });
+  const app = composeOrchestrator({ registries, env, taskStore, harnessContracts: [], overrides, log: () => {} });
   return { app, taskStore, env, registries, projectPath, fakeDiscord };
 }
 
@@ -330,6 +331,7 @@ describe('orchestrator composition root boot lifecycle (#30)', () => {
       registries,
       env,
       taskStore,
+      harnessContracts: [],
       overrides: {
         openClawIpcClient: fakeOpenClaw(),
         discordStatusClient: fakeDiscordStatusClient(),
@@ -360,6 +362,7 @@ describe('orchestrator composition root boot lifecycle (#30)', () => {
       registries,
       env: makeEnv(),
       taskStore,
+      harnessContracts: [],
       overrides: {
         openClawIpcClient: fakeOpenClaw(),
         discordStatusClient: fakeDiscordStatusClient(),
