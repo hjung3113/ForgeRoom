@@ -139,6 +139,13 @@ export interface BootOptions {
   startSources?: boolean;
 }
 
+interface RepoTarget {
+  owner: string | null;
+  repo: string | null;
+  repoPath: string;
+  baseBranch: string;
+}
+
 // ---------------------------------------------------------------------------
 // Composed app
 // ---------------------------------------------------------------------------
@@ -194,15 +201,35 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     log,
   });
 
-  // --- WorktreeManager (git CLI + node fs) ---------------------------------
-  const resolveRepo = (worktreePath: string): WorktreeRepoTarget => {
+  const repoTargetForProjectId = (projectId: string): RepoTarget | null => {
+    const project = registries.projects.get(projectId);
+    if (project === null) {
+      return null;
+    }
+    const gitHubRepo = env.github?.repos.find((r) => r.projectId === projectId);
+    return {
+      owner: gitHubRepo?.owner ?? null,
+      repo: gitHubRepo?.repo ?? null,
+      repoPath: project.path,
+      baseBranch: project.default_branch,
+    };
+  };
+
+  const repoTargetForTask = (task: Task): RepoTarget | null => repoTargetForProjectId(task.project_id);
+
+  const repoTargetForWorktreePath = (worktreePath: string): RepoTarget | null => {
     const root = matchingRoot(env.allowedWorktreeRoots, worktreePath);
     const projectId = root === null ? null : projectIdFromWorktreePath(root, worktreePath);
-    const project = projectId === null ? null : registries.projects.get(projectId);
-    if (project === null) {
+    return projectId === null ? null : repoTargetForProjectId(projectId);
+  };
+
+  // --- WorktreeManager (git CLI + node fs) ---------------------------------
+  const resolveRepo = (worktreePath: string): WorktreeRepoTarget => {
+    const target = repoTargetForWorktreePath(worktreePath);
+    if (target === null) {
       throw new Error(`cannot resolve source repo for worktree path: ${worktreePath}`);
     }
-    return { repoPath: project.path, baseBranch: project.default_branch };
+    return { repoPath: target.repoPath, baseBranch: target.baseBranch };
   };
   const worktreeManager = new WorktreeManager({
     git: new GitCliWorktreeClient({ resolveRepo }),
@@ -238,7 +265,7 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
   });
 
   // --- PR external effect (ADR-019) ----------------------------------------
-  const { pullRequestCreator, prTargetFor } = buildPullRequestEffect({ env, overrides });
+  const { pullRequestCreator, prTargetFor } = buildPullRequestEffect({ env, overrides, repoTargetForTask });
 
   // --- PipelineEngine -------------------------------------------------------
   const engineDeps: PipelineEngineDeps = {
@@ -371,11 +398,12 @@ function buildReporter(input: {
 function buildPullRequestEffect(input: {
   env: OrchestratorEnv;
   overrides: ExternalAdapterOverrides;
+  repoTargetForTask: (task: Task) => RepoTarget | null;
 }): {
   pullRequestCreator: PullRequestCreator | null;
   prTargetFor: ((input: { task: Task }) => PullRequestTarget | null) | null;
 } {
-  const { env, overrides } = input;
+  const { env, overrides, repoTargetForTask } = input;
   if (env.github === null && overrides.gitHubOctokit === undefined) {
     return { pullRequestCreator: null, prTargetFor: null };
   }
@@ -383,13 +411,12 @@ function buildPullRequestEffect(input: {
   const client = new GitHubPullRequestClient(octokit);
   const pullRequestCreator = new PullRequestCreator({ client });
 
-  const repos = env.github?.repos ?? [];
   const prTargetFor = (target: { task: Task }): PullRequestTarget | null => {
-    const repo = repos.find((r) => r.projectId === target.task.project_id);
-    if (repo === undefined) {
+    const repoTarget = repoTargetForTask(target.task);
+    if (repoTarget === null || repoTarget.owner === null || repoTarget.repo === null) {
       return null;
     }
-    return { owner: repo.owner, repo: repo.repo, base: 'main' };
+    return { owner: repoTarget.owner, repo: repoTarget.repo, base: repoTarget.baseBranch };
   };
   return { pullRequestCreator, prTargetFor };
 }

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   GitHubIssueTaskSource,
+  GitHubIssueLabelClient,
   GitHubPullRequestClient,
   isTransientGitHubError,
   type GitHubIssue,
@@ -37,6 +38,8 @@ function fakeOctokit(issuesByPage: GitHubIssue[]): GitHubOctokitLike {
     rest: {
       issues: {
         listForRepo: vi.fn(async () => ({ data: issuesByPage })),
+        addLabels: vi.fn(async () => ({})),
+        removeLabel: vi.fn(async () => ({})),
       },
       pulls: {
         create: vi.fn(async () => ({
@@ -297,5 +300,45 @@ describe('GitHubPullRequestClient', () => {
     const ref = await client.findOpenPRByHead({ owner: 'acme', repo: 'app', head: 'feat/login' });
 
     expect(ref).toBeNull();
+  });
+});
+
+describe('GitHubIssueLabelClient', () => {
+  it('addLabel is a thin issues.addLabels call', async () => {
+    const octokit = fakeOctokit([]);
+    const client = new GitHubIssueLabelClient(octokit);
+
+    await client.addLabel({
+      owner: 'acme',
+      repo: 'app',
+      issue_number: 42,
+      labels: ['ready-for-human'],
+    });
+
+    expect(octokit.rest.issues.addLabels).toHaveBeenCalledWith({
+      owner: 'acme',
+      repo: 'app',
+      issue_number: 42,
+      labels: ['ready-for-human'],
+    });
+  });
+
+  it('removeLabel is a thin issues.removeLabel call', async () => {
+    const octokit = fakeOctokit([]);
+    const client = new GitHubIssueLabelClient(octokit);
+
+    await client.removeLabel({
+      owner: 'acme',
+      repo: 'app',
+      issue_number: 42,
+      name: 'ready-for-agent',
+    });
+
+    expect(octokit.rest.issues.removeLabel).toHaveBeenCalledWith({
+      owner: 'acme',
+      repo: 'app',
+      issue_number: 42,
+      name: 'ready-for-agent',
+    });
   });
 });
