@@ -718,4 +718,57 @@ describe('MastraPipelineEngine label-lifecycle external effect (ADR-026)', () =>
     const task = await d.taskStore.getTask(taskId);
     expect(task?.status).toBe('done');
   });
+
+  it('relabels needs-info when branch publication fails (issue-triggered)', async () => {
+    const { port: branchPort } = fakeBranchPort({ pushError: true });
+    const { port, calls } = fakeLabelPort();
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({
+      branchPublisher: new BranchPublisher({ port: branchPort }),
+      labelEffect,
+      labelTargetFor: labelTarget,
+    });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'github-issue-label',
+      issueNumber: 88,
+    });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('failed');
+    expect(task?.failure_reason).toBe('branch_publish_failed');
+    expect(calls.remove[0]).toMatchObject({ name: 'ready-for-agent', issue_number: 88 });
+    expect(calls.add[0]).toMatchObject({ labels: ['needs-info'], issue_number: 88 });
+  });
+
+  it('relabels needs-info when PR creation fails (issue-triggered)', async () => {
+    const { port: branchPort } = fakeBranchPort();
+    const { client: prClient } = fakePrClient({ fail: true });
+    const { port, calls } = fakeLabelPort();
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({
+      branchPublisher: new BranchPublisher({ port: branchPort }),
+      pullRequestCreator: new PullRequestCreator({ client: prClient, sleep: async () => {} }),
+      prTargetFor: prTarget,
+      labelEffect,
+      labelTargetFor: labelTarget,
+    });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'github-issue-label',
+      issueNumber: 66,
+    });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('failed');
+    expect(task?.failure_reason).toBe('pr_create_failed');
+    expect(calls.remove[0]).toMatchObject({ name: 'ready-for-agent', issue_number: 66 });
+    expect(calls.add[0]).toMatchObject({ labels: ['needs-info'], issue_number: 66 });
+  });
 });
