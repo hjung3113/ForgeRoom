@@ -15,6 +15,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { parse as parseYaml } from 'yaml';
 
@@ -157,6 +158,8 @@ export interface OrchestratorEnv {
   allowedWorktreeRoots: string[];
   /** Directory durable Mastra snapshots are written to (FileSnapshotBridge). */
   snapshotDir: string;
+  /** Bundled prompt-template root; `prompt_template` paths resolve under it. */
+  templateRoot: string;
   /** Whether Mastra Studio opt-in is set (production start must be false). */
   studioEnabled: boolean;
   discord: DiscordEnv | null;
@@ -165,6 +168,11 @@ export interface OrchestratorEnv {
 }
 
 const TRUTHY = new Set(['1', 'true', 'yes', 'on']);
+
+/** Default bundled template root: `<repo-root>/templates` (sibling of `configs`). */
+function defaultTemplateRoot(): string {
+  return fileURLToPath(new URL('../../../../templates', import.meta.url));
+}
 
 function splitList(value: string | undefined): string[] {
   return (value ?? '')
@@ -202,6 +210,7 @@ function parseGitHubRepos(value: string | undefined): GitHubEnv['repos'] {
  *   FORGEROOM_DB_PATH               sqlite path (default data/forgeroom.sqlite)
  *   FORGEROOM_WORKTREE_ROOTS        comma-list of allowed worktree roots (required)
  *   FORGEROOM_SNAPSHOT_DIR          snapshot dir (default <db dir>/snapshots)
+ *   FORGEROOM_TEMPLATE_ROOT         bundled prompt-template root (default <repo>/templates)
  *   FORGEROOM_OPENCLAW_ENDPOINT     OpenClaw endpoint (required)
  *   FORGEROOM_OPENCLAW_TOKEN        OpenClaw token (required)
  *   FORGEROOM_OPENCLAW_RUNTIME      default runtime id (default: claude-cli)
@@ -223,6 +232,8 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): OrchestratorEn
     env.FORGEROOM_SNAPSHOT_DIR ??
     (dbPath === ':memory:' ? 'data/snapshots' : path.join(path.dirname(dbPath), 'snapshots'));
 
+  const templateRoot = env.FORGEROOM_TEMPLATE_ROOT?.trim() || defaultTemplateRoot();
+
   const openclawEndpoint = env.FORGEROOM_OPENCLAW_ENDPOINT ?? '';
   const openclawToken = env.FORGEROOM_OPENCLAW_TOKEN ?? '';
   const openclawRuntime = env.FORGEROOM_OPENCLAW_RUNTIME ?? 'claude-cli';
@@ -237,6 +248,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): OrchestratorEn
     dbPath,
     allowedWorktreeRoots: worktreeRoots,
     snapshotDir,
+    templateRoot,
     studioEnabled: TRUTHY.has((env.FORGEROOM_STUDIO ?? '').trim().toLowerCase()),
     discord,
     github,

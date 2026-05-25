@@ -25,6 +25,7 @@ import { randomUUID } from 'node:crypto';
 import { createTaskStoreDatabase, migrateTaskStoreDatabase } from '../../src/db/client.js';
 import { SqliteTaskStore } from '../../src/db/sqlite-task-store.js';
 import { parseWorkflowConfig } from '../../src/dsl/workflow-parser.js';
+import { makeTestTemplateRoot } from '../../src/core/test-support/template-fixtures.js';
 import { IntentRegistry } from '../../src/core/registries/intent-registry.js';
 import { ProjectRegistry } from '../../src/core/registries/project-registry.js';
 import { WorkflowRegistry } from '../../src/core/registries/workflow-registry.js';
@@ -421,10 +422,11 @@ export interface AcceptanceHarness {
 
 export async function makeHarness(options: HarnessOptions = {}): Promise<AcceptanceHarness> {
   const tempDir = await mkdtemp(path.join(tmpdir(), 'accept-matrix-'));
-  return assemble(tempDir, options);
+  const templateRoot = await makeTestTemplateRoot();
+  return assemble(tempDir, options, templateRoot);
 }
 
-function assemble(tempDir: string, options: HarnessOptions): AcceptanceHarness {
+function assemble(tempDir: string, options: HarnessOptions, templateRoot: string): AcceptanceHarness {
   const projectPath = path.join(tempDir, 'project');
   const worktreeRoot = path.join(tempDir, 'worktrees');
   const snapshotDir = path.join(tempDir, 'snapshots');
@@ -571,6 +573,7 @@ function assemble(tempDir: string, options: HarnessOptions): AcceptanceHarness {
     reporter,
     forgeMap,
     snapshotBridge: new FileSnapshotBridge(snapshotDir),
+    templateRoot,
     pullRequestCreator: prCreator as unknown as PullRequestCreator,
     prTargetFor,
     allowedWorktreeRoots: [worktreeRoot],

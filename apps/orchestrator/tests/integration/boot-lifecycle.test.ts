@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTaskStoreDatabase, migrateTaskStoreDatabase } from '../../src/db/client.js';
 import { SqliteTaskStore } from '../../src/db/sqlite-task-store.js';
 import { loadRegistries, resolveEnv, type OrchestratorEnv } from '../../src/app/config.js';
+import { makeTestTemplateRoot } from '../../src/core/test-support/template-fixtures.js';
 import {
   composeOrchestrator,
   type DiscordGatewayLike,
@@ -181,10 +182,12 @@ class FakeDiscordGateway implements DiscordGatewayLike {
 // ---------------------------------------------------------------------------
 
 let tempDir: string;
+let templateRoot: string;
 let database: TaskStoreDatabase | null = null;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(tmpdir(), 'boot-int-'));
+  templateRoot = await makeTestTemplateRoot();
 });
 
 afterEach(async () => {
@@ -213,6 +216,7 @@ function makeEnv(overrides: Partial<OrchestratorEnv> = {}): OrchestratorEnv {
     dbPath: path.join(tempDir, 'forgeroom.sqlite'),
     allowedWorktreeRoots: [path.join(tempDir, 'worktrees')],
     snapshotDir: path.join(tempDir, 'snapshots'),
+    templateRoot,
     studioEnabled: false,
     discord: { token: 't', applicationId: 'app', guildIds: ['g'], allowedUserIds: ['111'] },
     github: { token: 'gh', repos: [{ projectId: 'demo', owner: 'octocat', repo: 'demo' }] },

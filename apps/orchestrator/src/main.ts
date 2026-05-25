@@ -10,6 +10,8 @@
  * Studio opt-in flag is set in a production start we refuse to boot rather than
  * silently expose it.
  */
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createTaskStoreDatabase, migrateTaskStoreDatabase } from './db/client.js';
@@ -35,7 +37,10 @@ export async function bootOrchestrator(input?: {
   }
 
   const configDir = input?.configDir ?? defaultConfigDir();
-  const registries = await loadRegistries({ configDir });
+  const registries = await loadRegistries({
+    configDir,
+    templateExists: (relativePath): boolean => existsSync(path.join(env.templateRoot, relativePath)),
+  });
 
   const database = createTaskStoreDatabase(env.dbPath);
   migrateTaskStoreDatabase(database);

@@ -284,6 +284,7 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     ...(pullRequestCreator === null ? {} : { pullRequestCreator }),
     ...(prTargetFor === null ? {} : { prTargetFor }),
     allowedWorktreeRoots: env.allowedWorktreeRoots,
+    templateRoot: env.templateRoot,
     worktreePathFor: (input): string =>
       worktreePathFor({ root: env.allowedWorktreeRoots[0] ?? '', projectId: input.projectId, taskId: input.taskId }),
     branchFor: (input): string => branchFor({ taskId: input.taskId, title: input.title }),
