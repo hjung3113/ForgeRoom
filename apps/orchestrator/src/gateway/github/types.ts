@@ -31,6 +31,18 @@ export interface GitHubOctokitLike {
         state?: 'open' | 'closed' | 'all';
         per_page?: number;
       }): Promise<{ data: GitHubIssue[] }>;
+      addLabels?(args: {
+        owner: string;
+        repo: string;
+        issue_number: number;
+        labels: string[];
+      }): Promise<unknown>;
+      removeLabel?(args: {
+        owner: string;
+        repo: string;
+        issue_number: number;
+        name: string;
+      }): Promise<unknown>;
     };
     pulls: {
       create(args: {
@@ -104,4 +116,18 @@ export interface FindOpenPRArgs {
   repo: string;
   /** Branch name (without the `owner:` qualifier). */
   head: string;
+}
+
+export interface AddIssueLabelArgs {
+  owner: string;
+  repo: string;
+  issue_number: number;
+  labels: string[];
+}
+
+export interface RemoveIssueLabelArgs {
+  owner: string;
+  repo: string;
+  issue_number: number;
+  name: string;
 }

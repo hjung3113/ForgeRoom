@@ -15,6 +15,7 @@ GitHub-specific gateway code split by adapter role.
 |---|---|
 | `types.ts` | Shared GitHub adapter types and injectable Octokit surface |
 | `issue-source.ts` | `GitHubIssueTaskSource`, issue polling, issue-to-task mapping |
+| `issue-label-client.ts` | `GitHubIssueLabelClient`, thin issue label API primitives |
 | `pull-request-client.ts` | `GitHubPullRequestClient`, thin PR API primitives |
 
 ## Dependencies

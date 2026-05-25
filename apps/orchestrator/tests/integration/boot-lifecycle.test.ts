@@ -151,6 +151,8 @@ function fakeOctokit(issues: GitHubIssue[], pollCalls: { n: number }): GitHubOct
           pollCalls.n += 1;
           return Promise.resolve({ data: issues });
         },
+        addLabels: () => Promise.resolve({}),
+        removeLabel: () => Promise.resolve({}),
       },
       pulls: {
         create: () => Promise.resolve({ data: { number: 1, html_url: 'u' } }),
