@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -67,10 +67,15 @@ const resolved: ResolvedStep = {
   intentId: 'codex_execute',
   kind: 'execute',
   agent: 'codex',
-  harness: 'default',
+  harness: null,
   promptTemplate: 'execute.md',
   vars: {},
   input_refs: {},
+};
+
+/** A HarnessRegistry stub resolving any id to its worktree-relative source. */
+const harnessRegistryStub = {
+  resolve: (id: string) => ({ id, source: `.forgeroom/harnesses/${id}` }),
 };
 
 describe('StepCollaborators', () => {
@@ -129,6 +134,7 @@ describe('StepCollaborators', () => {
         agentRegistry: {
           resolve: () => ({ agentId: 'codex', provider: 'openclaw', runtime: 'r', model: 'm', harness: 'default' }),
         },
+        harnessRegistry: harnessRegistryStub,
       },
       callbacks: {
         recordStepRow: async () => {
@@ -209,6 +215,7 @@ describe('StepCollaborators.renderPrompt template loading', () => {
         agentRegistry: {
           resolve: () => ({ agentId: 'codex', provider: 'openclaw', runtime: 'r', model: 'm', harness: 'default' }),
         },
+        harnessRegistry: harnessRegistryStub,
       },
       callbacks: {
         recordStepRow: async () => {
@@ -312,6 +319,7 @@ describe('StepCollaborators.renderPrompt template loading', () => {
         agentRegistry: {
           resolve: () => ({ agentId: 'codex', provider: 'openclaw', runtime: 'r', model: 'm', harness: 'default' }),
         },
+        harnessRegistry: harnessRegistryStub,
       },
       callbacks: {
         recordStepRow: async () => {
@@ -337,5 +345,139 @@ describe('StepCollaborators.renderPrompt template loading', () => {
     expect(routing.policyId).toBeNull();
     expect(routing.selected).toMatchObject({ runtime: 'r', model: 'm' });
     expect(routing.fallbackChain).toEqual([]);
+  });
+});
+
+describe('StepCollaborators.renderPrompt harness composition (prompt-file-protocol step 8)', () => {
+  function makeCollaborators(): {
+    renderPrompt: ReturnType<StepCollaborators['asAdapterCollaborators']>['renderPrompt'];
+  } {
+    const taskRow = task();
+    const stepOutputs: Record<string, StepOutputView> = {};
+    const interpolation: InterpolationSource = {
+      task: {
+        title: taskRow.title,
+        description: taskRow.description,
+        project: taskRow.project_id,
+        branch: taskRow.branch_name,
+        worktree_path: taskRow.worktree_path,
+        issue_number: '',
+        full_diff_path: '.forgeroom/diffs/full.diff',
+        final_slices: [],
+      },
+      vars: {},
+      stepOutputs,
+    };
+    const collaborators = new StepCollaborators({
+      task: taskRow,
+      project,
+      interpolation,
+      stepOutputs,
+      stepCounter: { value: 0 },
+      promptIndex: new Map(),
+      agentOverrides: {},
+      templateRoot,
+      deps: {
+        conductor: {
+          init: async () => {},
+          refine: async (_t, _s, base) => `${base}\n\nrefined`,
+          update: async () => {},
+          integrateFeedback: async () => {},
+          answer: async () => 'answer',
+        },
+        approvalGate: { checkCommand: () => ({ allowed: true }) },
+        agentRunner: {
+          run: async () => {
+            throw new Error('not used');
+          },
+          resume: async () => {
+            throw new Error('not used');
+          },
+        },
+        checkRunner: { run: async () => ({ allPassed: true, results: [] }) },
+        taskStore: { updateTaskFinalSlices: async () => {} },
+        intentRegistry: { resolve: () => ({ id: 'codex_execute', kind: 'execute', agent: 'codex', harness: 'default' }) },
+        modelPolicies: { resolveTarget: () => ({ providerId: 'unused', runtime: 'unused', model: 'unused' }) },
+        agentRegistry: {
+          resolve: () => ({ agentId: 'codex', provider: 'openclaw', runtime: 'r', model: 'm', harness: 'default' }),
+        },
+        harnessRegistry: harnessRegistryStub,
+      },
+      callbacks: {
+        recordStepRow: async () => {
+          throw new Error('not used');
+        },
+        createStepRowId: () => 'step-row-1',
+        now: () => new Date('2026-05-25T00:00:00.000Z'),
+        notifyStepDone: async () => {},
+      },
+    });
+    return { renderPrompt: collaborators.asAdapterCollaborators().renderPrompt };
+  }
+
+  function harnessStep(harness: string | null, stepId = 'plan'): ResolvedStep {
+    return { ...resolved, harness, stepId, mastraStepId: `codex_execute:${stepId}` };
+  }
+
+  async function stageHarness(id: string, content: string): Promise<void> {
+    const dir = path.join(worktree, '.forgeroom', 'harnesses');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, id), content);
+  }
+
+  it('composes the interpolated harness contract before the interpolated step template, refining the composed base', async () => {
+    await stageHarness(
+      'implementation',
+      'Harness contract for step {{step_id}} (index {{step_index}}).\n',
+    );
+    const { renderPrompt } = makeCollaborators();
+    const promptPath = await renderPrompt(harnessStep('implementation'), {
+      vars: {},
+      input_refs: { previous: 'prior-output.md' },
+    });
+    const written = await readFile(promptPath, 'utf8');
+
+    // Structure: harness FIRST, then a `---` divider, then the step prompt.
+    const harnessIdx = written.indexOf('# Harness Contract');
+    const dividerIdx = written.indexOf('\n---\n');
+    const stepIdx = written.indexOf('# Step Prompt');
+    expect(harnessIdx).toBeGreaterThanOrEqual(0);
+    expect(dividerIdx).toBeGreaterThan(harnessIdx);
+    expect(stepIdx).toBeGreaterThan(dividerIdx);
+
+    // BOTH halves are interpolated with the same {{}} rules.
+    expect(written).toContain('Harness contract for step plan (index 01).');
+    expect(written).toContain('Implement prior-output.md for step plan.');
+    expect(written).not.toContain('{{');
+
+    // refine() ran on the composed base (its addendum is appended).
+    expect(written.trimEnd().endsWith('refined')).toBe(true);
+  });
+
+  it('renders template-only (no harness contract) when the step has no harness', async () => {
+    const { renderPrompt } = makeCollaborators();
+    const promptPath = await renderPrompt(harnessStep(null), {
+      vars: {},
+      input_refs: { previous: 'prior-output.md' },
+    });
+    const written = await readFile(promptPath, 'utf8');
+    expect(written).not.toContain('# Harness Contract');
+    expect(written).not.toContain('# Step Prompt');
+    expect(written).toContain('Implement prior-output.md for step plan.');
+  });
+
+  it('fails fast when the harness id is present but the worktree contract file is missing', async () => {
+    const { renderPrompt } = makeCollaborators();
+    await expect(
+      renderPrompt(harnessStep('implementation'), { vars: {}, input_refs: { previous: 'x' } }),
+    ).rejects.toThrow(/harness contract not found/);
+  });
+
+  it('fails fast on an unknown {{placeholder}} in the harness contract', async () => {
+    await stageHarness('implementation', 'Uses {{nonexistent}} placeholder.');
+    const { renderPrompt } = makeCollaborators();
+    await expect(
+      renderPrompt(harnessStep('implementation'), { vars: {}, input_refs: { previous: 'x' } }),
+    ).rejects.toThrow(/nonexistent/);
   });
 });

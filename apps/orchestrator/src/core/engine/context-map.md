@@ -14,7 +14,7 @@ out of `pipeline-engine.ts` without changing the public PipelineEngine contract.
 
 | File | Role |
 |---|---|
-| `step-collaborators.ts` | Per-run Mastra adapter collaborators for prompt rendering, agent execution, checks, conductor update, and reporting |
+| `step-collaborators.ts` | Per-run Mastra adapter collaborators for prompt rendering (harness contract + step template composition, ADR-027), agent execution, checks, conductor update, and reporting |
 | `pull-request-external-effect.ts` | Task-critical PR external effect wrapper used by PipelineEngine settle |
 | `branch-publication-external-effect.ts` | Task-critical branch-publication effect wrapper (ADR-025): commit+push before PR, no-diff detection |
 

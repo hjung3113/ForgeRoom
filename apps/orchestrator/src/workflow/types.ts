@@ -152,7 +152,8 @@ export interface ResolvedStep {
   intentId: string;
   kind: string;
   agent: string;
-  harness: string;
+  /** Step Harness id whose prompt/output contract prefixes the rendered prompt; null = template-only. */
+  harness: string | null;
   promptTemplate: string;
   /** Raw (uninterpolated) vars from the DSL, evaluated at bind time. */
   vars: Record<string, string>;

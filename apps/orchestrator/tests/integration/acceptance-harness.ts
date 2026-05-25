@@ -26,7 +26,7 @@ import { createTaskStoreDatabase, migrateTaskStoreDatabase } from '../../src/db/
 import { SqliteTaskStore } from '../../src/db/sqlite-task-store.js';
 import { parseWorkflowConfig } from '../../src/dsl/workflow-parser.js';
 import { mastraWorkflowBuilder } from '../../src/dsl/to-mastra.js';
-import { makeTestTemplateRoot } from '../../src/core/test-support/template-fixtures.js';
+import { makeTestHarnessContracts, makeTestTemplateRoot } from '../../src/core/test-support/template-fixtures.js';
 import { IntentRegistry } from '../../src/core/registries/intent-registry.js';
 import { ModelPolicyRegistry } from '../../src/core/registries/model-policy-registry.js';
 import { ProjectRegistry } from '../../src/core/registries/project-registry.js';
@@ -464,10 +464,11 @@ function assemble(tempDir: string, options: HarnessOptions, templateRoot: string
   const provider = new OpenClawProvider({ endpoint: 'http://x', token: 'tok', runtime: 'claude-cli', agentId: 'main', client: openClaw });
 
   const harnessRegistry = HarnessRegistry.fromConfig({
-    planning: { source: 'planning' },
-    implementation: { source: 'implementation' },
-    review: { source: 'review' },
+    planning: { source: '.forgeroom/harnesses/planning' },
+    implementation: { source: '.forgeroom/harnesses/implementation' },
+    review: { source: '.forgeroom/harnesses/review' },
   });
+  const harnessContracts = makeTestHarnessContracts();
   const agentRegistry = AgentRegistry.fromConfig(
     {
       claude: { provider: 'openclaw', runtime: 'claude-cli', model: 'anthropic/claude', harness: 'planning' },
@@ -548,12 +549,18 @@ function assemble(tempDir: string, options: HarnessOptions, templateRoot: string
       for (const dir of [
         '.forgeroom',
         '.forgeroom/context',
+        '.forgeroom/harnesses',
         '.forgeroom/prompts',
         '.forgeroom/outputs',
         '.forgeroom/diffs',
         '.forgeroom/logs',
       ]) {
         await mkdir(path.join(task.worktree_path, dir), { recursive: true });
+      }
+      // Stage the bundled harness contracts so renderPrompt can compose them
+      // (mirrors WorktreeManager bootstrap; ADR-027).
+      for (const harness of harnessContracts) {
+        await writeFile(path.join(task.worktree_path, '.forgeroom', 'harnesses', harness.id), harness.content);
       }
       return { path: task.worktree_path, branch: task.branch_name };
     },
@@ -568,6 +575,7 @@ function assemble(tempDir: string, options: HarnessOptions, templateRoot: string
     intentRegistry,
     modelPolicies: ModelPolicyRegistry.fromConfig({}),
     agentRegistry,
+    harnessRegistry,
     taskStore: store,
     worktreeManager,
     agentRunner,

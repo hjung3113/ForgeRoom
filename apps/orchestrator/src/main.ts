@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createTaskStoreDatabase, migrateTaskStoreDatabase } from './db/client.js';
 import { SqliteTaskStore } from './db/sqlite-task-store.js';
 import { composeOrchestrator } from './app/composition-root.js';
-import { loadRegistries, resolveEnv, type OrchestratorEnv } from './app/config.js';
+import { loadHarnessContracts, loadRegistries, resolveEnv, type OrchestratorEnv } from './app/config.js';
 
 /** Default config dir: `<repo-root>/configs` (three levels up from src/). */
 function defaultConfigDir(): string {
@@ -42,11 +42,13 @@ export async function bootOrchestrator(input?: {
     templateExists: (relativePath): boolean => existsSync(path.join(env.templateRoot, relativePath)),
   });
 
+  const harnessContracts = await loadHarnessContracts(env.harnessRoot, registries.harnesses);
+
   const database = createTaskStoreDatabase(env.dbPath);
   migrateTaskStoreDatabase(database);
   const taskStore = new SqliteTaskStore(database);
 
-  const app = composeOrchestrator({ registries, env, taskStore, log });
+  const app = composeOrchestrator({ registries, env, taskStore, harnessContracts, log });
   await app.boot();
   log('orchestrator booted: recoverPending complete, TaskSources started');
 

@@ -172,6 +172,9 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
       await mkdir(path.join(task.worktree_path, '.forgeroom', 'outputs'), { recursive: true });
       await mkdir(path.join(task.worktree_path, '.forgeroom', 'prompts'), { recursive: true });
       await mkdir(path.join(task.worktree_path, '.forgeroom', 'logs'), { recursive: true });
+      // Stage the planning harness contract so renderPrompt can compose it (ADR-027).
+      await mkdir(path.join(task.worktree_path, 'h'), { recursive: true });
+      await writeFile(path.join(task.worktree_path, 'h', 'p.md'), '# harness {{step_id}}\n');
       return { path: task.worktree_path, branch: task.branch_name };
     },
     ensureForgeroomDir: async (): Promise<void> => Promise.resolve(),
@@ -183,6 +186,7 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     intentRegistry,
     modelPolicies: ModelPolicyRegistry.fromConfig({}),
     agentRegistry,
+    harnessRegistry,
     taskStore: store,
     worktreeManager,
     agentRunner,

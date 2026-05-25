@@ -1,13 +1,24 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Task } from '../types.js';
-import { WorktreeManager, type WorktreeFileSystem, type WorktreeGitClient } from './worktree-manager.js';
+import {
+  WorktreeManager,
+  type HarnessContract,
+  type WorktreeFileSystem,
+  type WorktreeGitClient,
+} from './worktree-manager.js';
+
+const HARNESS_CONTRACTS: HarnessContract[] = [
+  { id: 'planning', content: '# planning contract\n' },
+  { id: 'implementation', content: '# implementation contract\n' },
+  { id: 'review', content: '# review contract\n' },
+];
 
 describe('WorktreeManager', () => {
   it('creates the task worktree through git and bootstraps .forgeroom files', async () => {
     const git = new FakeGitClient();
     const fileSystem = new FakeFileSystem();
-    const manager = new WorktreeManager({ git, fileSystem });
+    const manager = new WorktreeManager({ git, fileSystem, harnessContracts: HARNESS_CONTRACTS });
     const task = makeTask();
 
     await expect(manager.create(task)).resolves.toEqual({
@@ -25,6 +36,7 @@ describe('WorktreeManager', () => {
       '/tmp/forgeroom/worktrees/task-123/.forgeroom',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/context',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/context/docs',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/prompts',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/outputs',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/diffs',
@@ -35,15 +47,24 @@ describe('WorktreeManager', () => {
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/context/summary.md',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/context/workflow.md',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/context/feedback.md',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/planning',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/implementation',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/review',
     ]);
     expect(fileSystem.createdFiles[0]?.content).toContain('# Task');
     expect(fileSystem.createdFiles[0]?.content).toContain('Implement worktree bootstrap');
+
+    // The bundled harness contracts are staged verbatim into the worktree.
+    const planning = fileSystem.createdFiles.find(
+      (file) => file.path === '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/planning',
+    );
+    expect(planning?.content).toBe('# planning contract\n');
   });
 
   it('reuses an existing task worktree and still ensures bootstrap paths', async () => {
     const git = new FakeGitClient();
     const fileSystem = new FakeFileSystem();
-    const manager = new WorktreeManager({ git, fileSystem });
+    const manager = new WorktreeManager({ git, fileSystem, harnessContracts: HARNESS_CONTRACTS });
     const task = makeTask();
 
     await manager.create(task);
@@ -69,7 +90,7 @@ describe('WorktreeManager', () => {
   it('ensures the .forgeroom directory independently and idempotently', async () => {
     const git = new FakeGitClient();
     const fileSystem = new FakeFileSystem();
-    const manager = new WorktreeManager({ git, fileSystem });
+    const manager = new WorktreeManager({ git, fileSystem, harnessContracts: HARNESS_CONTRACTS });
 
     await manager.ensureForgeroomDir('/tmp/forgeroom/worktrees/task-123');
     await manager.ensureForgeroomDir('/tmp/forgeroom/worktrees/task-123/');
@@ -95,7 +116,7 @@ describe('WorktreeManager', () => {
   it('fills task metadata after independent bootstrap without overwriting base context files', async () => {
     const git = new FakeGitClient();
     const fileSystem = new FakeFileSystem();
-    const manager = new WorktreeManager({ git, fileSystem });
+    const manager = new WorktreeManager({ git, fileSystem, harnessContracts: HARNESS_CONTRACTS });
     const task = makeTask();
 
     await manager.ensureForgeroomDir('/tmp/forgeroom/worktrees/task-123');

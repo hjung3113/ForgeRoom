@@ -180,6 +180,7 @@ function buildWorkflowRegistry(yaml: string): {
   workflowRegistry: WorkflowRegistry;
   intents: IntentRegistry;
   agents: AgentRegistry;
+  harnesses: HarnessRegistry;
 } {
   const harnessRegistry = HarnessRegistry.fromConfig({
     planning: { source: 'harnesses/planning.md' },
@@ -201,7 +202,7 @@ function buildWorkflowRegistry(yaml: string): {
     { intentRegistry, agentRegistry, harnessRegistry },
     { templateExists: () => true },
   );
-  return { workflowRegistry, intents: intentRegistry, agents: agentRegistry };
+  return { workflowRegistry, intents: intentRegistry, agents: agentRegistry, harnesses: harnessRegistry };
 }
 
 function buildProjectRegistry(projectPath: string, workflowRegistry: WorkflowRegistry): ProjectRegistry {
@@ -273,12 +274,18 @@ async function bootstrapWorktree(worktreePath: string): Promise<void> {
   for (const dir of [
     '.forgeroom',
     '.forgeroom/context',
+    '.forgeroom/harnesses',
     '.forgeroom/prompts',
     '.forgeroom/outputs',
     '.forgeroom/diffs',
     '.forgeroom/logs',
   ]) {
     await mkdir(path.join(worktreePath, dir), { recursive: true });
+  }
+  // Stage the harness contracts so renderPrompt composes them (ADR-027).
+  await mkdir(path.join(worktreePath, 'harnesses'), { recursive: true });
+  for (const id of ['planning', 'implementation', 'review']) {
+    await writeFile(path.join(worktreePath, 'harnesses', `${id}.md`), `# harness {{step_id}}\n`);
   }
 }
 
@@ -306,7 +313,7 @@ async function setup(yaml: string): Promise<Harness> {
   };
   const forgeMap: ForgeMapStager = { stage: async (): Promise<void> => Promise.resolve() };
   const conductor = makeFakeConductor();
-  const { workflowRegistry, intents, agents } = buildWorkflowRegistry(yaml);
+  const { workflowRegistry, intents, agents, harnesses } = buildWorkflowRegistry(yaml);
   const projectRegistry = buildProjectRegistry(projectPath, workflowRegistry);
   const snapshotDir = path.join(tempDir, 'snapshots');
 
@@ -329,6 +336,7 @@ async function setup(yaml: string): Promise<Harness> {
     intentRegistry: intents,
     modelPolicies: ModelPolicyRegistry.fromConfig({}),
     agentRegistry: agents,
+    harnessRegistry: harnesses,
     taskStore: store,
     worktreeManager,
     agentRunner,

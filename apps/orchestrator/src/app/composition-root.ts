@@ -67,7 +67,7 @@ import type {
   Task,
   TaskRequest,
 } from '../core/types.js';
-import { WorktreeManager } from '../core/worktree/worktree-manager.js';
+import { WorktreeManager, type HarnessContract } from '../core/worktree/worktree-manager.js';
 import { NodeCommandRunner } from '../utils/command-runner.js';
 import { readFile, writeFile } from 'node:fs/promises';
 
@@ -134,6 +134,12 @@ export interface ComposeOrchestratorOptions {
   registries: LoadedRegistries;
   env: OrchestratorEnv;
   taskStore: TaskStore;
+  /**
+   * Bundled Step Harness contracts (id → content), read from `env.harnessRoot` by
+   * the boot path (`loadHarnessContracts`) and injected so the WorktreeManager
+   * stages them into each task worktree at `.forgeroom/harnesses/<id>` (ADR-027).
+   */
+  harnessContracts: ReadonlyArray<HarnessContract>;
   overrides?: ExternalAdapterOverrides;
   /** Logger sink; defaults to stderr. */
   log?: (line: string) => void;
@@ -239,6 +245,7 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
   const worktreeManager = new WorktreeManager({
     git: new GitCliWorktreeClient({ resolveRepo }),
     fileSystem: new NodeWorktreeFileSystem(),
+    harnessContracts: options.harnessContracts,
   });
 
   // --- ForgeMap stager (real probe + lookup + bootstrap store) -------------
@@ -286,6 +293,7 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     intentRegistry: registries.intents,
     modelPolicies: registries.modelPolicies,
     agentRegistry: registries.agents,
+    harnessRegistry: registries.harnesses,
     workflowBuilder: mastraWorkflowBuilder,
     taskStore,
     worktreeManager,
