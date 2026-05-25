@@ -29,9 +29,9 @@ import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { AgentRunRequest } from '../../src/core/agent-runner.js';
-import type { ResolvedAgent } from '../../src/core/agent-registry.js';
-import { OpenClawProvider } from '../../src/core/openclaw-provider.js';
+import type { AgentRunRequest } from '../../src/core/agent-runtime/agent-runner.js';
+import type { ResolvedAgent } from '../../src/core/agent-runtime/agent-registry.js';
+import { OpenClawProvider } from '../../src/core/agent-runtime/openclaw-provider.js';
 import { OpenClawCliClient, resolveOpenClawCliConfig } from '../../src/app/openclaw-ipc.js';
 
 const LIVE = process.env.FORGEROOM_OPENCLAW_E2E_LIVE === '1';

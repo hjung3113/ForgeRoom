@@ -10,7 +10,7 @@ import {
   FileConductor,
   type ConductorAgent,
   type ConductorAgentResult,
-} from '../../src/core/conductor.js';
+} from '../../src/core/conductor/conductor.js';
 import { GitCliConductorGit } from '../../src/app/conductor-git.js';
 import type { StepResult, Task } from '../../src/core/types.js';
 

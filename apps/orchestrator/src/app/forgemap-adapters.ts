@@ -21,10 +21,10 @@ import type {
   StageTaskContext,
   TaskContextLookup,
   WorktreeKind,
-} from '../core/forgemap.js';
+} from '../core/context/forgemap.js';
 import type { TaskStore } from '../core/task-store.js';
-import type { WorkflowRegistry } from '../core/workflow-registry.js';
-import type { ProjectRegistry } from '../core/project-registry.js';
+import type { WorkflowRegistry } from '../core/registries/workflow-registry.js';
+import type { ProjectRegistry } from '../core/registries/project-registry.js';
 import { GitCli } from './git-cli.js';
 
 export class GitCliRepoStateProbe implements RepoStateProbe {

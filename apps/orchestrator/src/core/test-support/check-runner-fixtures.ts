@@ -1,8 +1,8 @@
-import { ApprovalGate } from '../approval-gate.js';
-import type { AgentRunner, AgentRunnerResumeRequest, AgentRunResult } from '../agent-runner.js';
-import { DefaultCheckRunner } from '../check-runner.js';
-import type { CheckRunnerArtifactStore, CheckRunnerCommandRunner } from '../check-runner.js';
-import type { ProjectMeta } from '../project-registry.js';
+import { ApprovalGate } from '../checks/approval-gate.js';
+import type { AgentRunner, AgentRunnerResumeRequest, AgentRunResult } from '../agent-runtime/agent-runner.js';
+import { DefaultCheckRunner } from '../checks/check-runner.js';
+import type { CheckRunnerArtifactStore, CheckRunnerCommandRunner } from '../checks/check-runner.js';
+import type { ProjectMeta } from '../registries/project-registry.js';
 import type { CreateCheckInput, TaskStore } from '../task-store.js';
 import type { Check, Step, Task, TaskStatus } from '../types.js';
 

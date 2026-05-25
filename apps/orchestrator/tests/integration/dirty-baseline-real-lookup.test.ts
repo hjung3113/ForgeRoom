@@ -20,13 +20,13 @@ import {
   BootstrapForgeMapStore,
   TaskStoreContextLookup,
 } from '../../src/app/forgemap-adapters.js';
-import { ForgeMapStagerImpl, ForgeMapStaleError } from '../../src/core/forgemap.js';
-import { ProjectRegistry } from '../../src/core/project-registry.js';
-import { WorkflowRegistry } from '../../src/core/workflow-registry.js';
-import { IntentRegistry } from '../../src/core/intent-registry.js';
-import { AgentRegistry } from '../../src/core/agent-registry.js';
-import { HarnessRegistry } from '../../src/core/harness-registry.js';
-import type { PipelineEngine } from '../../src/core/pipeline-engine.js';
+import { ForgeMapStagerImpl, ForgeMapStaleError } from '../../src/core/context/forgemap.js';
+import { ProjectRegistry } from '../../src/core/registries/project-registry.js';
+import { WorkflowRegistry } from '../../src/core/registries/workflow-registry.js';
+import { IntentRegistry } from '../../src/core/registries/intent-registry.js';
+import { AgentRegistry } from '../../src/core/agent-runtime/agent-registry.js';
+import { HarnessRegistry } from '../../src/core/agent-runtime/harness-registry.js';
+import type { PipelineEngine } from '../../src/core/engine/pipeline-engine.js';
 import type { Conductor } from '../../src/core/types.js';
 import {
   createTaskStoreDatabase,

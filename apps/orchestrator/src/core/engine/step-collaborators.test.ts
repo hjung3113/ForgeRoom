@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { StepCollaborators } from './step-collaborators.js';
 import type { ResolvedStep, StepOutputView, InterpolationSource } from '../../workflow/types.js';
 import type { Task } from '../types.js';
-import type { ProjectMeta } from '../project-registry.js';
+import type { ProjectMeta } from '../registries/project-registry.js';
 
 let worktree: string;
 

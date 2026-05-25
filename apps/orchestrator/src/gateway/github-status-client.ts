@@ -7,7 +7,7 @@
  * implements that port over the same {@link GitHubOctokitLike} surface the
  * GitHub gateway already uses, scoped to a single `owner/repo`.
  */
-import type { GitHubStatusClient } from '../core/reporter.js';
+import type { GitHubStatusClient } from '../core/reporting/reporter.js';
 import type { GitHubOctokitLike } from './github-gateway.js';
 
 /**

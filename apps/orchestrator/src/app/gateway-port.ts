@@ -17,7 +17,7 @@
  * root routes it through {@link startTask} too, so both TaskSources share one
  * admission path (ApprovalGate runs inside runFull).
  */
-import type { PipelineEngine, TaskInput } from '../core/pipeline-engine.js';
+import type { PipelineEngine, TaskInput } from '../core/engine/pipeline-engine.js';
 import type { Conductor, Task, TaskRequest } from '../core/types.js';
 import type { TaskStore } from '../core/task-store.js';
 import type { OrchestratorGatewayPort } from '../gateway/discord-gateway.js';

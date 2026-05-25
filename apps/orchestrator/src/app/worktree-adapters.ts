@@ -9,7 +9,7 @@
  */
 import { access, mkdir, writeFile } from 'node:fs/promises';
 
-import type { WorktreeFileSystem, WorktreeGitClient } from '../core/worktree-manager.js';
+import type { WorktreeFileSystem, WorktreeGitClient } from '../core/worktree/worktree-manager.js';
 import { GitCli } from './git-cli.js';
 
 /** Source repo a worktree path resolves to (cwd + base branch for `git worktree add`). */

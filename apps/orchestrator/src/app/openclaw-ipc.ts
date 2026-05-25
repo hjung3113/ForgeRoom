@@ -41,14 +41,14 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-import type { AgentRunFailureKind, ProviderHealth } from '../core/agent-runner.js';
+import type { AgentRunFailureKind, ProviderHealth } from '../core/agent-runtime/agent-runner.js';
 import type {
   OpenClawExecutionRequest,
   OpenClawHealthRequest,
   OpenClawIpcClient,
   OpenClawResumeRequest,
   OpenClawRunResponse,
-} from '../core/openclaw-provider.js';
+} from '../core/agent-runtime/openclaw-provider.js';
 import { spawnCaptured } from '../utils/subprocess.js';
 
 /** Grace window between SIGTERM and the escalation SIGKILL on timeout. */

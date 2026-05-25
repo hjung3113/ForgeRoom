@@ -18,11 +18,11 @@ import path from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
 
-import { AgentRegistry } from '../core/agent-registry.js';
-import { HarnessRegistry } from '../core/harness-registry.js';
-import { IntentRegistry } from '../core/intent-registry.js';
-import { ProjectRegistry } from '../core/project-registry.js';
-import { WorkflowRegistry } from '../core/workflow-registry.js';
+import { AgentRegistry } from '../core/agent-runtime/agent-registry.js';
+import { HarnessRegistry } from '../core/agent-runtime/harness-registry.js';
+import { IntentRegistry } from '../core/registries/intent-registry.js';
+import { ProjectRegistry } from '../core/registries/project-registry.js';
+import { WorkflowRegistry } from '../core/registries/workflow-registry.js';
 
 // ---------------------------------------------------------------------------
 // Registry bundle
