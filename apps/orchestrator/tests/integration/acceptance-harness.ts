@@ -27,6 +27,7 @@ import { SqliteTaskStore } from '../../src/db/sqlite-task-store.js';
 import { parseWorkflowConfig } from '../../src/dsl/workflow-parser.js';
 import { mastraWorkflowBuilder } from '../../src/dsl/to-mastra.js';
 import { IntentRegistry } from '../../src/core/registries/intent-registry.js';
+import { ModelPolicyRegistry } from '../../src/core/registries/model-policy-registry.js';
 import { ProjectRegistry } from '../../src/core/registries/project-registry.js';
 import { WorkflowRegistry } from '../../src/core/registries/workflow-registry.js';
 import { AgentRegistry } from '../../src/core/agent-runtime/agent-registry.js';
@@ -563,6 +564,8 @@ function assemble(tempDir: string, options: HarnessOptions): AcceptanceHarness {
     projectRegistry,
     workflowRegistry,
     intentRegistry,
+    modelPolicies: ModelPolicyRegistry.fromConfig({}),
+    agentRegistry,
     taskStore: store,
     worktreeManager,
     agentRunner,

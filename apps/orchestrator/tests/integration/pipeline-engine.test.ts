@@ -20,6 +20,7 @@ import {
 } from '../../src/db/client.js';
 import { SqliteTaskStore } from '../../src/db/sqlite-task-store.js';
 import { IntentRegistry } from '../../src/core/registries/intent-registry.js';
+import { ModelPolicyRegistry } from '../../src/core/registries/model-policy-registry.js';
 import { ProjectRegistry } from '../../src/core/registries/project-registry.js';
 import { WorkflowRegistry } from '../../src/core/registries/workflow-registry.js';
 import { parseWorkflowConfig } from '../../src/dsl/workflow-parser.js';
@@ -136,7 +137,11 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
-function buildWorkflowRegistry(yaml: string): { workflowRegistry: WorkflowRegistry; intents: IntentRegistry } {
+function buildWorkflowRegistry(yaml: string): {
+  workflowRegistry: WorkflowRegistry;
+  intents: IntentRegistry;
+  agents: AgentRegistry;
+} {
   const harnessRegistry = HarnessRegistry.fromConfig({
     planning: { source: 'harnesses/planning.md' },
     implementation: { source: 'harnesses/implementation.md' },
@@ -157,7 +162,7 @@ function buildWorkflowRegistry(yaml: string): { workflowRegistry: WorkflowRegist
     { intentRegistry, agentRegistry, harnessRegistry },
     { templateExists: () => true },
   );
-  return { workflowRegistry, intents: intentRegistry };
+  return { workflowRegistry, intents: intentRegistry, agents: agentRegistry };
 }
 
 function buildProjectRegistry(projectPath: string, workflowRegistry: WorkflowRegistry): ProjectRegistry {
@@ -253,7 +258,7 @@ async function setup(yaml: string, outputs: Record<string, string>): Promise<{
   };
   const forgeMap: ForgeMapStager = { stage: async (): Promise<void> => Promise.resolve() };
   const conductor = makeFakeConductor(commits);
-  const { workflowRegistry, intents } = buildWorkflowRegistry(yaml);
+  const { workflowRegistry, intents, agents } = buildWorkflowRegistry(yaml);
   const projectRegistry = buildProjectRegistry(projectPath, workflowRegistry);
   const snapshotDir = path.join(tempDir, 'snapshots');
 
@@ -289,6 +294,8 @@ async function setup(yaml: string, outputs: Record<string, string>): Promise<{
     projectRegistry,
     workflowRegistry,
     intentRegistry: intents,
+    modelPolicies: ModelPolicyRegistry.fromConfig({}),
+    agentRegistry: agents,
     taskStore: store,
     worktreeManager,
     agentRunner,

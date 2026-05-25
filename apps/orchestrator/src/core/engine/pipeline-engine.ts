@@ -28,6 +28,8 @@ import type { Conductor, Reporter, Task } from '../types.js';
 import type { TaskStore, CreateTaskInput } from '../task-store.js';
 import type { ProjectRegistry, ProjectMeta } from '../registries/project-registry.js';
 import type { IntentRegistry } from '../registries/intent-registry.js';
+import type { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
+import type { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import type { WorkflowRegistry } from '../registries/workflow-registry.js';
 import type { WorktreeManager } from '../worktree/worktree-manager.js';
 import type { CheckRunnerRequest } from '../checks/check-runner.js';
@@ -118,6 +120,10 @@ export interface PipelineEngineDeps {
   projectRegistry: ProjectRegistry;
   workflowRegistry: WorkflowRegistry;
   intentRegistry: IntentRegistry;
+  /** Static model policies (ADR-024); resolves a policy ref to a runtime target. */
+  modelPolicies: ModelPolicyRegistry;
+  /** Agent registry for the agent-derived runtime-target fallback (ADR-024). */
+  agentRegistry: AgentRegistry;
   /**
    * Resolved-workflow → Mastra builder port (ADR-022). dsl's `mastraWorkflowBuilder`
    * is injected at the composition root so core depends on the neutral port, not
@@ -641,6 +647,9 @@ export class MastraPipelineEngine implements PipelineEngine {
         agentRunner: this.deps.agentRunner,
         checkRunner: this.deps.checkRunner,
         taskStore: this.deps.taskStore,
+        intentRegistry: this.deps.intentRegistry,
+        modelPolicies: this.deps.modelPolicies,
+        agentRegistry: this.deps.agentRegistry,
       },
       callbacks: {
         recordStepRow: (args) => this.recordStepRow(args),

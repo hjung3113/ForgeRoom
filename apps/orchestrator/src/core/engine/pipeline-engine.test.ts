@@ -16,6 +16,7 @@ import {
 } from '../../db/client.js';
 import { SqliteTaskStore } from '../../db/sqlite-task-store.js';
 import { IntentRegistry } from '../registries/intent-registry.js';
+import { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
 import { ProjectRegistry } from '../registries/project-registry.js';
 import { WorkflowRegistry } from '../registries/workflow-registry.js';
 import { parseWorkflowConfig } from '../../dsl/workflow-parser.js';
@@ -167,6 +168,8 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     projectRegistry,
     workflowRegistry,
     intentRegistry,
+    modelPolicies: ModelPolicyRegistry.fromConfig({}),
+    agentRegistry,
     taskStore: store,
     worktreeManager,
     agentRunner,

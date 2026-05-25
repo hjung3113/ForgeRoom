@@ -273,6 +273,8 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     projectRegistry: registries.projects,
     workflowRegistry: registries.workflows,
     intentRegistry: registries.intents,
+    modelPolicies: registries.modelPolicies,
+    agentRegistry: registries.agents,
     workflowBuilder: mastraWorkflowBuilder,
     taskStore,
     worktreeManager,
