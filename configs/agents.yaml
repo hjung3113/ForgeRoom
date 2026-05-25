@@ -1,7 +1,7 @@
 claude:
   provider: openclaw
   runtime: claude-cli
-  model: anthropic/claude-opus-4-7
+  model: claude-cli/claude-opus-4-7
   harness: planning
 
 codex:
