@@ -9,7 +9,7 @@
  */
 import type { Client } from 'discord.js';
 
-import type { DiscordStatusClient } from '../core/reporter.js';
+import type { DiscordStatusClient } from '../core/reporting/reporter.js';
 
 /**
  * The narrow text-channel surface this adapter needs from a fetched channel.

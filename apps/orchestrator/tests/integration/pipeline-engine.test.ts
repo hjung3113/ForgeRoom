@@ -19,24 +19,24 @@ import {
   type TaskStoreDatabase,
 } from '../../src/db/client.js';
 import { SqliteTaskStore } from '../../src/db/sqlite-task-store.js';
-import { IntentRegistry } from '../../src/core/intent-registry.js';
-import { ProjectRegistry } from '../../src/core/project-registry.js';
-import { WorkflowRegistry } from '../../src/core/workflow-registry.js';
+import { IntentRegistry } from '../../src/core/registries/intent-registry.js';
+import { ProjectRegistry } from '../../src/core/registries/project-registry.js';
+import { WorkflowRegistry } from '../../src/core/registries/workflow-registry.js';
 import { parseWorkflowConfig } from '../../src/dsl/workflow-parser.js';
-import { AgentRegistry } from '../../src/core/agent-registry.js';
-import { HarnessRegistry } from '../../src/core/harness-registry.js';
-import { ApprovalGate } from '../../src/core/approval-gate.js';
-import type { AgentRunner, AgentRunResult } from '../../src/core/agent-runner.js';
+import { AgentRegistry } from '../../src/core/agent-runtime/agent-registry.js';
+import { HarnessRegistry } from '../../src/core/agent-runtime/harness-registry.js';
+import { ApprovalGate } from '../../src/core/checks/approval-gate.js';
+import type { AgentRunner, AgentRunResult } from '../../src/core/agent-runtime/agent-runner.js';
 import type { CheckRunResult } from '../../src/core/types.js';
 import type { Conductor, Reporter, ReporterEvent, StepResult } from '../../src/core/types.js';
-import type { CheckRunnerRequest } from '../../src/core/check-runner.js';
+import type { CheckRunnerRequest } from '../../src/core/checks/check-runner.js';
 import type { Task } from '../../src/core/types.js';
 import {
   MastraPipelineEngine,
   FileSnapshotBridge,
   type ForgeMapStager,
   type PipelineEngineDeps,
-} from '../../src/core/pipeline-engine.js';
+} from '../../src/core/engine/pipeline-engine.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures

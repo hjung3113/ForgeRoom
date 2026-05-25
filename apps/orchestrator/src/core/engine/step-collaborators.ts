@@ -1,12 +1,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { AgentRunner } from '../agent-runner.js';
-import type { ApprovalGate } from '../approval-gate.js';
-import type { CheckRunnerRequest } from '../check-runner.js';
+import type { AgentRunner } from '../agent-runtime/agent-runner.js';
+import type { ApprovalGate } from '../checks/approval-gate.js';
+import type { CheckRunnerRequest } from '../checks/check-runner.js';
 import { OrchestratorError } from '../errors.js';
-import { parseReviewPassedOutput, parseSlicesOutput } from '../output-selectors.js';
-import type { ProjectMeta } from '../project-registry.js';
+import { parseReviewPassedOutput, parseSlicesOutput } from './output-selectors.js';
+import type { ProjectMeta } from '../registries/project-registry.js';
 import type { TaskStore } from '../task-store.js';
 import type { Conductor, ReporterEvent, Step, StepResult, Task } from '../types.js';
 import type { CheckRunResult } from '../types.js';

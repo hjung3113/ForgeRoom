@@ -1,7 +1,7 @@
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { ConductorGit } from '../core/conductor.js';
+import type { ConductorGit } from '../core/conductor/conductor.js';
 import { GitCli } from './git-cli.js';
 
 export interface GitCliConductorGitOptions {

@@ -2,7 +2,7 @@ import { Mastra } from '@mastra/core';
 import { MockStore } from '@mastra/core/storage';
 import { describe, expect, it, vi } from 'vitest';
 
-import { IntentRegistry } from '../core/intent-registry.js';
+import { IntentRegistry } from '../core/registries/intent-registry.js';
 import { AdapterValidationError } from './dsl-errors.js';
 import {
   adapterCacheKey,

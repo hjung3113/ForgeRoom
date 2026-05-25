@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { OpenClawExecutionRequest } from '../core/openclaw-provider.js';
+import type { OpenClawExecutionRequest } from '../core/agent-runtime/openclaw-provider.js';
 import {
   OpenClawCliClient,
   OpenClawCliConfigError,

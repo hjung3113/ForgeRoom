@@ -12,7 +12,7 @@ Read [context-map.md](context-map.md) before starting work in this folder.
 1. **Single process.** Do not introduce multi-worker or cluster code (that belongs in Phase 3).
 2. **Dependency injection.** Modules receive their dependencies via the constructor. No globals or singletons.
 3. **Folder responsibilities are strict:**
-   - `core/` — business logic (PipelineEngine, Conductor, AgentRunner, WorktreeManager, CheckRunner, Reporter, ApprovalGate, registries, the TaskStore interface)
+   - `core/` — business logic, organized into subfolders (ADR-021): `engine/` (pipeline + step collaborators + PR external effect + output selectors), `agent-runtime/` (agent-runner, agent/harness registries, openclaw-provider), `registries/` (project/workflow/intent config lookup), `conductor/`, `checks/` (check-runner, approval-gate), `reporting/`, `worktree/`, `context/` (forgemap), `effects/` (pull-request-creator). Root keeps `types.ts`, `errors.ts`, `task-store.ts`. Tests stay colocated.
    - `gateway/` — adapters for external surfaces (Discord, GitHub)
    - `dsl/` — workflow yaml → Mastra builder (consumes a resolved workflow; no parsing/semantic-validation of its own)
    - `workflow/` — neutral workflow contract layer (ADR-020): schema/types/expression. Owns the single `ParsedForgeWorkflow`/`ResolvedWorkflow` types, the `source → ParsedForgeWorkflow` parser, and the expression grammar. Imports nothing from sibling folders.

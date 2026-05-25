@@ -1,9 +1,9 @@
-import type { ProjectMeta } from '../project-registry.js';
+import type { ProjectMeta } from '../registries/project-registry.js';
 import {
   PullRequestCreateFailedError,
   type PullRequestCreator,
   type PullRequestEffectRequest,
-} from '../pull-request-creator.js';
+} from '../effects/pull-request-creator.js';
 import type { TaskStore } from '../task-store.js';
 import type { Reporter, Task } from '../types.js';
 import type { WorkflowPrEffect } from '../../workflow/types.js';

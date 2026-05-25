@@ -13,10 +13,10 @@
  * (renderPrompt -> runAgent -> runChecks -> saveDiff -> conductorUpdate) so the
  * trace shape matches production step boundaries.
  */
-import { AgentRegistry } from '../core/agent-registry.js';
-import { HarnessRegistry } from '../core/harness-registry.js';
-import { IntentRegistry } from '../core/intent-registry.js';
-import { WorkflowRegistry } from '../core/workflow-registry.js';
+import { AgentRegistry } from '../core/agent-runtime/agent-registry.js';
+import { HarnessRegistry } from '../core/agent-runtime/harness-registry.js';
+import { IntentRegistry } from '../core/registries/intent-registry.js';
+import { WorkflowRegistry } from '../core/registries/workflow-registry.js';
 import { toMastraWorkflow, type BuiltMastraWorkflow } from '../dsl/to-mastra.js';
 import { parseWorkflowConfig } from '../dsl/workflow-parser.js';
 import type {
@@ -28,7 +28,7 @@ import type {
   ResolvedStep,
   StepOutputView,
 } from '../workflow/types.js';
-import { parseSlicesOutput, parseReviewPassedOutput } from '../core/output-selectors.js';
+import { parseSlicesOutput, parseReviewPassedOutput } from '../core/engine/output-selectors.js';
 import { SAMPLE_WORKFLOW_ID, SAMPLE_WORKFLOW_YAML, SAMPLE_INTENTS } from './sample-config.js';
 
 /**

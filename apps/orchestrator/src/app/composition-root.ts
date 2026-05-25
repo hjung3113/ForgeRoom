@@ -30,23 +30,23 @@
  */
 import { randomUUID } from 'node:crypto';
 
-import { DefaultAgentRunner, type AgentRunner } from '../core/agent-runner.js';
-import { ApprovalGate } from '../core/approval-gate.js';
-import { DefaultCheckRunner } from '../core/check-runner.js';
+import { DefaultAgentRunner, type AgentRunner } from '../core/agent-runtime/agent-runner.js';
+import { ApprovalGate } from '../core/checks/approval-gate.js';
+import { DefaultCheckRunner } from '../core/checks/check-runner.js';
 import {
   AgentRunnerConductorAgent,
   FileConductor,
-} from '../core/conductor.js';
-import { ForgeMapStagerImpl } from '../core/forgemap.js';
-import { OpenClawProvider, type OpenClawIpcClient } from '../core/openclaw-provider.js';
+} from '../core/conductor/conductor.js';
+import { ForgeMapStagerImpl } from '../core/context/forgemap.js';
+import { OpenClawProvider, type OpenClawIpcClient } from '../core/agent-runtime/openclaw-provider.js';
 import {
   FileSnapshotBridge,
   MastraPipelineEngine,
   type PipelineEngine,
   type PipelineEngineDeps,
   type PullRequestTarget,
-} from '../core/pipeline-engine.js';
-import { PullRequestCreator } from '../core/pull-request-creator.js';
+} from '../core/engine/pipeline-engine.js';
+import { PullRequestCreator } from '../core/effects/pull-request-creator.js';
 import {
   DiscordReporterSink,
   GitHubReporterSink,
@@ -54,7 +54,7 @@ import {
   type DiscordStatusClient,
   type GitHubStatusClient,
   type ReporterStore,
-} from '../core/reporter.js';
+} from '../core/reporting/reporter.js';
 import type { TaskStore } from '../core/task-store.js';
 import type {
   Conductor,
@@ -63,7 +63,7 @@ import type {
   Task,
   TaskRequest,
 } from '../core/types.js';
-import { WorktreeManager } from '../core/worktree-manager.js';
+import { WorktreeManager } from '../core/worktree/worktree-manager.js';
 import { NodeCommandRunner } from '../utils/command-runner.js';
 import { readFile, writeFile } from 'node:fs/promises';
 

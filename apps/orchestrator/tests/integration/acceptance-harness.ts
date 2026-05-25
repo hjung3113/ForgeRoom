@@ -25,46 +25,46 @@ import { randomUUID } from 'node:crypto';
 import { createTaskStoreDatabase, migrateTaskStoreDatabase } from '../../src/db/client.js';
 import { SqliteTaskStore } from '../../src/db/sqlite-task-store.js';
 import { parseWorkflowConfig } from '../../src/dsl/workflow-parser.js';
-import { IntentRegistry } from '../../src/core/intent-registry.js';
-import { ProjectRegistry } from '../../src/core/project-registry.js';
-import { WorkflowRegistry } from '../../src/core/workflow-registry.js';
-import { AgentRegistry } from '../../src/core/agent-registry.js';
-import { HarnessRegistry } from '../../src/core/harness-registry.js';
-import { ApprovalGate } from '../../src/core/approval-gate.js';
-import { DefaultAgentRunner } from '../../src/core/agent-runner.js';
-import { OpenClawProvider } from '../../src/core/openclaw-provider.js';
-import { DefaultCheckRunner } from '../../src/core/check-runner.js';
+import { IntentRegistry } from '../../src/core/registries/intent-registry.js';
+import { ProjectRegistry } from '../../src/core/registries/project-registry.js';
+import { WorkflowRegistry } from '../../src/core/registries/workflow-registry.js';
+import { AgentRegistry } from '../../src/core/agent-runtime/agent-registry.js';
+import { HarnessRegistry } from '../../src/core/agent-runtime/harness-registry.js';
+import { ApprovalGate } from '../../src/core/checks/approval-gate.js';
+import { DefaultAgentRunner } from '../../src/core/agent-runtime/agent-runner.js';
+import { OpenClawProvider } from '../../src/core/agent-runtime/openclaw-provider.js';
+import { DefaultCheckRunner } from '../../src/core/checks/check-runner.js';
 import {
   AgentRunnerConductorAgent,
   FileConductor,
   type ConductorGit,
-} from '../../src/core/conductor.js';
+} from '../../src/core/conductor/conductor.js';
 import {
   ForgeMapStagerImpl,
   type ForgeMapStore,
   type RepoStateProbe,
   type TaskContextLookup,
-} from '../../src/core/forgemap.js';
+} from '../../src/core/context/forgemap.js';
 import {
   MastraPipelineEngine,
   FileSnapshotBridge,
   type PipelineEngineDeps,
   type PullRequestTarget,
-} from '../../src/core/pipeline-engine.js';
+} from '../../src/core/engine/pipeline-engine.js';
 import { OrchestratorGatewayPortImpl } from '../../src/app/gateway-port.js';
 import type {
   OpenClawExecutionRequest,
   OpenClawIpcClient,
   OpenClawResumeRequest,
   OpenClawRunResponse,
-} from '../../src/core/openclaw-provider.js';
-import type { ProviderHealth } from '../../src/core/agent-runner.js';
+} from '../../src/core/agent-runtime/openclaw-provider.js';
+import type { ProviderHealth } from '../../src/core/agent-runtime/agent-runner.js';
 import type { CommandRunner, CommandRunnerInput, CommandRunnerResult } from '../../src/utils/command-runner.js';
 import type {
   PullRequestCreator,
   PullRequestEffectRequest,
   PullRequestEffectResult,
-} from '../../src/core/pull-request-creator.js';
+} from '../../src/core/effects/pull-request-creator.js';
 import type { Event, Reporter, ReporterEvent, Task } from '../../src/core/types.js';
 
 // ---------------------------------------------------------------------------
