@@ -9,6 +9,20 @@ export type AgentRunFailureKind = Extract<
   'runtime_unavailable' | 'auth_failed' | 'timeout' | 'agent_error' | 'output_contract_failed'
 >;
 
+/**
+ * Provider-neutral execution target (ADR-023). Carries WHICH runtime/model a
+ * step runs on, decoupled from `ResolvedAgent`. ModelPolicyRegistry (#62) will
+ * produce these; until then DefaultAgentRunner derives one from the resolved
+ * agent. RuntimeCapabilities is intentionally out of scope.
+ */
+export interface ResolvedRuntimeTarget {
+  /** Maps from `ResolvedAgent.provider` (e.g. 'openclaw'). */
+  providerId: string;
+  runtime: string;
+  model: string;
+  permissionProfile?: string;
+}
+
 export interface AgentRunRequest {
   agentId: string;
   promptPath: string;
@@ -18,6 +32,12 @@ export interface AgentRunRequest {
   cwd: string;
   mode: 'headless' | 'pty';
   timeoutMs?: number;
+  /**
+   * Provider-neutral runtime/model target (ADR-023). When present a provider
+   * prefers it over `ResolvedAgent`; absent, the provider falls back to the
+   * resolved agent's runtime/model.
+   */
+  runtimeTarget?: ResolvedRuntimeTarget;
 }
 
 type AgentRunRequestWithTimeout = AgentRunRequest & {
@@ -110,7 +130,7 @@ export class DefaultAgentRunner implements AgentRunner {
 
   async run(req: AgentRunRequest): Promise<AgentRunResult> {
     const agent = this.agentRegistry.resolve(req.agentId);
-    const runRequest = withDefaultTimeout(req, this.defaultTimeoutMs);
+    const runRequest = withRuntimeTarget(withDefaultTimeout(req, this.defaultTimeoutMs), agent);
     const result = await this.provider.run(runRequest, agent);
 
     return this.completeOutputAttempts({
@@ -123,9 +143,12 @@ export class DefaultAgentRunner implements AgentRunner {
 
   async resume(req: AgentRunnerResumeRequest): Promise<AgentRunResult> {
     const agent = this.agentRegistry.resolve(req.agentId);
-    const runRequest = withDefaultTimeout(toRunRequest(req), this.defaultTimeoutMs);
+    const runRequest = withRuntimeTarget(withDefaultTimeout(toRunRequest(req), this.defaultTimeoutMs), agent);
     const result = req.sessionId
-      ? await this.provider.resume(toProviderResumeRequest(req, req.sessionId, runRequest.timeoutMs), agent)
+      ? await this.provider.resume(
+          toProviderResumeRequest(req, req.sessionId, runRequest.timeoutMs, runRequest.runtimeTarget),
+          agent,
+        )
       : await this.provider.run({ ...runRequest, promptPath: req.addendumPromptPath }, agent);
 
     return this.completeOutputAttempts({
@@ -238,6 +261,7 @@ function toRetryResumeRequest(
     cwd: req.cwd,
     mode: req.mode,
     ...(req.timeoutMs === undefined ? {} : { timeoutMs: req.timeoutMs }),
+    ...(req.runtimeTarget === undefined ? {} : { runtimeTarget: req.runtimeTarget }),
   };
 }
 
@@ -245,6 +269,7 @@ function toProviderResumeRequest(
   req: AgentRunnerResumeRequest,
   sessionId: string,
   timeoutMs: number,
+  runtimeTarget: ResolvedRuntimeTarget | undefined,
 ): AgentResumeRequest {
   return {
     sessionId,
@@ -255,6 +280,7 @@ function toProviderResumeRequest(
     cwd: req.cwd,
     mode: req.mode,
     timeoutMs,
+    ...(runtimeTarget === undefined ? {} : { runtimeTarget }),
   };
 }
 
@@ -276,6 +302,23 @@ function withDefaultTimeout(req: AgentRunRequest, defaultTimeoutMs: number): Age
     ...req,
     timeoutMs: req.timeoutMs ?? defaultTimeoutMs,
   };
+}
+
+/** Provider-neutral target derived from the resolved agent (ADR-023). */
+function runtimeTargetFor(agent: ResolvedAgent): ResolvedRuntimeTarget {
+  return { providerId: agent.provider, runtime: agent.runtime, model: agent.model };
+}
+
+/**
+ * Ensure the request carries a runtime target. An explicit caller-provided
+ * target (e.g. from a future ModelPolicyRegistry) wins; otherwise derive one
+ * from the resolved agent so providers always receive a target.
+ */
+function withRuntimeTarget<T extends AgentRunRequest>(req: T, agent: ResolvedAgent): T {
+  if (req.runtimeTarget !== undefined) {
+    return req;
+  }
+  return { ...req, runtimeTarget: runtimeTargetFor(agent) };
 }
 
 function isMissingFileError(error: unknown): boolean {
