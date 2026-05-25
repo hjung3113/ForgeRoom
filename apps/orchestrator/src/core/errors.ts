@@ -8,6 +8,7 @@ export const ORCHESTRATOR_FAILURE_CODES = [
   'review_loop_max_iterations',
   'git_conflict',
   'pr_create_failed',
+  'branch_publish_failed',
 ] as const;
 
 export type OrchestratorFailureCode = (typeof ORCHESTRATOR_FAILURE_CODES)[number];
