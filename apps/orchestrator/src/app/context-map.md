@@ -21,6 +21,7 @@ runnable entry (`main.ts`).
 | `conductor-git.ts` | Git-backed Conductor scope-guard adapter | [Docs/modules/conductor.md](../../../../Docs/modules/conductor.md) |
 | `git-cli.ts` | Shared Git CLI primitive adapter for app-level git integrations | — |
 | `gateway-port.ts` | `OrchestratorGatewayPort` facade over PipelineEngine / Conductor / TaskStore | [Docs/modules/discord-gateway.md](../../../../Docs/modules/discord-gateway.md) |
+| `openclaw-provider.ts` | `AgentRuntimeProvider` implementation over OpenClaw IPC + its OpenClaw-specific transport types (relocated out of `core/`: ADR-023 scope B, #71) | [ADR-012](../../../../Docs/decisions/2026-05-22-012-agent-runtime-provider-boundary.md) |
 | `openclaw-ipc.ts` | Boot OpenClaw IPC client (real subprocess: #31) | [ADR-012](../../../../Docs/decisions/2026-05-22-012-agent-runtime-provider-boundary.md) |
 | `worktree-adapters.ts` | Git-CLI worktree client + node-fs file system | [Docs/modules/worktree-manager.md](../../../../Docs/modules/worktree-manager.md) |
 | `worktree-naming.ts` | Branch + worktree path naming | — |

@@ -9,7 +9,9 @@ Read [context-map.md](context-map.md) first.
 
 ## Scope
 
-Agent runtime abstractions, agent/harness registries, and the OpenClaw provider.
+Provider-neutral agent runtime abstractions and agent/harness registries. The
+concrete agent-runtime provider lives in `app/` (ADR-023 scope B, #71); this
+folder must stay free of provider-specific symbols.
 
 ## Rules
 

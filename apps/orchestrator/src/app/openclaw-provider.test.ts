@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AgentResumeRequest, AgentRunRequest, AgentRunResult, ProviderHealth } from './agent-runner.js';
+import type {
+  AgentResumeRequest,
+  AgentRunRequest,
+  AgentRunResult,
+  ProviderHealth,
+} from '../core/agent-runtime/agent-runner.js';
 import type {
   OpenClawExecutionRequest,
   OpenClawHealthRequest,
@@ -9,7 +14,7 @@ import type {
   OpenClawRunResponse,
 } from './openclaw-provider.js';
 import { OpenClawProvider } from './openclaw-provider.js';
-import type { ResolvedAgent } from './agent-registry.js';
+import type { ResolvedAgent } from '../core/agent-runtime/agent-registry.js';
 
 class FakeOpenClawIpcClient implements OpenClawIpcClient {
   healthRequests: OpenClawHealthRequest[] = [];

@@ -5,8 +5,8 @@ import type {
   AgentResumeRequest,
   AgentRuntimeProvider,
   ProviderHealth,
-} from './agent-runner.js';
-import type { ResolvedAgent } from './agent-registry.js';
+} from '../core/agent-runtime/agent-runner.js';
+import type { ResolvedAgent } from '../core/agent-runtime/agent-registry.js';
 
 export interface OpenClawHealthRequest {
   endpoint: string;

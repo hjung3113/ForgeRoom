@@ -17,8 +17,7 @@ The business logic of ForgeRoom: workflow execution, agent orchestration, worktr
 | `pipeline-executor.ts` | PipelineEngine run/group/review_loop execution internals | [Docs/modules/pipeline-engine.md](../../../../Docs/modules/pipeline-engine.md) |
 | `pipeline-lifecycle.ts` | PipelineEngine pause, resume, and cancel state transitions | [Docs/modules/pipeline-engine.md](../../../../Docs/modules/pipeline-engine.md) |
 | `conductor.ts` | Conductor | [Docs/modules/conductor.md](../../../../Docs/modules/conductor.md) |
-| `agent-runner.ts` | AgentRunner (delegates to OpenClaw) | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
-| `openclaw-provider.ts` | MVP OpenClaw AgentRuntimeProvider implementation | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
+| `agent-runtime/agent-runner.ts` | AgentRunner (delegates to an injected provider-neutral `AgentRuntimeProvider`) | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
 | `worktree-manager.ts` | WorktreeManager | [Docs/modules/worktree-manager.md](../../../../Docs/modules/worktree-manager.md) |
 | `check-runner.ts` | CheckRunner | [Docs/modules/check-runner.md](../../../../Docs/modules/check-runner.md) |
 | `reporter.ts` | Reporter | [Docs/modules/reporter.md](../../../../Docs/modules/reporter.md) |
@@ -28,7 +27,7 @@ The business logic of ForgeRoom: workflow execution, agent orchestration, worktr
 | `output-selectors.ts` | PipelineEngine output selector parsing helpers | [Docs/modules/pipeline-engine.md](../../../../Docs/modules/pipeline-engine.md) |
 | `pipeline-paths.ts` | PipelineEngine task branch, worktree, and step artifact path builders | [Docs/concepts/prompt-file-protocol.md](../../../../Docs/concepts/prompt-file-protocol.md) |
 | `intent-registry.ts` | Intent registry validation and lookup | [Docs/concepts/workflow-dsl.md](../../../../Docs/concepts/workflow-dsl.md) |
-| `agent-registry.ts` | Phase 1 OpenClaw agent registry validation and lookup | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
+| `agent-runtime/agent-registry.ts` | Phase 1 agent registry validation and lookup | [Docs/modules/agent-runner.md](../../../../Docs/modules/agent-runner.md) |
 | `harness-registry.ts` | Step Harness registry validation and lookup | [Docs/concepts/workflow-dsl.md](../../../../Docs/concepts/workflow-dsl.md) |
 | `task-store.ts` | TaskStore interface and create-task input contract | [Docs/modules/task-store.md](../../../../Docs/modules/task-store.md) |
 | `types.ts` | Exported task, step, check, and shared contract types | [Docs/concepts/data-model.md](../../../../Docs/concepts/data-model.md) |
