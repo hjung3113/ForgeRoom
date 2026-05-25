@@ -40,6 +40,12 @@ import {
   BranchPublisher,
   type BranchPublishPort,
 } from '../effects/branch-publisher.js';
+import {
+  IssueLabelLifecycleEffect,
+  type IssueLabelPort,
+  type AddLabelArgs,
+  type RemoveLabelArgs,
+} from '../effects/issue-label-lifecycle.js';
 import type { ReporterEvent } from '../types.js';
 
 const INTENTS = {
@@ -574,6 +580,141 @@ describe('MastraPipelineEngine branch-publication external-effect phase (ADR-025
     const engine = new MastraPipelineEngine(d);
     const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
 
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Label-lifecycle external effect (ADR-026, #64)
+// ---------------------------------------------------------------------------
+
+interface FakeLabelCalls {
+  add: AddLabelArgs[];
+  remove: RemoveLabelArgs[];
+}
+
+function fakeLabelPort(options: { error?: Error } = {}): { port: IssueLabelPort; calls: FakeLabelCalls } {
+  const calls: FakeLabelCalls = { add: [], remove: [] };
+  const port: IssueLabelPort = {
+    addLabel: async (args) => {
+      if (options.error !== undefined) {
+        throw options.error;
+      }
+      calls.add.push(args);
+    },
+    removeLabel: async (args) => {
+      if (options.error !== undefined) {
+        throw options.error;
+      }
+      calls.remove.push(args);
+    },
+  };
+  return { port, calls };
+}
+
+const labelTarget = (): { owner: string; repo: string } => ({ owner: 'acme', repo: 'widget' });
+
+const FAILING_AGENT_RUNNER: AgentRunner = {
+  run: async (req): Promise<AgentRunResult> =>
+    ({
+      exitCode: 1,
+      failureKind: 'agent_error',
+      outputExists: false,
+      outputBytes: 0,
+      durationMs: 1,
+      sessionId: null,
+      stdoutPath: req.stdoutPath,
+      stderrPath: req.stderrPath,
+    }) as AgentRunResult,
+  resume: async (req): Promise<AgentRunResult> =>
+    ({
+      exitCode: 1,
+      failureKind: 'agent_error',
+      outputExists: false,
+      outputBytes: 0,
+      durationMs: 1,
+      sessionId: null,
+      stdoutPath: req.stdoutPath,
+      stderrPath: req.stderrPath,
+    }) as AgentRunResult,
+};
+
+describe('MastraPipelineEngine label-lifecycle external effect (ADR-026)', () => {
+  it('relabels issue ready-for-human on done for an issue-triggered task', async () => {
+    const { port, calls } = fakeLabelPort();
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({ labelEffect, labelTargetFor: labelTarget });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'github-issue-label',
+      issueNumber: 99,
+    });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+    expect(calls.remove).toHaveLength(1);
+    expect(calls.remove[0]).toMatchObject({ name: 'ready-for-agent', issue_number: 99 });
+    expect(calls.add).toHaveLength(1);
+    expect(calls.add[0]).toMatchObject({ labels: ['ready-for-human'], issue_number: 99 });
+  });
+
+  it('relabels issue needs-info on failed for an issue-triggered task', async () => {
+    const { port, calls } = fakeLabelPort();
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({ agentRunner: FAILING_AGENT_RUNNER, labelEffect, labelTargetFor: labelTarget });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'github-issue-label',
+      issueNumber: 77,
+    });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('failed');
+    expect(calls.remove).toHaveLength(1);
+    expect(calls.remove[0]).toMatchObject({ name: 'ready-for-agent', issue_number: 77 });
+    expect(calls.add).toHaveLength(1);
+    expect(calls.add[0]).toMatchObject({ labels: ['needs-info'], issue_number: 77 });
+  });
+
+  it('does not call the label port for a discord-command task', async () => {
+    const { port, calls } = fakeLabelPort();
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({ labelEffect, labelTargetFor: labelTarget });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'discord-command',
+    });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+    expect(calls.add).toHaveLength(0);
+    expect(calls.remove).toHaveLength(0);
+  });
+
+  it('does not change task status when the label port throws', async () => {
+    const { port } = fakeLabelPort({ error: new Error('GitHub 500') });
+    const labelEffect = new IssueLabelLifecycleEffect({ port, log: () => {} });
+    const d = deps({ labelEffect, labelTargetFor: labelTarget });
+    const engine = new MastraPipelineEngine(d);
+
+    const taskId = await engine.runFull('proj', {
+      title: 't',
+      description: 'd',
+      source: 'github-issue-label',
+      issueNumber: 55,
+    });
+
+    // Task must remain done despite port failure.
     const task = await d.taskStore.getTask(taskId);
     expect(task?.status).toBe('done');
   });

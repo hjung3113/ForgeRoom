@@ -48,6 +48,8 @@ import {
 } from '../core/engine/pipeline-engine.js';
 import { PullRequestCreator } from '../core/effects/pull-request-creator.js';
 import { BranchPublisher } from '../core/effects/branch-publisher.js';
+import { IssueLabelLifecycleEffect } from '../core/effects/issue-label-lifecycle.js';
+import { GitHubIssueLabelClient } from '../gateway/github/issue-label-client.js';
 import {
   DiscordReporterSink,
   GitHubReporterSink,
@@ -273,6 +275,9 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
   const gitCli = new GitCli();
   const branchPublisher = new BranchPublisher({ port: gitCli });
 
+  // --- Label-lifecycle side-effect (ADR-026) ---------------------------------
+  const { labelEffect, labelTargetFor } = buildLabelEffect({ env, overrides, repoTargetForTask, log });
+
   // --- PipelineEngine -------------------------------------------------------
   const engineDeps: PipelineEngineDeps = {
     projectRegistry: registries.projects,
@@ -290,6 +295,8 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     ...(pullRequestCreator === null ? {} : { pullRequestCreator }),
     ...(prTargetFor === null ? {} : { prTargetFor }),
     branchPublisher,
+    ...(labelEffect === null ? {} : { labelEffect }),
+    ...(labelTargetFor === null ? {} : { labelTargetFor }),
     allowedWorktreeRoots: env.allowedWorktreeRoots,
     worktreePathFor: (input): string =>
       worktreePathFor({ root: env.allowedWorktreeRoots[0] ?? '', projectId: input.projectId, taskId: input.taskId }),
@@ -426,6 +433,33 @@ function buildPullRequestEffect(input: {
     return { owner: repoTarget.owner, repo: repoTarget.repo, base: repoTarget.baseBranch };
   };
   return { pullRequestCreator, prTargetFor };
+}
+
+function buildLabelEffect(input: {
+  env: OrchestratorEnv;
+  overrides: ExternalAdapterOverrides;
+  repoTargetForTask: (task: Task) => RepoTarget | null;
+  log: (line: string) => void;
+}): {
+  labelEffect: IssueLabelLifecycleEffect | null;
+  labelTargetFor: ((task: Task) => { owner: string; repo: string } | null) | null;
+} {
+  const { env, overrides, repoTargetForTask, log } = input;
+  if (env.github === null && overrides.gitHubOctokit === undefined) {
+    return { labelEffect: null, labelTargetFor: null };
+  }
+  const octokit = overrides.gitHubOctokit ?? createGitHubClient(env.github?.token ?? '');
+  const port = new GitHubIssueLabelClient(octokit);
+  const effect = new IssueLabelLifecycleEffect({ port, log });
+
+  const labelTargetFor = (task: Task): { owner: string; repo: string } | null => {
+    const repoTarget = repoTargetForTask(task);
+    if (repoTarget === null || repoTarget.owner === null || repoTarget.repo === null) {
+      return null;
+    }
+    return { owner: repoTarget.owner, repo: repoTarget.repo };
+  };
+  return { labelEffect: effect, labelTargetFor };
 }
 
 function buildDiscordGateway(input: {
