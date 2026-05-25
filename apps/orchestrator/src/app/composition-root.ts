@@ -47,6 +47,7 @@ import {
   type PullRequestTarget,
 } from '../core/engine/pipeline-engine.js';
 import { PullRequestCreator } from '../core/effects/pull-request-creator.js';
+import { mastraWorkflowBuilder } from '../dsl/to-mastra.js';
 import {
   DiscordReporterSink,
   GitHubReporterSink,
@@ -272,6 +273,7 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     projectRegistry: registries.projects,
     workflowRegistry: registries.workflows,
     intentRegistry: registries.intents,
+    workflowBuilder: mastraWorkflowBuilder,
     taskStore,
     worktreeManager,
     agentRunner,

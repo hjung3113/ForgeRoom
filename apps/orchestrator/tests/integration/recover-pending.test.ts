@@ -26,6 +26,7 @@ import { IntentRegistry } from '../../src/core/registries/intent-registry.js';
 import { ProjectRegistry } from '../../src/core/registries/project-registry.js';
 import { WorkflowRegistry } from '../../src/core/registries/workflow-registry.js';
 import { parseWorkflowConfig } from '../../src/dsl/workflow-parser.js';
+import { mastraWorkflowBuilder } from '../../src/dsl/to-mastra.js';
 import { AgentRegistry } from '../../src/core/agent-runtime/agent-registry.js';
 import { HarnessRegistry } from '../../src/core/agent-runtime/harness-registry.js';
 import { ApprovalGate } from '../../src/core/checks/approval-gate.js';
@@ -327,6 +328,7 @@ async function setup(yaml: string): Promise<Harness> {
     reporter,
     forgeMap,
     snapshotBridge: new FileSnapshotBridge(snapshotDir),
+    workflowBuilder: mastraWorkflowBuilder,
     allowedWorktreeRoots: [worktreeRoot],
     worktreePathFor: ({ taskId }): string => path.join(worktreeRoot, taskId),
     branchFor: ({ taskId }): string => `feat/${taskId}`,

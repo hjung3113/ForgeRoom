@@ -25,6 +25,7 @@ import { randomUUID } from 'node:crypto';
 import { createTaskStoreDatabase, migrateTaskStoreDatabase } from '../../src/db/client.js';
 import { SqliteTaskStore } from '../../src/db/sqlite-task-store.js';
 import { parseWorkflowConfig } from '../../src/dsl/workflow-parser.js';
+import { mastraWorkflowBuilder } from '../../src/dsl/to-mastra.js';
 import { IntentRegistry } from '../../src/core/registries/intent-registry.js';
 import { ProjectRegistry } from '../../src/core/registries/project-registry.js';
 import { WorkflowRegistry } from '../../src/core/registries/workflow-registry.js';
@@ -571,6 +572,7 @@ function assemble(tempDir: string, options: HarnessOptions): AcceptanceHarness {
     reporter,
     forgeMap,
     snapshotBridge: new FileSnapshotBridge(snapshotDir),
+    workflowBuilder: mastraWorkflowBuilder,
     pullRequestCreator: prCreator as unknown as PullRequestCreator,
     prTargetFor,
     allowedWorktreeRoots: [worktreeRoot],

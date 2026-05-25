@@ -11,27 +11,6 @@ export class WorkflowParseError extends Error {
   }
 }
 
-/**
- * Raised when the yaml DSL -> Mastra adapter rejects a parsed workflow during
- * its validate phase (ADR-016: WorkflowRegistry.load -> workflow-parser ->
- * adapter.validate -> Mastra build). The `failure_reason` string is the value
- * the PipelineEngine records on the task; it intentionally lives here rather
- * than in core's OrchestratorFailureCode union because adapter validation is a
- * startup-time (build) failure, not a task runtime failure.
- */
-export class AdapterValidationError extends Error {
-  readonly failure_reason = 'adapter_validation_failed' as const;
-
-  constructor(
-    message: string,
-    readonly workflowId: string,
-    readonly field: string | null = null,
-  ) {
-    super(field === null ? message : `${message} (${workflowId}.${field})`);
-    this.name = 'AdapterValidationError';
-  }
-}
-
 export class WorkflowExpressionError extends Error {
   constructor(
     message: string,

@@ -35,7 +35,8 @@ import type { CheckRunResult, Step } from '../types.js';
 import { parseSlicesOutput, parseReviewPassedOutput } from './output-selectors.js';
 import { OrchestratorError, type OrchestratorFailureCode } from '../errors.js';
 import type { PullRequestCreator } from '../effects/pull-request-creator.js';
-import { toMastraWorkflow, ReviewLoopMaxIterationsError } from '../../dsl/to-mastra.js';
+import type { WorkflowBuilder } from '../../workflow/builder.js';
+import { AdapterValidationError, ReviewLoopMaxIterationsError } from '../../workflow/errors.js';
 import type {
   AdapterContext,
   AgentRunResult as AdapterAgentRunResult,
@@ -45,7 +46,6 @@ import type {
   WorkflowPrEffect,
   ResolvedWorkflow,
 } from '../../workflow/types.js';
-import { AdapterValidationError } from '../../dsl/dsl-errors.js';
 import { StepCollaborators } from './step-collaborators.js';
 import { PullRequestExternalEffect } from './pull-request-external-effect.js';
 
@@ -118,6 +118,12 @@ export interface PipelineEngineDeps {
   projectRegistry: ProjectRegistry;
   workflowRegistry: WorkflowRegistry;
   intentRegistry: IntentRegistry;
+  /**
+   * Resolved-workflow → Mastra builder port (ADR-022). dsl's `mastraWorkflowBuilder`
+   * is injected at the composition root so core depends on the neutral port, not
+   * on the dsl adapter.
+   */
+  workflowBuilder: WorkflowBuilder;
   taskStore: TaskStore;
   worktreeManager: WorktreeManager;
   agentRunner: AgentRunner;
@@ -589,7 +595,7 @@ export class MastraPipelineEngine implements PipelineEngine {
     }
 
     const ctx = this.buildAdapterContext({ task, project, opts: input.opts });
-    const built = toMastraWorkflow(workflow as ResolvedWorkflow, ctx);
+    const built = this.deps.workflowBuilder.build(workflow as ResolvedWorkflow, ctx);
     return { ...built, prEffect: workflow.effects.external.pr };
   }
 

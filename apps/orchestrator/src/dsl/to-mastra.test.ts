@@ -3,7 +3,7 @@ import { MockStore } from '@mastra/core/storage';
 import { describe, expect, it, vi } from 'vitest';
 
 import { IntentRegistry } from '../core/registries/intent-registry.js';
-import { AdapterValidationError } from './dsl-errors.js';
+import { AdapterValidationError } from '../workflow/errors.js';
 import {
   adapterCacheKey,
   buildMastraWorkflowCached,
