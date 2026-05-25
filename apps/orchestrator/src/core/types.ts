@@ -144,6 +144,7 @@ export type ReporterEvent =
   | { type: 'context_stale_blocked'; task: Task; dirtyFiles: string[] }
   | { type: 'dirty_baseline_approved'; task: Task; approvedBy: string }
   | { type: 'pr_created'; task: Task; pr_number: number; pr_url: string }
+  | { type: 'task_done_no_diff'; task: Task }
   | { type: 'task_failed'; task: Task; failure_reason: string }
   | { type: 'task_canceled'; task: Task }
   | { type: 'ask_response'; task: Task; question: string; answer: string };

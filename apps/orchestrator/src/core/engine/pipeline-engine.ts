@@ -50,6 +50,12 @@ import type {
 } from '../../workflow/types.js';
 import { StepCollaborators } from './step-collaborators.js';
 import { PullRequestExternalEffect } from './pull-request-external-effect.js';
+import { BranchPublicationExternalEffect } from './branch-publication-external-effect.js';
+import type { BranchPublisher } from '../effects/branch-publisher.js';
+import type {
+  IssueLabelLifecycleEffect,
+  LabelLifecycleRequest,
+} from '../effects/issue-label-lifecycle.js';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -154,6 +160,27 @@ export interface PipelineEngineDeps {
    */
   pullRequestCreator?: PullRequestCreator;
   prTargetFor?: (input: { task: Task; project: ProjectMeta }) => PullRequestTarget | null;
+  /**
+   * Branch-publication external effect (ADR-025). Runs BEFORE the PR effect in
+   * the success path: commits worktree changes and pushes the branch. Optional
+   * so existing tests without git wiring still work; when absent the engine skips
+   * directly to PR creation. When the worktree has no diff the engine skips PR
+   * creation, emits `task_done_no_diff`, and marks the task done.
+   */
+  branchPublisher?: BranchPublisher;
+  /**
+   * Label-lifecycle side-effect (ADR-026). Applied AFTER the terminal status is
+   * persisted, for `done` and `failed` only. Optional so non-GitHub projects and
+   * existing tests need no wiring; the concrete port is wired at the composition
+   * root. When absent (or when `labelTargetFor` returns null), the effect is a
+   * no-op.
+   */
+  labelEffect?: IssueLabelLifecycleEffect;
+  /**
+   * Resolves the GitHub owner/repo coordinates for the label effect. Returns null
+   * when the project has no GitHub repo configured.
+   */
+  labelTargetFor?: (task: Task) => { owner: string; repo: string } | null;
   /** Where worktrees may be created (passed to ApprovalGate worktree check). */
   allowedWorktreeRoots: string[];
   /** Bundled prompt-template root; `prompt_template` is resolved relative to it. */
@@ -231,8 +258,13 @@ export class MastraPipelineEngine implements PipelineEngine {
   private readonly now: () => Date;
   private readonly log: (line: string) => void;
   private readonly prEffect: PullRequestExternalEffect;
+  private readonly branchEffect: BranchPublicationExternalEffect;
   /** Cooperative pause intents keyed by task id (codex-confirmed mechanism). */
   private readonly pauseRequested = new Set<string>();
+
+  /** Apply label transition after settle; only set when labelEffect + labelTargetFor are both wired. */
+  private readonly labelEffect: IssueLabelLifecycleEffect | undefined;
+  private readonly labelTargetFor: ((task: Task) => { owner: string; repo: string } | null) | undefined;
 
   constructor(deps: PipelineEngineDeps) {
     this.deps = deps;
@@ -248,6 +280,12 @@ export class MastraPipelineEngine implements PipelineEngine {
       reporter: deps.reporter,
       log: this.log,
     });
+    this.branchEffect = new BranchPublicationExternalEffect({
+      ...(deps.branchPublisher === undefined ? {} : { branchPublisher: deps.branchPublisher }),
+      log: this.log,
+    });
+    this.labelEffect = deps.labelEffect;
+    this.labelTargetFor = deps.labelTargetFor;
   }
 
   // -------------------------------------------------------------------------
@@ -546,8 +584,39 @@ export class MastraPipelineEngine implements PipelineEngine {
     const { task, project, result, prEffect } = input;
     if (result.status === 'success') {
       this.pauseRequested.delete(task.id);
-      // External-effect phase (ADR-019): after workflow/check success, before
-      // task done. PR creation is task-critical — a final failure fails the task.
+      // External-effect phase (ADR-025 then ADR-019):
+      //   1. Branch publication (commit + push) — task-critical, runs first.
+      //   2. PR creation — task-critical, runs only when there was a diff.
+      // A final failure in either step fails the task.
+
+      // Step 1: branch publication.
+      let branchResult;
+      try {
+        branchResult = await this.branchEffect.run({ task });
+      } catch (error) {
+        const reason = mapFailureReason(error);
+        await this.deps.taskStore.updateTaskStatus(task.id, 'failed', reason);
+        await this.deps.reporter.notify({
+          type: 'task_failed',
+          task: { ...task, status: 'failed', failure_reason: reason },
+          failure_reason: reason,
+        });
+        await this.applyLabelLifecycle(task, 'failed');
+        return;
+      }
+
+      // Step 2: no-diff terminal success — skip PR, emit event, done.
+      if (branchResult.noDiff) {
+        await this.deps.taskStore.updateTaskStatus(task.id, 'done');
+        await this.deps.reporter.notify({
+          type: 'task_done_no_diff',
+          task: { ...task, status: 'done' },
+        });
+        await this.applyLabelLifecycle(task, 'done');
+        return;
+      }
+
+      // Step 3: PR creation (ADR-019).
       try {
         await this.prEffect.run({ task, project, prEffect });
       } catch (error) {
@@ -558,9 +627,11 @@ export class MastraPipelineEngine implements PipelineEngine {
           task: { ...task, status: 'failed', failure_reason: reason },
           failure_reason: reason,
         });
+        await this.applyLabelLifecycle(task, 'failed');
         return;
       }
       await this.deps.taskStore.updateTaskStatus(task.id, 'done');
+      await this.applyLabelLifecycle(task, 'done');
       return;
     }
     if (result.status === 'suspended') {
@@ -578,6 +649,32 @@ export class MastraPipelineEngine implements PipelineEngine {
       task: { ...task, status: 'failed', failure_reason: reason },
       failure_reason: reason,
     });
+    await this.applyLabelLifecycle(task, 'failed');
+  }
+
+  /**
+   * Apply the triage-label transition for a terminal task (ADR-026).
+   *
+   * Called AFTER `updateTaskStatus` so the task status is already authoritative.
+   * The effect's own failure must never alter the settle outcome — it catches
+   * internally, so this call always resolves (never rejects).
+   */
+  private async applyLabelLifecycle(task: Task, terminalStatus: 'done' | 'failed'): Promise<void> {
+    if (this.labelEffect === undefined || this.labelTargetFor === undefined) {
+      return;
+    }
+    const labelTarget = this.labelTargetFor(task);
+    if (labelTarget === null) {
+      this.log(`label-lifecycle: task ${task.id} has no GitHub target; skipping`);
+      return;
+    }
+    const request: LabelLifecycleRequest = {
+      task,
+      terminalStatus,
+      owner: labelTarget.owner,
+      repo: labelTarget.repo,
+    };
+    await this.labelEffect.apply(request);
   }
 
   private async persistSnapshot(mastra: Mastra, workflowName: string, runId: string): Promise<void> {
