@@ -14,3 +14,4 @@ Task-critical effect primitives shared by engine effect wrappers.
 | File | Role |
 |---|---|
 | `pull-request-creator.ts` | PR creation/update primitive with retry and discovery-before-create |
+| `issue-label-lifecycle.ts` | Terminal-state triage-label transition side-effect (ADR-026); depends on injected `IssueLabelPort` |
