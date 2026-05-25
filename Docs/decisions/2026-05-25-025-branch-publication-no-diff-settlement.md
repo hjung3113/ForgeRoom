@@ -1,18 +1,18 @@
 ---
-status: proposed
+status: decided
 date: 2026-05-25
 ---
 
 # ADR-025: Branch-publication external effect + no-diff terminal success
 
-## 배경 (Background)
+## 배경
 
 ADR-019는 PR 생성을 PipelineEngine 소유 workflow external effect로 결정했다. 그러나 두 가지 빠진 부분이 있었다:
 
 1. **브랜치 publish 단계 없음** — agent run 완료 후 worktree 변경 사항을 commit/push하는 단계가 없어, PR를 생성하기 전에 head 브랜치가 실제로 원격에 push되지 않았다.
 2. **no-diff 종료 경로 없음** — agent run이 변경 사항을 만들지 않을 때(git status --porcelain 빈 출력) clean한 terminal-success 경로가 없었다. PR을 생성할 이유가 없지만 task도 실패 처리하면 안 된다.
 
-## 결정 (Decisions)
+## 결정
 
 ### 1. Branch-publication external effect (ADR-025 추가)
 
@@ -74,7 +74,7 @@ Reporter sinks는 "no changes produced by agent; nothing to PR"를 status surfac
 
 `app/composition-root.ts`에 `buildBranchPublisher()` 대신 인라인으로 `GitCli`를 `BranchPublishPort`로 사용하는 `BranchPublisher`를 생성하여 `PipelineEngineDeps.branchPublisher`에 주입한다.
 
-## 결과 (Impact)
+## 결과
 
 - `core/errors.ts`: `branch_publish_failed` 추가
 - `core/types.ts`: `task_done_no_diff` ReporterEvent 추가
@@ -87,7 +87,7 @@ Reporter sinks는 "no changes produced by agent; nothing to PR"를 status surfac
 - `app/git-cli.ts`: commit + push 메서드 추가
 - `app/composition-root.ts`: BranchPublisher wiring 추가
 
-## 관련 (Related)
+## 관련
 
 - ADR-019: PR 생성 external effect (이 ADR이 참조하고 extend함)
 - ADR-013: TaskSource/Reporter 경계 (task_done_no_diff는 ADR-013의 Reporter 메커니즘을 통해 전달)

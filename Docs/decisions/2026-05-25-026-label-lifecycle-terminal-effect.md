@@ -1,65 +1,56 @@
 ---
-status: proposed
+status: decided
 date: 2026-05-25
 issue: "#64"
 ---
 
-# ADR-026: GitHub Issue Label-Lifecycle as a Terminal Side-Effect
+# ADR-026: GitHub 이슈 라벨-라이프사이클을 terminal side-effect로 연결
 
-## Background
+## 배경
 
-When ForgeRoom picks up a GitHub issue (via the `ready-for-agent` label poll in
-`GitHubIssueTaskSource`), it creates a task with `source = 'github-issue-label'`
-and records the triggering `issue_number`. After the task reaches a terminal
-state (`done` or `failed`), the original issue label remains `ready-for-agent`
-indefinitely — giving the issue tracker a false picture of the task's outcome.
+ForgeRoom은 `GitHubIssueTaskSource`의 `ready-for-agent` 라벨 폴링으로 이슈를 잡아
+`source = 'github-issue-label'` task를 만들고 triggering `issue_number`를 기록한다.
+task가 terminal 상태(`done` / `failed`)에 도달해도 원본 이슈 라벨은 계속
+`ready-for-agent`로 남아 — 이슈 트래커가 task 결과를 잘못 표시한다.
 
-The `GitHubIssueLabelClient` seam already exists in `gateway/github/` to
-mutate issue labels, but it was unwired.
+라벨을 바꾸는 `GitHubIssueLabelClient` seam은 `gateway/github/`에 이미 있지만
+연결돼 있지 않았다. 이 ADR은 라벨 전환을 terminal side-effect로 연결하는 방법을 결정한다.
 
-This ADR decides how to wire the label-lifecycle transition as a terminal
-side-effect.
+## 결정
 
-## Decision
+`core/effects/`에 `IssueLabelLifecycleEffect`를 추가한다. task의 terminal 상태가
+저장된 **직후** 다음 triage 라벨 전환을 적용한다:
 
-Introduce `IssueLabelLifecycleEffect` in `core/effects/` that applies the
-following triage-label transition after a task's terminal status is persisted:
+| terminal 상태 | remove          | add              |
+|--------------|-----------------|------------------|
+| `done`       | `ready-for-agent` | `ready-for-human` |
+| `failed`     | `ready-for-agent` | `needs-info`      |
 
-| Terminal status | Remove          | Add              |
-|-----------------|-----------------|------------------|
-| `done`          | `ready-for-agent` | `ready-for-human` |
-| `failed`        | `ready-for-agent` | `needs-info`      |
+`PipelineEngine.settle()`에서 `done`/`failed` 각 종료 지점의 `updateTaskStatus(...)`
+직후에 호출한다. `paused`/`canceled`는 비종료 상태라 라벨 전환을 트리거하지 않는다.
 
-The effect is called in `PipelineEngine.settle()` immediately after
-`updateTaskStatus(...)` for `done` and `failed`. `paused` and `canceled` are
-non-terminal and do not trigger label transitions.
+**가정 (flagged):** in-flight agent task는 `ready-for-agent` 라벨을 보유한다고 가정한다
+(`GitHubIssueTaskSource`가 이슈를 집을 때 설정). effect는 이 라벨을 무조건 remove한다.
+이미 없으면(예: 수동 제거) GitHub가 404를 반환하며, 실패 격리 wrapper가 조용히 삼킨다.
 
-**Assumption flagged:** An in-flight agent task is assumed to carry the
-`ready-for-agent` label (set by `GitHubIssueTaskSource` when it picks up the
-issue). The effect removes it unconditionally. If the label is already absent
-(e.g. removed manually), GitHub returns 404, which the failure-isolation wrapper
-swallows silently.
+### side-effect 전용 — task 상태를 절대 소유하지 않음
 
-### Side-effect only — never owns task state
+라벨 전환은 best-effort 외부 주석이다. 다음을 해서는 안 된다:
+- 이미 settle된 task 상태를 뒤집기
+- 자신의 에러를 `settle()` 호출부로 전파
 
-The label transition is a best-effort external annotation. It MUST NOT:
-- Flip the already-settled task status
-- Propagate its own errors to the `settle()` call-site
+`IssueLabelLifecycleEffect.apply()`는 모든 port 에러를 내부에서 catch + log하고
+항상 resolve한다. 라벨 실패에는 failure code를 부여하지 않는다 — non-fatal로 로깅한다.
+ADR-013의 "status surface 전달 실패가 task를 실패시키지 않는다" 원칙과 일관된다.
 
-`IssueLabelLifecycleEffect.apply()` catches all port errors internally, logs
-them, and always resolves. No typed failure code is associated with label
-failures — they are logged as non-fatal.
+### 이슈-트리거가 아니면 no-op
 
-### No-op when not issue-triggered
+`task.source !== 'github-issue-label'`이거나 `task.issue_number === null`인 경우
+(Discord-command task, 또는 번호가 기록되지 않은 이슈-트리거 task) `apply()`는 no-op이다.
 
-When `task.source !== 'github-issue-label'` or `task.issue_number === null`
-(Discord-command tasks, or issue-triggered tasks without a recorded number),
-`apply()` is a no-op.
+### 주입형 `IssueLabelPort` seam — core는 gateway-free 유지
 
-### Injected `IssueLabelPort` seam — core stays gateway-free
-
-`core/effects/issue-label-lifecycle.ts` depends on the narrow `IssueLabelPort`
-interface:
+`core/effects/issue-label-lifecycle.ts`는 좁은 `IssueLabelPort` 인터페이스에 의존한다:
 
 ```ts
 interface IssueLabelPort {
@@ -68,44 +59,43 @@ interface IssueLabelPort {
 }
 ```
 
-`GitHubIssueLabelClient` in `gateway/github/issue-label-client.ts` satisfies
-this interface structurally. The concrete adapter is wired in
-`app/composition-root.ts` via `buildLabelEffect()`, mirroring the existing
-`buildPullRequestEffect()` pattern. Core never imports `GitHubIssueLabelClient`.
+`gateway/github/issue-label-client.ts`의 `GitHubIssueLabelClient`가 이 인터페이스를
+구조적으로 만족한다. 구체 adapter는 `app/composition-root.ts`의 `buildLabelEffect()`에서
+연결하며, 기존 `buildPullRequestEffect()` 패턴을 따른다. core는 `GitHubIssueLabelClient`를
+직접 import하지 않는다.
 
-### Triage label constants
+### triage 라벨 상수
 
-`apps/orchestrator/src/gateway/github/triage-labels.ts` is the single source of
-truth for the five canonical triage label strings defined in
-`docs/agents/triage-labels.md`. The effect imports these values through
-string literals that match the constants (to avoid a core→gateway import), with
-the constants available at the composition-root boundary.
+`apps/orchestrator/src/gateway/github/triage-labels.ts`가 `docs/agents/triage-labels.md`에
+정의된 5개 canonical triage 라벨 문자열의 단일 출처(single source of truth)다.
+effect 자체는 core→gateway import를 피하려고 상수와 일치하는 string literal을 사용하며,
+상수는 composition-root 경계에서 사용 가능하다.
 
-### Composition-root wiring
+### composition-root 연결
 
-`buildLabelEffect()` in `composition-root.ts`:
-1. Skips if no GitHub credentials are configured (returns `null` effect).
-2. Constructs `GitHubIssueLabelClient(octokit)` as the `IssueLabelPort` impl.
-3. Constructs `IssueLabelLifecycleEffect({ port, log })`.
-4. Returns a `labelTargetFor` resolver (same pattern as `prTargetFor`).
-5. Injects `labelEffect` and `labelTargetFor` into `PipelineEngineDeps` (both
-   optional — absent when no GitHub is configured).
+`composition-root.ts`의 `buildLabelEffect()`:
+1. GitHub 자격증명이 없으면 skip (`null` effect 반환).
+2. `GitHubIssueLabelClient(octokit)`를 `IssueLabelPort` 구현으로 생성.
+3. `IssueLabelLifecycleEffect({ port, log })` 생성.
+4. `labelTargetFor` resolver 반환 (`prTargetFor`와 동일 패턴).
+5. `labelEffect`/`labelTargetFor`를 `PipelineEngineDeps`에 주입 (둘 다 optional — GitHub
+   미설정 시 부재).
 
-## Consequences
+## 결과
 
-- The `PipelineEngineDeps` interface gains two optional fields: `labelEffect`
-  and `labelTargetFor`. Existing tests need no changes.
-- A label port failure no longer affects task-terminal outcomes (consistent with
-  ADR-013's "status surface delivery failure does not fail the task" principle).
-- The composition root creates one `GitHubIssueLabelClient` shared for both the
-  PR effect and the label effect when GitHub is configured.
-- Future: if retry/idempotency is needed for label transitions, add it inside
-  `IssueLabelLifecycleEffect`, not in `GitHubIssueLabelClient` (consistent with
-  the no-retry-in-client rule established for `GitHubIssueLabelClient`).
+- `PipelineEngineDeps`에 optional 필드 2개 추가: `labelEffect`, `labelTargetFor`.
+  기존 테스트는 변경 불필요.
+- 라벨 port 실패가 task terminal 결과에 영향을 주지 않음 (ADR-013의 "status surface 전달
+  실패가 task를 실패시키지 않는다" 원칙과 일관).
+- composition-root는 GitHub 설정 시 PR effect와 라벨 effect가 공유하는
+  `GitHubIssueLabelClient` 하나를 생성.
+- 향후: 라벨 전환에 retry/idempotency가 필요하면 `GitHubIssueLabelClient`가 아니라
+  `IssueLabelLifecycleEffect` 내부에 추가 (`GitHubIssueLabelClient`의 no-retry-in-client
+  규칙과 일관).
 
-## References
+## 관련
 
-- ADR-013: TaskSource and Reporter boundaries (task state ownership)
-- ADR-019: PR creation as a terminal external effect (pattern mirrored here)
-- `docs/agents/triage-labels.md`: canonical triage label strings
-- GitHub issue #64
+- ADR-013: TaskSource / Reporter 경계 (task 상태 소유권)
+- ADR-019: PR 생성 terminal external effect (여기서 패턴 mirror)
+- `docs/agents/triage-labels.md`: canonical triage 라벨 문자열
+- Issue #64
