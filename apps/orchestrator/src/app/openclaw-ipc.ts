@@ -186,7 +186,7 @@ export class OpenClawCliClient implements OpenClawIpcClient {
       args.push('--session-id', sessionId);
     }
     args.push('--message', message);
-    const model = deriveModelArg(request.runtime, request.model);
+    const model = deriveModelArg(request.model);
     if (model !== null) {
       args.push('--model', model);
     }
@@ -313,31 +313,21 @@ export class OpenClawCliClient implements OpenClawIpcClient {
 // ---------------------------------------------------------------------------
 
 /**
- * Derive the OpenClaw `--model` value from the agent's runtime + ForgeRoom model
- * id. ForgeRoom names models by VENDOR (`anthropic/claude-opus-4-7`), but
- * OpenClaw names them by RUNTIME (`claude-cli/claude-opus-4-7`); passing the
- * vendor-prefixed id to `--model` errors (#47, live-verified).
+ * The OpenClaw `--model` value is the agent's configured model id passed through
+ * VERBATIM. OpenClaw owns model naming and it is NOT uniform across runtimes
+ * (`claude-cli/claude-opus-4-7` for the claude-cli runtime, `openai/gpt-5.5` for
+ * the codex runtime), so ForgeRoom does not transform it — `agents.yaml` /
+ * `model-policies.yaml` carry the exact id OpenClaw expects (provider is always
+ * OpenClaw, ADR-012). An earlier heuristic re-prefixed the model base with the
+ * runtime (#47); that assumed uniform `runtime/base` naming and mangled the
+ * codex `openai/...` ids, so it was removed.
  *
- * We take the model's base segment (everything after the first `/`, i.e. the
- * vendor prefix stripped) and re-prefix it with the runtime:
- *   `claude-cli` + `anthropic/claude-opus-4-7` → `claude-cli/claude-opus-4-7`
- *   `openai-codex` + `openai/gpt-5`            → `openai-codex/gpt-5`
- *   `claude-cli` + `claude-opus-4-7` (no `/`)  → `claude-cli/claude-opus-4-7`
- *
- * Returns `null` when there is nothing to pass (empty model). With an empty
- * runtime, falls back to the raw model so `--model` is still emitted.
+ * Returns `null` when there is no model to pass (empty), so `--model` is omitted
+ * and OpenClaw uses the agent's default model.
  */
-export function deriveModelArg(runtime: string, model: string): string | null {
-  const trimmedModel = model.trim();
-  if (trimmedModel === '') {
-    return null;
-  }
-  const modelBase = trimmedModel.slice(trimmedModel.indexOf('/') + 1);
-  const trimmedRuntime = runtime.trim();
-  if (trimmedRuntime === '') {
-    return trimmedModel;
-  }
-  return `${trimmedRuntime}/${modelBase}`;
+export function deriveModelArg(model: string): string | null {
+  const trimmed = model.trim();
+  return trimmed === '' ? null : trimmed;
 }
 
 // ---------------------------------------------------------------------------

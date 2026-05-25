@@ -140,26 +140,21 @@ describe('sanitizedParentEnv', () => {
 });
 
 describe('deriveModelArg', () => {
-  it('re-prefixes the model base with the runtime (claude-cli + anthropic vendor)', () => {
-    expect(deriveModelArg('claude-cli', 'anthropic/claude-opus-4-7')).toBe('claude-cli/claude-opus-4-7');
+  it('passes the configured model id through verbatim (claude-cli runtime id)', () => {
+    expect(deriveModelArg('claude-cli/claude-opus-4-7')).toBe('claude-cli/claude-opus-4-7');
   });
 
-  it('re-prefixes the model base with the runtime (openai-codex + openai vendor)', () => {
-    expect(deriveModelArg('openai-codex', 'openai/gpt-5')).toBe('openai-codex/gpt-5');
+  it('passes the codex vendor-named id through verbatim (no runtime re-prefix)', () => {
+    expect(deriveModelArg('openai/gpt-5.5')).toBe('openai/gpt-5.5');
   });
 
-  it('prefixes a model with no vendor segment with the runtime', () => {
-    expect(deriveModelArg('claude-cli', 'claude-opus-4-7')).toBe('claude-cli/claude-opus-4-7');
+  it('trims surrounding whitespace', () => {
+    expect(deriveModelArg('  openai/gpt-5.5  ')).toBe('openai/gpt-5.5');
   });
 
-  it('falls back to the raw model when the runtime is empty', () => {
-    expect(deriveModelArg('', 'anthropic/claude-opus-4-7')).toBe('anthropic/claude-opus-4-7');
-    expect(deriveModelArg('   ', 'anthropic/claude-opus-4-7')).toBe('anthropic/claude-opus-4-7');
-  });
-
-  it('returns null when there is no model to pass', () => {
-    expect(deriveModelArg('claude-cli', '')).toBeNull();
-    expect(deriveModelArg('claude-cli', '   ')).toBeNull();
+  it('returns null when there is no model to pass (OpenClaw uses agent default)', () => {
+    expect(deriveModelArg('')).toBeNull();
+    expect(deriveModelArg('   ')).toBeNull();
   });
 });
 
@@ -297,11 +292,11 @@ describe('OpenClawCliClient subprocess lifecycle', () => {
     expect(written).toContain('PROMPT-BODY-MARKER');
   });
 
-  it('passes the runtime-derived --model on the wire (vendor prefix stripped)', async () => {
-    const req = await request({ runtime: 'claude-cli', model: 'anthropic/claude-opus-4-7' });
+  it('passes the configured --model id through verbatim on the wire', async () => {
+    const req = await request({ runtime: 'codex', model: 'openai/gpt-5.5' });
     await client('echo_model').run(req);
     const written = await readFile(req.outputPath, 'utf8');
-    expect(written).toBe('MODEL:claude-cli/claude-opus-4-7');
+    expect(written).toBe('MODEL:openai/gpt-5.5');
   });
 
   it('joins multiple payloads into the output file', async () => {
