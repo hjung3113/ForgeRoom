@@ -25,6 +25,7 @@ import { ProjectRegistry } from '../../src/core/registries/project-registry.js';
 import { WorkflowRegistry } from '../../src/core/registries/workflow-registry.js';
 import { parseWorkflowConfig } from '../../src/dsl/workflow-parser.js';
 import { mastraWorkflowBuilder } from '../../src/dsl/to-mastra.js';
+import { makeTestTemplateRoot } from '../../src/core/test-support/template-fixtures.js';
 import { AgentRegistry } from '../../src/core/agent-runtime/agent-registry.js';
 import { HarnessRegistry } from '../../src/core/agent-runtime/harness-registry.js';
 import { ApprovalGate } from '../../src/core/checks/approval-gate.js';
@@ -128,9 +129,11 @@ interface Harness {
 }
 
 let tempDir: string;
+let templateRoot: string;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(tmpdir(), 'pipeline-int-'));
+  templateRoot = await makeTestTemplateRoot();
 });
 
 afterEach(async () => {
@@ -306,6 +309,7 @@ async function setup(yaml: string, outputs: Record<string, string>): Promise<{
     forgeMap,
     snapshotBridge: new FileSnapshotBridge(snapshotDir),
     workflowBuilder: mastraWorkflowBuilder,
+    templateRoot,
     allowedWorktreeRoots: [worktreeRoot],
     worktreePathFor: ({ taskId }): string => path.join(worktreeRoot, taskId),
     branchFor: ({ taskId }): string => `feat/${taskId}`,

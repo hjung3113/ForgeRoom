@@ -56,6 +56,8 @@ export interface StepCollaboratorsOptions {
   stepCounter: { value: number };
   promptIndex: Map<string, { index: number; fileBase: string }>;
   agentOverrides: Record<string, string>;
+  /** Bundled template root; `promptTemplate` is resolved relative to it (prompt-file-protocol). */
+  templateRoot: string;
   deps: StepCollaboratorDeps;
   callbacks: StepCollaboratorCallbacks;
 }
@@ -68,6 +70,7 @@ export class StepCollaborators {
   private readonly stepCounter: { value: number };
   private readonly promptIndex: Map<string, { index: number; fileBase: string }>;
   private readonly agentOverrides: Record<string, string>;
+  private readonly templateRoot: string;
   private readonly deps: StepCollaboratorDeps;
   private readonly callbacks: StepCollaboratorCallbacks;
 
@@ -79,6 +82,7 @@ export class StepCollaborators {
     this.stepCounter = options.stepCounter;
     this.promptIndex = options.promptIndex;
     this.agentOverrides = options.agentOverrides;
+    this.templateRoot = options.templateRoot;
     this.deps = options.deps;
     this.callbacks = options.callbacks;
   }
@@ -98,12 +102,26 @@ export class StepCollaborators {
     const index = (this.stepCounter.value += 1);
     const fileBase = `${pad2(index)}_${resolved.stepId}`;
     const promptPath = path.join(this.task.worktree_path, '.forgeroom', 'prompts', `${fileBase}.md`);
-    const base = renderBasePrompt(resolved, inputs);
+    const template = await this.loadTemplate(resolved.promptTemplate);
+    const base = renderTemplate(template, resolved, inputs, pad2(index));
     const refined = await this.deps.conductor.refine(this.task.id, resolved.stepId, base);
     await mkdir(path.dirname(promptPath), { recursive: true });
     await writeFile(promptPath, refined);
     this.promptIndex.set(resolved.mastraStepId, { index, fileBase });
     return promptPath;
+  }
+
+  /** Read a bundled prompt template (resolved relative to the template root). */
+  private async loadTemplate(relativePath: string): Promise<string> {
+    const templatePath = path.join(this.templateRoot, relativePath);
+    try {
+      return await readFile(templatePath, 'utf8');
+    } catch {
+      throw new OrchestratorError(
+        'agent_error',
+        `prompt template not found: ${relativePath} (template root: ${this.templateRoot})`,
+      );
+    }
   }
 
   async runAgent(
@@ -260,16 +278,40 @@ function pad2(n: number): string {
   return n.toString().padStart(2, '0');
 }
 
-function renderBasePrompt(resolved: AdapterResolvedStep, inputs: InterpolatedInputs): string {
-  const lines = [`# Step: ${resolved.stepId}`, `Template: ${resolved.promptTemplate}`, ''];
-  const refs = Object.entries(inputs.input_refs);
-  if (refs.length > 0) {
-    lines.push('## Inputs');
-    for (const [k, v] of refs) {
-      lines.push(`- ${k}: ${String(v)}`);
-    }
+const PLACEHOLDER_RE = /\{\{\s*([\w.]+)\s*\}\}/g;
+
+/**
+ * Substitute `{{key}}` placeholders in a bundled template (prompt-file-protocol).
+ * Sources: the step's interpolated `vars` and `input_refs` (the DSL `${...}`
+ * layer is already evaluated into these), plus `{{step_id}}` / `{{step_index}}`.
+ * An unknown placeholder fails fast — silently shipping a broken prompt is worse.
+ */
+function renderTemplate(
+  template: string,
+  resolved: AdapterResolvedStep,
+  inputs: InterpolatedInputs,
+  stepIndex: string,
+): string {
+  const values: Record<string, string> = { step_id: resolved.stepId, step_index: stepIndex };
+  for (const [k, v] of Object.entries(inputs.vars)) {
+    values[k] = stringifyValue(v);
   }
-  return lines.join('\n');
+  for (const [k, v] of Object.entries(inputs.input_refs)) {
+    values[k] = stringifyValue(v);
+  }
+  return template.replace(PLACEHOLDER_RE, (_match, key: string): string => {
+    if (!(key in values)) {
+      throw new OrchestratorError(
+        'agent_error',
+        `unresolved template placeholder {{${key}}} in ${resolved.promptTemplate}`,
+      );
+    }
+    return values[key] as string;
+  });
+}
+
+function stringifyValue(value: unknown): string {
+  return value === null || value === undefined ? '' : String(value);
 }
 
 function makeReporterStep(

@@ -22,6 +22,7 @@ import { WorkflowRegistry } from '../registries/workflow-registry.js';
 import { parseWorkflowConfig } from '../../dsl/workflow-parser.js';
 import { mastraWorkflowBuilder } from '../../dsl/to-mastra.js';
 import type { WorkflowBuilder } from '../../workflow/builder.js';
+import { makeTestTemplateRoot } from '../test-support/template-fixtures.js';
 import { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import { HarnessRegistry } from '../agent-runtime/harness-registry.js';
 import { ApprovalGate, type GateDecision } from '../checks/approval-gate.js';
@@ -74,9 +75,11 @@ mvp:
 
 let tempDir: string;
 let database: TaskStoreDatabase;
+let templateRoot: string;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(tmpdir(), 'pipeline-unit-'));
+  templateRoot = await makeTestTemplateRoot();
   database = createTaskStoreDatabase(':memory:');
   migrateTaskStoreDatabase(database);
 });
@@ -180,6 +183,7 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     forgeMap,
     snapshotBridge: new FileSnapshotBridge(path.join(tempDir, 'snap')),
     workflowBuilder: mastraWorkflowBuilder,
+    templateRoot,
     allowedWorktreeRoots: [worktreeRoot],
     worktreePathFor: ({ taskId }): string => path.join(worktreeRoot, taskId),
     branchFor: ({ taskId }): string => `feat/${taskId}`,

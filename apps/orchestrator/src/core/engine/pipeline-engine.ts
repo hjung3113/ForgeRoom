@@ -156,6 +156,8 @@ export interface PipelineEngineDeps {
   prTargetFor?: (input: { task: Task; project: ProjectMeta }) => PullRequestTarget | null;
   /** Where worktrees may be created (passed to ApprovalGate worktree check). */
   allowedWorktreeRoots: string[];
+  /** Bundled prompt-template root; `prompt_template` is resolved relative to it. */
+  templateRoot: string;
   /** Resolves the absolute worktree path for a new task. */
   worktreePathFor(input: { taskId: string; projectId: string; branch: string }): string;
   /** Branch name for a new task. */
@@ -641,6 +643,7 @@ export class MastraPipelineEngine implements PipelineEngine {
       stepCounter,
       promptIndex,
       agentOverrides,
+      templateRoot: this.deps.templateRoot,
       deps: {
         conductor: this.deps.conductor,
         approvalGate: this.deps.approvalGate,
