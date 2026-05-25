@@ -36,6 +36,10 @@ import {
   type PullRequestClient,
   type PullRequestRef,
 } from '../effects/pull-request-creator.js';
+import {
+  BranchPublisher,
+  type BranchPublishPort,
+} from '../effects/branch-publisher.js';
 import type { ReporterEvent } from '../types.js';
 
 const INTENTS = {
@@ -461,5 +465,116 @@ describe('MastraPipelineEngine PR external-effect phase (ADR-019)', () => {
     expect(task?.pr_number).toBe(88);
     expect(pr.calls.create).toBe(1); // still only the original create
     expect(pr.calls.update).toBe(1); // replay reused via update
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Branch-publication external-effect phase (ADR-025, #63)
+// ---------------------------------------------------------------------------
+
+interface FakeBranchPort {
+  port: BranchPublishPort;
+  calls: { status: number; commit: number; push: number };
+}
+
+function fakeBranchPort(opts: { statusOutput?: string; pushError?: boolean } = {}): FakeBranchPort {
+  const calls = { status: 0, commit: 0, push: 0 };
+  const port: BranchPublishPort = {
+    statusPorcelain: async (): Promise<string> => {
+      calls.status += 1;
+      return opts.statusOutput ?? 'M  src/foo.ts\n';
+    },
+    commit: async (): Promise<void> => {
+      calls.commit += 1;
+    },
+    push: async (): Promise<void> => {
+      calls.push += 1;
+      if (opts.pushError === true) {
+        throw new Error('push failed');
+      }
+    },
+  };
+  return { port, calls };
+}
+
+describe('MastraPipelineEngine branch-publication external-effect phase (ADR-025)', () => {
+  it('diff present: branch-publishes then creates PR then marks done', async () => {
+    const order: string[] = [];
+    const branchPort: BranchPublishPort = {
+      statusPorcelain: async (): Promise<string> => 'M  src/foo.ts\n',
+      commit: async (): Promise<void> => { order.push('commit'); },
+      push: async (): Promise<void> => { order.push('push'); },
+    };
+    const { client, calls: prCalls } = fakePrClient({ create: { number: 55, url: 'u55' } });
+    const origCreate = client.createPR.bind(client);
+    const spyClient: PullRequestClient = {
+      ...client,
+      createPR: async (args) => { order.push('pr'); return origCreate(args); },
+    };
+    const events: ReporterEvent[] = [];
+    const d = deps({
+      branchPublisher: new BranchPublisher({ port: branchPort }),
+      pullRequestCreator: new PullRequestCreator({ client: spyClient, sleep: async () => {} }),
+      prTargetFor: prTarget,
+      reporter: capturingReporter(events),
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+    expect(task?.pr_number).toBe(55);
+    expect(prCalls.create).toBe(1);
+    // commit and push MUST come before pr
+    expect(order.indexOf('commit')).toBeLessThan(order.indexOf('pr'));
+    expect(order.indexOf('push')).toBeLessThan(order.indexOf('pr'));
+  });
+
+  it('no-diff: skips PR, emits task_done_no_diff, marks done', async () => {
+    const { port: branchPort } = fakeBranchPort({ statusOutput: '' });
+    const { client: prClient, calls: prCalls } = fakePrClient();
+    const events: ReporterEvent[] = [];
+    const d = deps({
+      branchPublisher: new BranchPublisher({ port: branchPort }),
+      pullRequestCreator: new PullRequestCreator({ client: prClient, sleep: async () => {} }),
+      prTargetFor: prTarget,
+      reporter: capturingReporter(events),
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
+    expect(prCalls.create).toBe(0);
+    expect(events.some((e) => e.type === 'pr_created')).toBe(false);
+    expect(events.some((e) => e.type === 'task_done_no_diff')).toBe(true);
+  });
+
+  it('branch-publish failure fails the task with branch_publish_failed', async () => {
+    const { port: branchPort } = fakeBranchPort({ pushError: true });
+    const events: ReporterEvent[] = [];
+    const d = deps({
+      branchPublisher: new BranchPublisher({ port: branchPort }),
+      reporter: capturingReporter(events),
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('failed');
+    expect(task?.failure_reason).toBe('branch_publish_failed');
+  });
+
+  it('no-diff run without branchPublisher wired still marks task done', async () => {
+    // Engine should handle absent branchPublisher gracefully (skip publish, go directly to PR phase).
+    const events: ReporterEvent[] = [];
+    const d = deps({
+      reporter: capturingReporter(events),
+    });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    const task = await d.taskStore.getTask(taskId);
+    expect(task?.status).toBe('done');
   });
 });

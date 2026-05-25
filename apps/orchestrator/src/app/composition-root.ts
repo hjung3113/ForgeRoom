@@ -47,6 +47,7 @@ import {
   type PullRequestTarget,
 } from '../core/engine/pipeline-engine.js';
 import { PullRequestCreator } from '../core/effects/pull-request-creator.js';
+import { BranchPublisher } from '../core/effects/branch-publisher.js';
 import {
   DiscordReporterSink,
   GitHubReporterSink,
@@ -76,6 +77,7 @@ import {
 import { createGitHubClient } from '../gateway/github-client.js';
 import { OctokitGitHubStatusClient } from '../gateway/github-status-client.js';
 
+import { GitCli } from './git-cli.js';
 import { GitCliConductorGit } from './conductor-git.js';
 import type { LoadedRegistries, OrchestratorEnv } from './config.js';
 import {
@@ -267,6 +269,10 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
   // --- PR external effect (ADR-019) ----------------------------------------
   const { pullRequestCreator, prTargetFor } = buildPullRequestEffect({ env, overrides, repoTargetForTask });
 
+  // --- Branch-publication external effect (ADR-025) ------------------------
+  const gitCli = new GitCli();
+  const branchPublisher = new BranchPublisher({ port: gitCli });
+
   // --- PipelineEngine -------------------------------------------------------
   const engineDeps: PipelineEngineDeps = {
     projectRegistry: registries.projects,
@@ -283,6 +289,7 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     snapshotBridge: new FileSnapshotBridge(env.snapshotDir),
     ...(pullRequestCreator === null ? {} : { pullRequestCreator }),
     ...(prTargetFor === null ? {} : { prTargetFor }),
+    branchPublisher,
     allowedWorktreeRoots: env.allowedWorktreeRoots,
     worktreePathFor: (input): string =>
       worktreePathFor({ root: env.allowedWorktreeRoots[0] ?? '', projectId: input.projectId, taskId: input.taskId }),
