@@ -34,6 +34,7 @@ import type { OpenClawIpcClient } from '../../src/core/openclaw-provider.js';
 import type { GitHubOctokitLike, GitHubIssue } from '../../src/gateway/github-gateway.js';
 import type { DiscordStatusClient, GitHubStatusClient } from '../../src/core/reporter.js';
 import type { TaskStoreDatabase } from '../../src/db/client.js';
+import type { Task } from '../../src/core/types.js';
 
 // ---------------------------------------------------------------------------
 // Temp configs
@@ -93,11 +94,11 @@ quick:
         plan: \${plan.output_path}
 `;
 
-function projectsYaml(projectPath: string): string {
+function projectsYaml(projectPath: string, defaultBranch = 'main'): string {
   return `
 demo:
   path: ${projectPath}
-  default_branch: main
+  default_branch: ${defaultBranch}
   package_manager: pnpm
   default_workflow: quick
   allowed_workflows:
@@ -190,7 +191,7 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
-async function writeConfigs(): Promise<{ configDir: string; projectPath: string }> {
+async function writeConfigs(input?: { defaultBranch?: string }): Promise<{ configDir: string; projectPath: string }> {
   const configDir = path.join(tempDir, 'configs');
   const projectPath = path.join(tempDir, 'project');
   await mkdir(configDir, { recursive: true });
@@ -200,7 +201,7 @@ async function writeConfigs(): Promise<{ configDir: string; projectPath: string 
     writeFile(path.join(configDir, 'agents.yaml'), AGENTS_YAML),
     writeFile(path.join(configDir, 'intents.yaml'), INTENTS_YAML),
     writeFile(path.join(configDir, 'workflows.yaml'), WORKFLOWS_YAML),
-    writeFile(path.join(configDir, 'projects.yaml'), projectsYaml(projectPath)),
+    writeFile(path.join(configDir, 'projects.yaml'), projectsYaml(projectPath, input?.defaultBranch)),
   ]);
   return { configDir, projectPath };
 }
@@ -341,6 +342,56 @@ describe('orchestrator composition root boot lifecycle (#30)', () => {
         source: 'discord-command',
       }),
     ).rejects.toThrow(/worktree creation denied/);
+  });
+
+  it('wires pull request targets to the project default branch', async () => {
+    const { configDir } = await writeConfigs({ defaultBranch: 'develop' });
+    const registries = await loadRegistries({ configDir, projectPathExists: () => true });
+    database = createTaskStoreDatabase(path.join(tempDir, 'forgeroom-pr.sqlite'));
+    migrateTaskStoreDatabase(database);
+    const taskStore = new SqliteTaskStore(database);
+    const app = composeOrchestrator({
+      registries,
+      env: makeEnv(),
+      taskStore,
+      overrides: {
+        openClawIpcClient: fakeOpenClaw(),
+        discordStatusClient: fakeDiscordStatusClient(),
+        gitHubStatusClientFor: () => fakeGitHubStatusClient(),
+        gitHubOctokit: fakeOctokit([], { n: 0 }),
+        buildDiscordGateway: () => new FakeDiscordGateway(),
+      },
+      log: () => {},
+    });
+    const project = registries.projects.get('demo');
+    expect(project).not.toBeNull();
+    const task: Task = {
+      id: 'task-pr',
+      project_id: 'demo',
+      workflow_id: 'quick',
+      title: 't',
+      description: 'd',
+      status: 'running',
+      source: 'github-issue-label',
+      external_ref: null,
+      issue_number: 1,
+      branch_name: 'forge/task-pr',
+      worktree_path: path.join(tempDir, 'worktrees', 'demo', 'task-pr'),
+      pr_number: null,
+      final_slices: [],
+      vars: {},
+      failure_reason: null,
+      mastra_run_id: null,
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    const target = (app.engine as unknown as { deps: { prTargetFor?: (input: unknown) => unknown } }).deps.prTargetFor?.({
+      task,
+      project: project!,
+    });
+
+    expect(target).toEqual({ owner: 'octocat', repo: 'demo', base: 'develop' });
   });
 
   it('rejects a /run for a workflow outside allowed_workflows (admission guard)', async () => {

@@ -416,7 +416,7 @@ function buildPullRequestEffect(input: {
     if (repoTarget === null || repoTarget.owner === null || repoTarget.repo === null) {
       return null;
     }
-    return { owner: repoTarget.owner, repo: repoTarget.repo, base: 'main' };
+    return { owner: repoTarget.owner, repo: repoTarget.repo, base: repoTarget.baseBranch };
   };
   return { pullRequestCreator, prTargetFor };
 }
