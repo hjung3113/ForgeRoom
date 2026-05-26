@@ -26,6 +26,32 @@ export interface ProjectMaintainers {
   github_logins: string[];
 }
 
+/**
+ * ProjectRoom (ADR-028) — reserved Phase 1.5 seam. Only the acceptance-named
+ * keys are parsed; unknown keys inside a section are ignored on purpose (the
+ * roadmap fields stay non-contractual until their owning phase lands). Known
+ * keys are strict: a present-but-mistyped value fails fast at boot.
+ */
+export interface ProjectRoom {
+  project: ProjectMeta;
+  discord?: ProjectRoomDiscord;
+  openclaw?: ProjectRoomOpenClaw;
+  mastra?: ProjectRoomMastra;
+}
+
+export interface ProjectRoomDiscord {
+  channel_id?: string;
+}
+
+export interface ProjectRoomOpenClaw {
+  room?: string;
+  agents?: Record<string, string>;
+}
+
+export interface ProjectRoomMastra {
+  expose_operator_tools?: boolean;
+}
+
 export interface DisabledProject {
   id: string;
   path: string;
@@ -45,11 +71,15 @@ interface RawProject {
   template_dir?: unknown;
   commands?: unknown;
   maintainers?: unknown;
+  discord?: unknown;
+  openclaw?: unknown;
+  mastra?: unknown;
 }
 
 export class ProjectRegistry {
   private constructor(
     private readonly projects: Map<string, ProjectMeta>,
+    private readonly rooms: Map<string, ProjectRoom>,
     private readonly disabled: DisabledProject[],
   ) {}
 
@@ -59,6 +89,7 @@ export class ProjectRegistry {
     options: ProjectRegistryOptions = {},
   ): ProjectRegistry {
     const projects = new Map<string, ProjectMeta>();
+    const rooms = new Map<string, ProjectRoom>();
     const disabled: DisabledProject[] = [];
     const projectPathExists = options.projectPathExists ?? (() => true);
 
@@ -78,9 +109,10 @@ export class ProjectRegistry {
       }
 
       projects.set(id, project);
+      rooms.set(id, parseRoom(id, raw, project));
     }
 
-    return new ProjectRegistry(projects, disabled);
+    return new ProjectRegistry(projects, rooms, disabled);
   }
 
   get(projectId: string): ProjectMeta | null {
@@ -89,6 +121,10 @@ export class ProjectRegistry {
 
   list(): ProjectMeta[] {
     return [...this.projects.values()];
+  }
+
+  getRoom(projectId: string): ProjectRoom | null {
+    return this.rooms.get(projectId) ?? null;
   }
 
   listDisabled(): DisabledProject[] {
@@ -131,6 +167,80 @@ function parseProject(
     commands,
     maintainers: maintainers(raw.maintainers, `project ${id}.maintainers`),
   };
+}
+
+function parseRoom(id: string, raw: RawProject, project: ProjectMeta): ProjectRoom {
+  const room: ProjectRoom = { project };
+
+  if (raw.discord !== undefined) {
+    const section = roomSection(raw.discord, `project ${id}.discord`);
+    const discord: ProjectRoomDiscord = {};
+    if (section.channel_id !== undefined) {
+      discord.channel_id = roomString(section.channel_id, `project ${id}.discord.channel_id`);
+    }
+    room.discord = discord;
+  }
+
+  if (raw.openclaw !== undefined) {
+    const section = roomSection(raw.openclaw, `project ${id}.openclaw`);
+    const openclaw: ProjectRoomOpenClaw = {};
+    if (section.room !== undefined) {
+      openclaw.room = roomString(section.room, `project ${id}.openclaw.room`);
+    }
+    if (section.agents !== undefined) {
+      openclaw.agents = roomStringRecord(section.agents, `project ${id}.openclaw.agents`);
+    }
+    room.openclaw = openclaw;
+  }
+
+  if (raw.mastra !== undefined) {
+    const section = roomSection(raw.mastra, `project ${id}.mastra`);
+    const mastra: ProjectRoomMastra = {};
+    if (section.expose_operator_tools !== undefined) {
+      mastra.expose_operator_tools = roomBoolean(
+        section.expose_operator_tools,
+        `project ${id}.mastra.expose_operator_tools`,
+      );
+    }
+    room.mastra = mastra;
+  }
+
+  return room;
+}
+
+function roomSection(value: unknown, field: string): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new ProjectValidationError(`${field} must be a mapping`);
+  }
+  return value;
+}
+
+function roomString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new ProjectValidationError(`${field} must be a non-empty string`);
+  }
+  return value;
+}
+
+function roomBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new ProjectValidationError(`${field} must be a boolean`);
+  }
+  return value;
+}
+
+function roomStringRecord(value: unknown, field: string): Record<string, string> {
+  if (!isRecord(value)) {
+    throw new ProjectValidationError(`${field} must be a mapping`);
+  }
+  const result: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== 'string' || item.trim() === '') {
+      throw new ProjectValidationError(`${field}.${key} must be a non-empty string`);
+    }
+    result[key] = item;
+  }
+  return result;
 }
 
 function validateRequiredCommands(commands: Record<string, string>, field: string): void {
