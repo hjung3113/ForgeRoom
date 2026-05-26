@@ -71,7 +71,7 @@ import { WorktreeManager, type HarnessContract } from '../core/worktree/worktree
 import { NodeCommandRunner } from '../utils/command-runner.js';
 import { readFile, writeFile } from 'node:fs/promises';
 
-import { DiscordGateway } from '../gateway/discord-gateway.js';
+import { DiscordGateway, type DiscordProjectChannelBinding } from '../gateway/discord-gateway.js';
 import {
   GitHubIssueTaskSource,
   GitHubPullRequestClient,
@@ -504,7 +504,27 @@ function buildDiscordGateway(input: {
             allowed_workflows: project.allowed_workflows,
           };
     },
+    projectChannelBindings: discordProjectChannelBindings(registries),
   });
+}
+
+function discordProjectChannelBindings(registries: LoadedRegistries): DiscordProjectChannelBinding[] {
+  const bindings: DiscordProjectChannelBinding[] = [];
+  for (const project of registries.projects.list()) {
+    const room = registries.projects.getRoom(project.id);
+    const channelId = room?.discord?.channel_id;
+    if (channelId !== undefined) {
+      bindings.push({
+        channelId,
+        project: {
+          id: project.id,
+          default_workflow: project.default_workflow,
+          allowed_workflows: project.allowed_workflows,
+        },
+      });
+    }
+  }
+  return bindings;
 }
 
 function buildGitHubSource(input: {
