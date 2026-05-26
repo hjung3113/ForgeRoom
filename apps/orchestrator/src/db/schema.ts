@@ -68,6 +68,11 @@ export const steps = sqliteTable(
     exitCode: integer('exit_code'),
     startedAt: text('started_at').notNull(),
     finishedAt: text('finished_at'),
+    // ADR-028 Project Room: nullable OpenClaw session handles. Resume HINTS
+    // only (ADR-017) — never the authority for task/step status or output.
+    openclawSessionId: text('openclaw_session_id'),
+    openclawAgentKey: text('openclaw_agent_key'),
+    openclawRole: text('openclaw_role'),
   },
   (table) => [index('steps_task_started_idx').on(table.taskId, table.startedAt)],
 );

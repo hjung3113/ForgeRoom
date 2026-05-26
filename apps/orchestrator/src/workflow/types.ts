@@ -196,6 +196,18 @@ export interface AgentRunResult {
   outputPath: string;
   output: string;
   diffPath: string | null;
+  /**
+   * OpenClaw session handles (ADR-028) carried from the run to step-row
+   * persistence. Nullable resume hints, never authority (ADR-017). Absent when
+   * the run produced no session metadata.
+   */
+  session?: AgentRunSessionHandles;
+}
+
+export interface AgentRunSessionHandles {
+  openclawSessionId: string | null;
+  openclawAgentKey: string | null;
+  openclawRole: string | null;
 }
 
 /**

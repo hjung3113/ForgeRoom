@@ -192,6 +192,9 @@ export function step(): Step {
     exit_code: 0,
     started_at: new Date('2026-05-23T00:00:00.000Z'),
     finished_at: new Date('2026-05-23T00:01:00.000Z'),
+    openclaw_session_id: null,
+    openclaw_agent_key: null,
+    openclaw_role: null,
   };
 }
 

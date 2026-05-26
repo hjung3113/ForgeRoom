@@ -226,7 +226,16 @@ export class StepCollaborators {
     }
 
     const output = await readFile(outputPath, 'utf8');
-    return { outputPath, output, diffPath: null };
+    return {
+      outputPath,
+      output,
+      diffPath: null,
+      session: {
+        openclawSessionId: result.sessionId,
+        openclawAgentKey: runtimeSession?.providerAgentId ?? null,
+        openclawRole: runtimeSession?.role ?? null,
+      },
+    };
   }
 
   /**
@@ -398,5 +407,8 @@ function makeReporterStep(
     exit_code: 0,
     started_at: now(),
     finished_at: now(),
+    openclaw_session_id: run.session?.openclawSessionId ?? null,
+    openclaw_agent_key: run.session?.openclawAgentKey ?? null,
+    openclaw_role: run.session?.openclawRole ?? null,
   };
 }

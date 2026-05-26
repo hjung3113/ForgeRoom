@@ -529,6 +529,9 @@ describe('recoverPending — failed-step guard', () => {
       exit_code: 1,
       started_at: new Date(),
       finished_at: new Date(),
+      openclaw_session_id: null,
+      openclaw_agent_key: null,
+      openclaw_role: null,
     });
     const before = harness.agentCalls.length;
 

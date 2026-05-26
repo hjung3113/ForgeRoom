@@ -54,8 +54,13 @@ steps {
   exit_code: number | null
   started_at: timestamp
   finished_at: timestamp | null
+  openclaw_session_id: string | null   // ADR-028: 런타임 할당 resume id (hint)
+  openclaw_agent_key: string | null    // ADR-028: 구동된 provider-native agent
+  openclaw_role: string | null         // ADR-028: Project Room role
 }
 ```
+
+`openclaw_*` 컬럼은 ADR-028 Project Room seam의 nullable 세션 핸들이다. **권위가 아니라 resume hint다 (ADR-017)** — task/step 상태나 출력 진실 결정에 절대 쓰지 않는다. 다음 step·성패·출력은 항상 step row 상태와 `.forgeroom/` 파일이 결정한다. OpenClaw 세션 상태는 recoverable/discardable이다.
 
 `review_loop`는 control step parent row를 하나 만들고, loop 내부의 `review`/`refine` 실행은 child step row로 저장한다. 최초 review의 `iteration`은 `0`이고, 첫 refine 뒤 재실행되는 review의 `iteration`은 `1`이다. `foreach` 내부 step도 같은 방식으로 group parent row를 참조한다.
 

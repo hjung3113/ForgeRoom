@@ -175,6 +175,9 @@ describe('SqliteTaskStore', () => {
       exit_code: null,
       started_at: earlierStartedAt,
       finished_at: null,
+      openclaw_session_id: null,
+      openclaw_agent_key: null,
+      openclaw_role: null,
     });
     await store.createStep({
       id: 'step-child',
@@ -194,6 +197,9 @@ describe('SqliteTaskStore', () => {
       exit_code: 0,
       started_at: laterStartedAt,
       finished_at: finishedAt,
+      openclaw_session_id: 'oc-sess-42',
+      openclaw_agent_key: 'fr-impl',
+      openclaw_role: 'implementer',
     });
 
     await expect(
@@ -215,6 +221,9 @@ describe('SqliteTaskStore', () => {
         exit_code: 0,
         started_at: laterStartedAt,
         finished_at: finishedAt,
+        openclaw_session_id: null,
+        openclaw_agent_key: null,
+        openclaw_role: null,
       }),
     ).rejects.toThrow(/foreign key/i);
 
@@ -237,6 +246,9 @@ describe('SqliteTaskStore', () => {
         exit_code: null,
         started_at: earlierStartedAt,
         finished_at: null,
+        openclaw_session_id: null,
+        openclaw_agent_key: null,
+        openclaw_role: null,
       },
       {
         id: 'step-child',
@@ -256,6 +268,9 @@ describe('SqliteTaskStore', () => {
         exit_code: 0,
         started_at: laterStartedAt,
         finished_at: finishedAt,
+        openclaw_session_id: 'oc-sess-42',
+        openclaw_agent_key: 'fr-impl',
+        openclaw_role: 'implementer',
       },
     ]);
   });
@@ -282,6 +297,9 @@ describe('SqliteTaskStore', () => {
       exit_code: null,
       started_at: startedAt,
       finished_at: null,
+      openclaw_session_id: null,
+      openclaw_agent_key: null,
+      openclaw_role: null,
     });
 
     await store.updateStep('step-update', {
@@ -314,8 +332,29 @@ describe('SqliteTaskStore', () => {
         exit_code: 1,
         started_at: startedAt,
         finished_at: finishedAt,
+        openclaw_session_id: null,
+        openclaw_agent_key: null,
+        openclaw_role: null,
       },
     ]);
+  });
+
+  it('persists OpenClaw session handles on update (resume hint write path, ADR-028/017)', async () => {
+    await store.createTask(taskInput('task-oc', 'project-a', 'queued'));
+    await store.createStep(stepInput('step-oc', 'task-oc'));
+
+    await store.updateStep('step-oc', {
+      openclaw_session_id: 'oc-sess-7',
+      openclaw_agent_key: 'fr-impl',
+      openclaw_role: 'implementer',
+    });
+
+    const [persisted] = await store.listSteps('task-oc');
+    expect(persisted).toMatchObject({
+      openclaw_session_id: 'oc-sess-7',
+      openclaw_agent_key: 'fr-impl',
+      openclaw_role: 'implementer',
+    });
   });
 
   it('records check rows append-only by check_fix_attempt', async () => {
@@ -338,6 +377,9 @@ describe('SqliteTaskStore', () => {
       exit_code: 0,
       started_at: new Date('2026-05-22T12:00:00.000Z'),
       finished_at: new Date('2026-05-22T12:01:00.000Z'),
+      openclaw_session_id: null,
+      openclaw_agent_key: null,
+      openclaw_role: null,
     });
 
     await expect(
@@ -937,5 +979,8 @@ function stepInput(id: string, taskId: string) {
     exit_code: null,
     started_at: new Date('2026-05-22T17:00:00.000Z'),
     finished_at: null,
+    openclaw_session_id: null,
+    openclaw_agent_key: null,
+    openclaw_role: null,
   };
 }
