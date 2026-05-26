@@ -27,6 +27,7 @@ interface ProjectRegistry {
   load(): Promise<void>
   get(projectId: string): ProjectMeta | null
   list(): ProjectMeta[]
+  getRoom(projectId: string): ProjectRoom | null   // ADR-028 Phase 1.5 seam
   validate(meta: ProjectMeta): ValidationResult
 }
 
@@ -46,7 +47,24 @@ interface ProjectMaintainers {
   discord_user_ids: string[]
   github_logins: string[]
 }
+
+// ADR-028 Phase 1.5 seam — reserved, optional, zero-migration.
+interface ProjectRoom {
+  project: ProjectMeta
+  discord?: { channel_id?: string }
+  openclaw?: { room?: string; agents?: Record<string, string> }  // role → agent id
+  mastra?: { expose_operator_tools?: boolean }
+}
 ```
+
+### ProjectRoom view (ADR-028)
+
+`getRoom(projectId)`는 `ProjectMeta` + 예약된 `discord`/`openclaw`/`mastra` 섹션을 묶은 read-only view를 돌려준다. 설계 경계:
+
+- **별도 view.** room 섹션은 `ProjectMeta`에 붙이지 않는다. `get()`/`list()`는 변경 없이 순수 `ProjectMeta`만 반환한다(Discord/OpenClaw/Mastra 의존이 기존 consumer로 새지 않게).
+- **예약만, 구현 아님.** 현재 파싱하는 키는 `discord.channel_id`, `openclaw.room`, `openclaw.agents`, `mastra.expose_operator_tools` 뿐이다. 섹션 안의 그 외 키(`thread_mode`, `session_strategy`, `permission_profiles`, `studio_project`, `commands.allow` 등)는 **무시**한다 — 해당 phase 전까지 계약이 되지 않도록.
+- **알려진 키는 strict.** 섹션/필드는 optional이지만, 존재하면 타입이 맞아야 한다(틀리면 부팅 시 fail-fast). unknown 키는 조용히 무시.
+- 기존 config는 migration 없이 동작한다(세 섹션 모두 없으면 view는 `{ project }`만).
 
 `maintainers`는 project-scoped allowlist다. Discord/GitHub Gateway는 dirty baseline approval 같은 project 상태 전환 승인 시 source identity를 `ProjectMeta.maintainers`와 대조한다.
 
@@ -75,3 +93,4 @@ MVP에서 `template_dir`은 설정 필드로만 보존하고 prompt template loo
 ## 관련 결정
 
 - [ADR-006](../decisions/2026-05-21-006-workflow-library-model.md)
+- [ADR-028](../decisions/2026-05-26-028-project-room-domain-and-seam.md) — ProjectRoom 도메인 + Phase 1.5 seam (`getRoom` view)

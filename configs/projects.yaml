@@ -16,3 +16,17 @@ forgeroom:
     discord_user_ids: ["388212532697104384"]
     github_logins:
       - hjung3113
+  # ProjectRoom seam (ADR-028, Phase 1.5). Reserved sections — optional, no
+  # migration. Only the keys below are parsed today; everything else is ignored
+  # until its owning phase lands. Left commented so behavior is inert until the
+  # Discord reverse-map (#84) and OpenClaw override (#85) wire them up.
+  # discord:
+  #   channel_id: "C_FORGEROOM"   # Phase 2A: channel → project reverse-map
+  # openclaw:
+  #   room: forgeroom             # Phase 2B: session namespace root
+  #   agents:                     # role → OpenClaw agent id
+  #     planner: fr-forgeroom-planner
+  #     implementer: fr-forgeroom-impl
+  #     reviewer: fr-forgeroom-reviewer
+  # mastra:
+  #   expose_operator_tools: true # Phase 2C: Mastra operator console
