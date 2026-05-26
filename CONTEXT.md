@@ -21,6 +21,8 @@ hand) when a term or decision actually gets resolved. Empty sections are fine.
 **pauseAfterGate** — Adapter-inserted Mastra step that follows any DSL step with `pause_after: true`. Hosts the `suspend()` call so Conductor.update is guaranteed to commit before snapshot (ADR-016).
 
 **Selector parser** — ForgeRoom code that interprets `${<step_id>.output.slices}` and `${<step_id>.passed}` from output files. Invoked **inside** the Mastra step body (not by PipelineEngine wrapper), so parsed values flow into Mastra step output and `.dountil()` conditions (ADR-016).
+
+**Project Room** — Forge Phase 2 product spine (ADR-028). A control/collaboration space bound to **one** Target Project: Discord channel/thread policy, default workflow/model policy, OpenClaw room/session + role agents, Canvas/reporting prefs. Narrow on purpose — NOT the source repo (Target Project) nor the execution unit (Task); never shorten to "Project". Phase 1.5 seam: ProjectRoom config schema, Discord channel→project reverse-map, per-run OpenClaw session/agent via a new `AgentRunRequest.runtimeSession` struct (distinct from `ResolvedRuntimeTarget`, which keeps runtime/model/`permissionProfile`), and nullable TaskStore session-handle columns (`openclaw_session_id`/`agent_key`/`role` — provider resume hints, NOT authority; ADR-017 holds).
 <!--
 Notes for editors:
 - CONTEXT.md is a glossary, not a spec. Definitions only; implementation

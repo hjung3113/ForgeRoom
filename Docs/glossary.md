@@ -36,6 +36,7 @@ last_reviewed: 2026-05-21
 | **Slice** | 하나의 Task를 실행 가능한 작은 구현 단위로 나눈 것. MVP에서는 workflow의 `foreach: ${task.final_slices}` 에서 각 반복 항목 |
 | **Final Slice List** | 현재 task에서 실행 대상으로 최종 결정된 Slice 목록. `implementation_plan.md`의 `## Slices`로 초기화되고, MVP full workflow에서는 review 결과와 관계없이 항상 실행되는 `refine_plan.md`의 `## Slices`로 최종 갱신된다 |
 | **Target Project** | ForgeRoom이 작업을 수행하는 대상 소스 프로젝트 또는 repository |
+| **Project Room** | 한 Target Project에 묶인 협업·관제 공간(Forge Phase 2 도입, ADR-028). Discord 채널/thread 정책, default workflow/model policy, OpenClaw room/session·role agent, Canvas/reporting 설정을 한 단위로 묶는다. **소스 repo(=Target Project)도 실행 단위(=Task)도 아니다.** 문서/스키마에서 항상 풀 용어로 쓰고 "Project"로 축약하지 않는다 |
 | **ForgeMap** | ForgeRoom이 Target Project를 이해하기 위해 관리하는 canonical project context. 한 장 요약이 아니라 목적별 markdown 문서와 구조화 index 묶음 |
 | **Target Profile** | ForgeMap에서 선택된 상위 project profile의 task-local snapshot. target repo에 기본 저장하지 않고 Runtime Context로 staging한다 |
 | **Runtime Context** | 특정 task 실행을 위해 worktree 내부 `.forgeroom/context/`에 생성되는 파일 묶음. `selected-forgemap.md`, `target-profile.md`, `summary.md`, `feedback.md` 같은 task-local snapshot을 포함 |
