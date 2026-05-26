@@ -94,6 +94,58 @@ describe('GitHubIssueTaskSource', () => {
       });
     });
 
+    it('sets workflowId from a single workflow:<id> label', async () => {
+      const requests: TaskRequest[] = [];
+      const source = new GitHubIssueTaskSource({
+        octokit: fakeOctokit([issue({ labels: [{ name: 'agent' }, { name: 'workflow:full' }] })]),
+        repos: [repo],
+        onTask: async (req) => {
+          requests.push(req);
+        },
+        logger: silentLogger,
+      });
+
+      await source.pollOnce();
+
+      expect(requests[0]!.workflowId).toBe('full');
+    });
+
+    it('leaves workflowId undefined when no workflow label is present (project default)', async () => {
+      const requests: TaskRequest[] = [];
+      const source = new GitHubIssueTaskSource({
+        octokit: fakeOctokit([issue()]),
+        repos: [repo],
+        onTask: async (req) => {
+          requests.push(req);
+        },
+        logger: silentLogger,
+      });
+
+      await source.pollOnce();
+
+      expect(requests[0]!.workflowId).toBeUndefined();
+    });
+
+    it('ignores ambiguous workflow labels (falls back to default) and warns', async () => {
+      const requests: TaskRequest[] = [];
+      const warn = vi.fn();
+      const source = new GitHubIssueTaskSource({
+        octokit: fakeOctokit([
+          issue({ labels: [{ name: 'agent' }, { name: 'workflow:full' }, { name: 'workflow:quick' }] }),
+        ]),
+        repos: [repo],
+        onTask: async (req) => {
+          requests.push(req);
+        },
+        logger: { warn, error: () => {} },
+      });
+
+      await source.pollOnce();
+
+      expect(requests[0]!.workflowId).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/workflow:.*ambiguous|multiple workflow/i));
+    });
+
     it('does not dispatch the same issue twice across poll ticks', async () => {
       const requests: TaskRequest[] = [];
       const source = new GitHubIssueTaskSource({

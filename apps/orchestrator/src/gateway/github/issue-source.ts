@@ -59,6 +59,7 @@ export interface GitHubIssueTaskSourceOptions {
 }
 
 const DEFAULT_LABEL = 'agent';
+const WORKFLOW_LABEL_PREFIX = 'workflow:';
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_BACKOFF_BASE_MS = 1_000;
 const DEFAULT_BACKOFF_CAP_MS = 60_000;
@@ -161,8 +162,35 @@ export class GitHubIssueTaskSource {
         continue;
       }
       seen.add(issue.number);
-      await this.onTask(toTaskRequest(repo, issue));
+      const workflowId = this.resolveWorkflowLabel(repo, issue);
+      await this.onTask(toTaskRequest(repo, issue, workflowId));
     }
+  }
+
+  /**
+   * Optional per-issue workflow override via a `workflow:<id>` label (ADR-028
+   * self-improvement runs). Exactly one such label sets `workflowId`; zero or
+   * an ambiguous multiple falls back to the project default (the core engine
+   * still validates the id against `allowed_workflows`).
+   */
+  private resolveWorkflowLabel(repo: GitHubRepoPoll, issue: GitHubIssue): string | undefined {
+    const ids = new Set<string>();
+    for (const entry of issue.labels) {
+      const name = typeof entry === 'string' ? entry : entry.name;
+      if (name.startsWith(WORKFLOW_LABEL_PREFIX)) {
+        ids.add(name.slice(WORKFLOW_LABEL_PREFIX.length));
+      }
+    }
+    if (ids.size === 0) {
+      return undefined;
+    }
+    if (ids.size > 1) {
+      this.logger.warn(
+        `${repo.owner}/${repo.repo}#${issue.number}: multiple workflow:<id> labels are ambiguous (${[...ids].join(', ')}); using project default`,
+      );
+      return undefined;
+    }
+    return [...ids][0];
   }
 
   private seenSet(repo: GitHubRepoPoll): Set<number> {
@@ -211,12 +239,17 @@ function hasLabel(issue: GitHubIssue, label: string): boolean {
   );
 }
 
-function toTaskRequest(repo: GitHubRepoPoll, issue: GitHubIssue): TaskRequest {
+function toTaskRequest(
+  repo: GitHubRepoPoll,
+  issue: GitHubIssue,
+  workflowId: string | undefined,
+): TaskRequest {
   return {
     projectId: repo.projectId,
     title: issue.title,
     description: issue.body ?? '',
     source: 'github-issue-label',
+    workflowId,
     externalRef: {
       provider: 'github',
       id: String(issue.number),
