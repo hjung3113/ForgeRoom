@@ -50,6 +50,7 @@ class FakeOrchestrator implements OrchestratorGatewayPort {
 
 const projects: Record<string, ProjectLookup> = {
   'proj-a': { id: 'proj-a', default_workflow: 'default', allowed_workflows: ['default', 'review-only'] },
+  'proj-b': { id: 'proj-b', default_workflow: 'default', allowed_workflows: ['default'] },
 };
 
 function makeConfig(over: Partial<DiscordGatewayConfig> = {}): DiscordGatewayConfig {
@@ -106,6 +107,12 @@ describe('DiscordGateway slash command dispatch', () => {
     expect(names).toEqual(['ask', 'cancel', 'feedback', 'pause', 'resume', 'run', 'status']);
   });
 
+  it('registers /run project as optional so project rooms can infer it from the channel', () => {
+    const run = gw.buildSlashCommands().find((c) => c.name === 'run')?.toJSON();
+    const project = run?.options?.find((option) => option.name === 'project');
+    expect(project?.required).toBe(false);
+  });
+
   it('/run builds a valid TaskRequest within allowed_workflows', async () => {
     const { interaction, reply } = makeInteraction('run', {
       strings: { project: 'proj-a', title: 'ship it', workflow: 'review-only' },
@@ -131,6 +138,66 @@ describe('DiscordGateway slash command dispatch', () => {
     await gw.handleInteraction(interaction as never);
     const req = orch.startTask.mock.calls[0]![0];
     expect(req.workflowId).toBeUndefined();
+  });
+
+  it('/run without project resolves the project from the Discord channel binding', async () => {
+    gw = new DiscordGateway(
+      orch,
+      makeConfig({
+        projectChannelBindings: [{ channelId: 'chan-1', project: projects['proj-a']! }],
+      }),
+    );
+    const { interaction } = makeInteraction('run', {
+      strings: { project: null, title: 'ship it', workflow: null },
+    });
+
+    await gw.handleInteraction(interaction as never);
+
+    const req = orch.startTask.mock.calls[0]![0];
+    expect(req.projectId).toBe('proj-a');
+  });
+
+  it('/run explicit project takes precedence over a Discord channel binding', async () => {
+    gw = new DiscordGateway(
+      orch,
+      makeConfig({
+        projectChannelBindings: [{ channelId: 'chan-1', project: projects['proj-b']! }],
+      }),
+    );
+    const { interaction } = makeInteraction('run', {
+      strings: { project: 'proj-a', title: 'ship it', workflow: null },
+    });
+
+    await gw.handleInteraction(interaction as never);
+
+    const req = orch.startTask.mock.calls[0]![0];
+    expect(req.projectId).toBe('proj-a');
+  });
+
+  it('/run without project in an unmapped channel keeps the existing project-required rejection', async () => {
+    const { interaction, reply } = makeInteraction('run', {
+      strings: { project: null, title: 'ship it', workflow: null },
+    });
+
+    await gw.handleInteraction(interaction as never);
+
+    expect(orch.startTask).not.toHaveBeenCalled();
+    expect((reply.mock.calls[0]![0] as { content: string }).content).toMatch(/missing required option: project/i);
+  });
+
+  it('fails fast when two projects bind the same Discord channel', () => {
+    expect(
+      () =>
+        new DiscordGateway(
+          orch,
+          makeConfig({
+            projectChannelBindings: [
+              { channelId: 'chan-1', project: projects['proj-a']! },
+              { channelId: 'chan-1', project: projects['proj-b']! },
+            ],
+          }),
+        ),
+    ).toThrow(/duplicate Discord channel_id/i);
   });
 
   it('rejects unauthorized user', async () => {

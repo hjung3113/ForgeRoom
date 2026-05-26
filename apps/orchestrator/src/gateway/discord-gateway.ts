@@ -66,6 +66,11 @@ export interface ProjectLookup {
   allowed_workflows: string[];
 }
 
+export interface DiscordProjectChannelBinding {
+  channelId: string;
+  project: ProjectLookup;
+}
+
 export interface DiscordGatewayConfig {
   token: string;
   applicationId: string;
@@ -75,6 +80,8 @@ export interface DiscordGatewayConfig {
   allowedUserIds: string[];
   /** Project resolver (composition root wraps ProjectRegistry). */
   lookupProject(projectId: string): ProjectLookup | null;
+  /** ADR-028 Project Room channel bindings, derived from ProjectRegistry.getRoom(). */
+  projectChannelBindings?: DiscordProjectChannelBinding[];
 }
 
 export interface ApprovalRequest {
@@ -93,11 +100,13 @@ class CommandRejection extends Error {}
 
 export class DiscordGateway {
   private readonly client: Client;
+  private readonly projectByChannelId: Map<string, ProjectLookup>;
 
   constructor(
     private readonly orchestrator: OrchestratorGatewayPort,
     private readonly config: DiscordGatewayConfig,
   ) {
+    this.projectByChannelId = buildProjectByChannelId(config.projectChannelBindings ?? []);
     this.client = new Client({ intents: [GatewayIntentBits.Guilds] });
     this.client.on('interactionCreate', (interaction: Interaction) => {
       void this.handleInteraction(interaction);
@@ -119,7 +128,7 @@ export class DiscordGateway {
     const run = new SlashCommandBuilder()
       .setName('run')
       .setDescription('Start a task for a project')
-      .addStringOption((o) => o.setName('project').setDescription('Project id').setRequired(true))
+      .addStringOption((o) => o.setName('project').setDescription('Project id'))
       .addStringOption((o) => o.setName('title').setDescription('Task title').setRequired(true))
       .addStringOption((o) =>
         o.setName('workflow').setDescription('Workflow id (within allowed_workflows)'),
@@ -221,7 +230,7 @@ export class DiscordGateway {
   // -------------------------------------------------------------------------
 
   private async handleRun(interaction: ChatInputCommandInteraction): Promise<void> {
-    const projectId = this.requireString(interaction, 'project');
+    const projectId = this.resolveRunProjectId(interaction);
     const title = this.requireString(interaction, 'title');
     const workflowId = interaction.options.getString('workflow') ?? undefined;
 
@@ -249,6 +258,18 @@ export class DiscordGateway {
 
     const taskId = await this.orchestrator.startTask(request);
     await this.reply(interaction, `Task ${taskId} queued.`);
+  }
+
+  private resolveRunProjectId(interaction: ChatInputCommandInteraction): string {
+    const explicitProjectId = interaction.options.getString('project');
+    if (explicitProjectId !== null && explicitProjectId !== '') {
+      return explicitProjectId;
+    }
+    const channelProject = this.projectByChannelId.get(interaction.channelId);
+    if (channelProject !== undefined) {
+      return channelProject.id;
+    }
+    throw new CommandRejection(`Missing required option: project`);
   }
 
   private async handleControl(
@@ -321,4 +342,18 @@ export class DiscordGateway {
   ): Promise<void> {
     await interaction.reply({ content, ephemeral });
   }
+}
+
+function buildProjectByChannelId(bindings: DiscordProjectChannelBinding[]): Map<string, ProjectLookup> {
+  const result = new Map<string, ProjectLookup>();
+  for (const binding of bindings) {
+    const existing = result.get(binding.channelId);
+    if (existing !== undefined && existing.id !== binding.project.id) {
+      throw new Error(
+        `duplicate Discord channel_id ${binding.channelId} for projects ${existing.id} and ${binding.project.id}`,
+      );
+    }
+    result.set(binding.channelId, binding.project);
+  }
+  return result;
 }
