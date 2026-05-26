@@ -13,6 +13,16 @@ Issues and PRDs for this repo live as GitHub issues on `hjung3113/ForgeRoom`. Us
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
+## Per-issue workflow override (`workflow:<id>` label)
+
+The GitHub poller dispatches every open issue carrying the trigger label (`ready-for-agent`). By default the run uses the project's `default_workflow`. To override per issue, add a `workflow:<id>` label (e.g. `workflow:full` for a plan→implement→review run, `workflow:quick` for plan→implement).
+
+- Exactly one `workflow:<id>` label → that workflow (the core engine still validates `<id>` against the project's `allowed_workflows`; an unknown id fails the task with `workflow_not_allowed`).
+- No `workflow:<id>` label → project `default_workflow`.
+- Multiple distinct `workflow:<id>` labels → ambiguous; ignored with a warning, falls back to the default.
+
+Use `workflow:full` on self-improvement issues so the review step catches regressions.
+
 ## When a skill says "publish to the issue tracker"
 
 Create a GitHub issue.
