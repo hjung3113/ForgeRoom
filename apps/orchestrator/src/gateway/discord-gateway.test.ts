@@ -43,6 +43,7 @@ class FakeOrchestrator implements OrchestratorGatewayPort {
   cancelTask = vi.fn(async (_taskId: string) => {});
   getTaskStatus = vi.fn(async (_taskId: string): Promise<Task | null> => makeTask());
   listActiveTasks = vi.fn(async (_projectId?: string): Promise<Task[]> => [makeTask()]);
+  listRecentTasks = vi.fn(async (_projectId: string, _limit: number): Promise<Task[]> => [makeTask()]);
   askTask = vi.fn(async (_taskId: string, _question: string) => 'the answer');
   recordFeedback = vi.fn(async (_taskId: string, _message: string) => {});
   recordApproval = vi.fn(async (_taskId: string, _approvedBy: string) => {});
@@ -104,7 +105,7 @@ describe('DiscordGateway slash command dispatch', () => {
 
   it('builds the seven slash commands', () => {
     const names = gw.buildSlashCommands().map((c) => c.name).sort();
-    expect(names).toEqual(['ask', 'cancel', 'feedback', 'pause', 'resume', 'run', 'status']);
+    expect(names).toEqual(['ask', 'cancel', 'feedback', 'history', 'pause', 'resume', 'room', 'run', 'stats', 'status']);
   });
 
   it('registers /run project as optional so project rooms can infer it from the channel', () => {
@@ -138,6 +139,41 @@ describe('DiscordGateway slash command dispatch', () => {
     await gw.handleInteraction(interaction as never);
     const req = orch.startTask.mock.calls[0]![0];
     expect(req.workflowId).toBeUndefined();
+  });
+
+  it('/room reports project room status (default workflow + active tasks)', async () => {
+    const { interaction, reply } = makeInteraction('room', { strings: { project: 'proj-a' } });
+    await gw.handleInteraction(interaction as never);
+    const content = (reply.mock.calls[0]![0] as { content: string }).content;
+    expect(content).toContain('Project Room: proj-a');
+    expect(content).toContain('Default workflow: default');
+  });
+
+  it('/history lists recent tasks for the project', async () => {
+    const { interaction, reply } = makeInteraction('history', { strings: { project: 'proj-a' } });
+    await gw.handleInteraction(interaction as never);
+    expect(orch.listRecentTasks).toHaveBeenCalledWith('proj-a', 10);
+    expect((reply.mock.calls[0]![0] as { content: string }).content).toMatch(/^- /m);
+  });
+
+  it('/stats counts recent tasks by status', async () => {
+    orch.listRecentTasks = vi.fn(async () => [
+      makeTask({ status: 'done' }),
+      makeTask({ status: 'done' }),
+      makeTask({ status: 'failed' }),
+    ]);
+    const { interaction, reply } = makeInteraction('stats', { strings: { project: 'proj-a' } });
+    await gw.handleInteraction(interaction as never);
+    const content = (reply.mock.calls[0]![0] as { content: string }).content;
+    expect(content).toContain('done: 2');
+    expect(content).toContain('failed: 1');
+  });
+
+  it('/room infers the project from the channel binding when project omitted', async () => {
+    gw = new DiscordGateway(orch, makeConfig({ projectChannelBindings: [{ channelId: 'chan-1', project: projects['proj-a']! }] }));
+    const { interaction, reply } = makeInteraction('room', { strings: { project: null } });
+    await gw.handleInteraction(interaction as never);
+    expect((reply.mock.calls[0]![0] as { content: string }).content).toContain('Project Room: proj-a');
   });
 
   it('/run without project resolves the project from the Discord channel binding', async () => {

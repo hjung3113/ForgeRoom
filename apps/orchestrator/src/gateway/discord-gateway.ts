@@ -51,6 +51,8 @@ export interface OrchestratorGatewayPort {
   getTaskStatus(taskId: string): Promise<Task | null>;
   /** /status [project] */
   listActiveTasks(projectId?: string): Promise<Task[]>;
+  /** /history, /stats — recent tasks for a project (newest first, all statuses). */
+  listRecentTasks(projectId: string, limit: number): Promise<Task[]>;
   /** /ask — Conductor.answer on the task context. */
   askTask(taskId: string, question: string): Promise<string>;
   /** /feedback — recorded for the next step's Conductor.refine input. */
@@ -162,7 +164,17 @@ export class DiscordGateway {
       .addStringOption((o) => o.setName('task-id').setDescription('Task id').setRequired(true))
       .addStringOption((o) => o.setName('message').setDescription('Feedback message').setRequired(true));
 
-    return [run, pause, resume, cancel, status, ask, feedback];
+    const withOptionalProject = (name: string, description: string) =>
+      new SlashCommandBuilder()
+        .setName(name)
+        .setDescription(description)
+        .addStringOption((o) => o.setName('project').setDescription('Project id (inferred from channel if omitted)'));
+
+    const room = withOptionalProject('room', 'Show this Project Room status');
+    const history = withOptionalProject('history', 'Recent tasks for this Project Room');
+    const stats = withOptionalProject('stats', 'Task outcome counts for this Project Room');
+
+    return [run, pause, resume, cancel, status, ask, feedback, room, history, stats];
   }
 
   private async registerSlashCommands(): Promise<void> {
@@ -201,6 +213,12 @@ export class DiscordGateway {
           return await this.handleAsk(interaction);
         case 'feedback':
           return await this.handleFeedback(interaction);
+        case 'room':
+          return await this.handleRoom(interaction);
+        case 'history':
+          return await this.handleHistory(interaction);
+        case 'stats':
+          return await this.handleStats(interaction);
         default:
           await this.reject(interaction, `Unknown command: /${interaction.commandName}`);
       }
@@ -299,6 +317,46 @@ export class DiscordGateway {
       interaction,
       lines.length > 0 ? lines.join('\n') : 'No active tasks.',
     );
+  }
+
+  private async handleRoom(interaction: ChatInputCommandInteraction): Promise<void> {
+    const projectId = this.resolveRunProjectId(interaction);
+    const project = this.config.lookupProject(projectId);
+    if (project === null) {
+      await this.reply(interaction, `Unknown project: ${projectId}`);
+      return;
+    }
+    const active = await this.orchestrator.listActiveTasks(projectId);
+    const lines = [
+      `Project Room: ${projectId}`,
+      `Default workflow: ${project.default_workflow}`,
+      `Allowed workflows: ${project.allowed_workflows.join(', ')}`,
+      `Active tasks: ${active.length}`,
+      ...active.map((t) => `  - ${t.id} (${t.status})`),
+    ];
+    await this.reply(interaction, lines.join('\n'));
+  }
+
+  private async handleHistory(interaction: ChatInputCommandInteraction): Promise<void> {
+    const projectId = this.resolveRunProjectId(interaction);
+    const tasks = await this.orchestrator.listRecentTasks(projectId, 10);
+    const lines = tasks.map((t) => `- ${t.id} [${t.status}] ${t.title}`);
+    await this.reply(interaction, lines.length > 0 ? lines.join('\n') : `No tasks for ${projectId}.`);
+  }
+
+  private async handleStats(interaction: ChatInputCommandInteraction): Promise<void> {
+    const projectId = this.resolveRunProjectId(interaction);
+    const tasks = await this.orchestrator.listRecentTasks(projectId, 100);
+    const counts = new Map<string, number>();
+    for (const t of tasks) {
+      counts.set(t.status, (counts.get(t.status) ?? 0) + 1);
+    }
+    const ordered = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const lines = [
+      `Project Room ${projectId} — last ${tasks.length} task(s)`,
+      ...ordered.map(([status, n]) => `  ${status}: ${n}`),
+    ];
+    await this.reply(interaction, tasks.length > 0 ? lines.join('\n') : `No tasks for ${projectId}.`);
   }
 
   private async handleAsk(interaction: ChatInputCommandInteraction): Promise<void> {

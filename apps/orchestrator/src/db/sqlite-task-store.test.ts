@@ -357,6 +357,20 @@ describe('SqliteTaskStore', () => {
     });
   });
 
+  it('lists recent tasks by project newest-first across all statuses (Phase 2A)', async () => {
+    await store.createTask(taskInput('t-old', 'proj-h', 'done'));
+    await store.createTask(taskInput('t-mid', 'proj-h', 'failed'));
+    await store.createTask(taskInput('t-new', 'proj-h', 'running'));
+    await store.createTask(taskInput('t-other', 'proj-other', 'done'));
+
+    const recent = await store.listTasksByProject('proj-h', 10);
+    expect(recent.map((t) => t.id)).toEqual(['t-new', 't-mid', 't-old']);
+
+    const limited = await store.listTasksByProject('proj-h', 2);
+    expect(limited).toHaveLength(2);
+    expect(limited[0]!.id).toBe('t-new');
+  });
+
   it('records check rows append-only by check_fix_attempt', async () => {
     await store.createTask(taskInput('task-checks', 'project-a', 'queued'));
     await store.createStep({

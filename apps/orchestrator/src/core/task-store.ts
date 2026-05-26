@@ -56,6 +56,11 @@ export interface TaskStore {
   ): Promise<void>;
   getTask(id: string): Promise<Task | null>;
   listActiveTasks(projectId?: string): Promise<Task[]>;
+  /**
+   * Recent tasks for a project, newest first (Phase 2A /history, /stats).
+   * Includes terminal statuses (done/failed/canceled), unlike listActiveTasks.
+   */
+  listTasksByProject(projectId: string, limit: number): Promise<Task[]>;
   // ADR-017: recoverPending() reads/writes the Mastra run pointer to pick
   // resume vs. fresh-run. Read path is normally getTask(); these accessors give
   // recoverPending a focused write/read without round-tripping the whole row.

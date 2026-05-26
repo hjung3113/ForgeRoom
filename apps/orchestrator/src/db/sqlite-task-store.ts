@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import type {
@@ -191,6 +191,19 @@ export class SqliteTaskStore implements TaskStore {
             .orderBy(asc(tasks.createdAt))
             .all();
 
+    return Promise.resolve(rows.map(fromTaskRow));
+  }
+
+  listTasksByProject(projectId: string, limit: number): Promise<Task[]> {
+    const rows = this.db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.projectId, projectId))
+      // createdAt is ms-resolution; rowid breaks ties so same-ms inserts stay
+      // in insertion order (recency) deterministically.
+      .orderBy(desc(tasks.createdAt), sql`rowid desc`)
+      .limit(limit)
+      .all();
     return Promise.resolve(rows.map(fromTaskRow));
   }
 
