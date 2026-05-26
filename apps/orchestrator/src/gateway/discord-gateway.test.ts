@@ -105,7 +105,7 @@ describe('DiscordGateway slash command dispatch', () => {
 
   it('builds the seven slash commands', () => {
     const names = gw.buildSlashCommands().map((c) => c.name).sort();
-    expect(names).toEqual(['ask', 'cancel', 'feedback', 'history', 'pause', 'resume', 'room', 'run', 'stats', 'status']);
+    expect(names).toEqual(['approve', 'ask', 'cancel', 'feedback', 'history', 'pause', 'resume', 'room', 'run', 'stats', 'status']);
   });
 
   it('registers /run project as optional so project rooms can infer it from the channel', () => {
@@ -174,6 +174,15 @@ describe('DiscordGateway slash command dispatch', () => {
     const { interaction, reply } = makeInteraction('room', { strings: { project: null } });
     await gw.handleInteraction(interaction as never);
     expect((reply.mock.calls[0]![0] as { content: string }).content).toContain('Project Room: proj-a');
+  });
+
+  it('/approve records a maintainer approval for the task (ADR-013)', async () => {
+    const { interaction, reply } = makeInteraction('approve', {
+      strings: { 'task-id': 'TASK-7', note: 'rm -rf build' },
+    });
+    await gw.handleInteraction(interaction as never);
+    expect(orch.recordApproval).toHaveBeenCalledWith('TASK-7', 'user-allowed');
+    expect((reply.mock.calls[0]![0] as { content: string }).content).toContain('approved');
   });
 
   it('/run without project resolves the project from the Discord channel binding', async () => {

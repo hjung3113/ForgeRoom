@@ -174,7 +174,13 @@ export class DiscordGateway {
     const history = withOptionalProject('history', 'Recent tasks for this Project Room');
     const stats = withOptionalProject('stats', 'Task outcome counts for this Project Room');
 
-    return [run, pause, resume, cancel, status, ask, feedback, room, history, stats];
+    const approve = new SlashCommandBuilder()
+      .setName('approve')
+      .setDescription('Approve a task gated on maintainer approval (ADR-013)')
+      .addStringOption((o) => o.setName('task-id').setDescription('Task id').setRequired(true))
+      .addStringOption((o) => o.setName('note').setDescription('Optional note (e.g. the risky command)'));
+
+    return [run, pause, resume, cancel, status, ask, feedback, room, history, stats, approve];
   }
 
   private async registerSlashCommands(): Promise<void> {
@@ -219,6 +225,8 @@ export class DiscordGateway {
           return await this.handleHistory(interaction);
         case 'stats':
           return await this.handleStats(interaction);
+        case 'approve':
+          return await this.handleApproveCommand(interaction);
         default:
           await this.reject(interaction, `Unknown command: /${interaction.commandName}`);
       }
@@ -357,6 +365,14 @@ export class DiscordGateway {
       ...ordered.map(([status, n]) => `  ${status}: ${n}`),
     ];
     await this.reply(interaction, tasks.length > 0 ? lines.join('\n') : `No tasks for ${projectId}.`);
+  }
+
+  private async handleApproveCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+    const taskId = this.requireString(interaction, 'task-id');
+    const note = interaction.options.getString('note') ?? undefined;
+    await this.handleApproval({ taskId, approvedBy: interaction.user.id, channelId: interaction.channelId });
+    const suffix = note === undefined ? '' : ` (${note})`;
+    await this.reply(interaction, `Task ${taskId} approved by <@${interaction.user.id}>${suffix}.`);
   }
 
   private async handleAsk(interaction: ChatInputCommandInteraction): Promise<void> {
