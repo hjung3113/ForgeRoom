@@ -572,6 +572,9 @@ function toStepRow(step: Step): typeof steps.$inferInsert {
     exitCode: step.exit_code,
     startedAt: step.started_at.toISOString(),
     finishedAt: step.finished_at?.toISOString() ?? null,
+    openclawSessionId: step.openclaw_session_id,
+    openclawAgentKey: step.openclaw_agent_key,
+    openclawRole: step.openclaw_role,
   };
 }
 
@@ -594,6 +597,9 @@ function fromStepRow(row: StepRow): Step {
     exit_code: row.exitCode,
     started_at: new Date(row.startedAt),
     finished_at: row.finishedAt === null ? null : new Date(row.finishedAt),
+    openclaw_session_id: row.openclawSessionId,
+    openclaw_agent_key: row.openclawAgentKey,
+    openclaw_role: row.openclawRole,
   };
 }
 
@@ -618,6 +624,9 @@ function toStepPatch(patch: Partial<Step>): Partial<typeof steps.$inferInsert> {
   if (patch.started_at !== undefined) rowPatch.startedAt = patch.started_at.toISOString();
   if (patch.finished_at !== undefined)
     rowPatch.finishedAt = patch.finished_at?.toISOString() ?? null;
+  if (patch.openclaw_session_id !== undefined) rowPatch.openclawSessionId = patch.openclaw_session_id;
+  if (patch.openclaw_agent_key !== undefined) rowPatch.openclawAgentKey = patch.openclaw_agent_key;
+  if (patch.openclaw_role !== undefined) rowPatch.openclawRole = patch.openclaw_role;
 
   return rowPatch;
 }
