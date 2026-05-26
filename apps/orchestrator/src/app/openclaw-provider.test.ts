@@ -152,6 +152,43 @@ describe('OpenClawProvider', () => {
     });
   });
 
+  it('prefers runtimeSession.providerAgentId over the global config agent on run (ADR-028)', async () => {
+    const { client, provider } = createProvider();
+
+    await provider.run({ ...runRequest, runtimeSession: { providerAgentId: 'fr-impl', role: 'implementer' } }, agent);
+
+    expect(client.runRequests[0]!.agentId).toBe('fr-impl');
+  });
+
+  it('falls back to the global config agent when runtimeSession is absent', async () => {
+    const { client, provider } = createProvider();
+
+    await provider.run(runRequest, agent);
+
+    expect(client.runRequests[0]!.agentId).toBe('main');
+  });
+
+  it('prefers runtimeSession.providerAgentId on resume too (overridden-agent continuity)', async () => {
+    const { client, provider } = createProvider();
+
+    await provider.resume(
+      {
+        sessionId: 'openclaw-session-1',
+        addendumPromptPath: '/workspace/.forgeroom/prompts/01_retry.md',
+        outputPath: '/workspace/.forgeroom/outputs/01_plan.md',
+        stdoutPath: '/workspace/.forgeroom/logs/01.stdout.log',
+        stderrPath: '/workspace/.forgeroom/logs/01.stderr.log',
+        cwd: '/workspace',
+        mode: 'headless',
+        timeoutMs: 300_000,
+        runtimeSession: { providerAgentId: 'fr-impl', role: 'implementer' },
+      },
+      agent,
+    );
+
+    expect(client.resumeRequests[0]!.agentId).toBe('fr-impl');
+  });
+
   it('translates resume using the explicit persisted execution context and addendum prompt path', async () => {
     const { client, provider } = createProvider();
     const resumeRequest: AgentResumeRequest = {

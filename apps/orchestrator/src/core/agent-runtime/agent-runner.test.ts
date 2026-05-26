@@ -246,6 +246,29 @@ describe('DefaultAgentRunner', () => {
     expect(result.failureKind).toBeUndefined();
   });
 
+  it('carries runtimeSession into the resume retry (overridden agent must not fall back) (ADR-028)', async () => {
+    const req = { ...(await createRunRequest()), runtimeSession: { providerAgentId: 'fr-impl', role: 'implementer' } };
+    await writeOutput(req.outputPath, 'too small');
+    const retryPromptPath = join(req.cwd, '.forgeroom', 'prompts', '01_plan.retry-2.md');
+    const provider = new FakeAgentRuntimeProvider();
+    provider.results = [providerResult(), providerResult({ durationMs: 75 })];
+    const runner = new DefaultAgentRunner({
+      agentRegistry: registry,
+      provider,
+      createRetryPrompt: async () => {
+        await writeFile(req.outputPath, 'x'.repeat(51));
+        return retryPromptPath;
+      },
+    });
+
+    await runner.run(req);
+
+    expect(provider.resumeRequests[0]!.req.runtimeSession).toEqual({
+      providerAgentId: 'fr-impl',
+      role: 'implementer',
+    });
+  });
+
   it('applies the built-in default timeout to internal resume retries when the run request omits timeoutMs', async () => {
     const { timeoutMs: _timeoutMs, ...req } = await createRunRequest();
     await writeOutput(req.outputPath, 'too small');
