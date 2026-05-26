@@ -215,7 +215,13 @@ export class OutboxReporter implements Reporter {
       return null;
     }
     const id = destination === 'discord' ? ref.status_message_id : ref.status_comment_id;
-    return id === undefined || id === null ? null : { id };
+    if (id === undefined || id === null) {
+      return null;
+    }
+    if (destination === 'discord' && ref.status_thread_id !== undefined && ref.status_thread_id !== null) {
+      return { id, threadId: ref.status_thread_id };
+    }
+    return { id };
   }
 
   private async persistSurface(
@@ -228,11 +234,17 @@ export class OutboxReporter implements Reporter {
     }
     const current = task.external_ref;
     const field = destination === 'discord' ? 'status_message_id' : 'status_comment_id';
-    if (current !== null && current[field] === surface.id) {
+    const threadUnchanged =
+      destination !== 'discord' || current?.status_thread_id === surface.threadId;
+    if (current !== null && current[field] === surface.id && threadUnchanged) {
       return; // unchanged
     }
     const base = current ?? { provider: destination, id: surface.id };
-    await this.store.setExternalRef(task.id, { ...base, [field]: surface.id });
+    const next = { ...base, [field]: surface.id };
+    if (destination === 'discord' && surface.threadId !== undefined) {
+      next.status_thread_id = surface.threadId;
+    }
+    await this.store.setExternalRef(task.id, next);
   }
 
   private async reconstructEvent(delivery: EventDelivery): Promise<ReporterEvent | null> {
@@ -279,10 +291,16 @@ function fromPayload(
 // ---------------------------------------------------------------------------
 
 export interface DiscordStatusClient {
-  /** Post a message to a channel; returns its provider message id. */
+  /** Post a message to a channel (or thread); returns its provider message id. */
   sendMessage(channelId: string, content: string): Promise<{ id: string }>;
   /** Edit an existing message; rejects if the message is gone/stale. */
   editMessage(channelId: string, messageId: string, content: string): Promise<void>;
+  /**
+   * Create a per-task thread in the given channel (Phase 2A); returns the
+   * thread id (itself a sendable channel id). Optional so a minimal client can
+   * omit it — the sink falls back to posting in the bare channel.
+   */
+  createThread?(channelId: string, name: string): Promise<{ id: string }>;
 }
 
 export interface GitHubStatusClient {
@@ -311,16 +329,39 @@ export class DiscordReporterSink implements ReporterSink {
     const content = renderDiscord(request.event);
 
     if (request.surface !== null) {
+      const target = request.surface.threadId ?? channelId;
       try {
-        await this.client.editMessage(channelId, request.surface.id, content);
+        await this.client.editMessage(target, request.surface.id, content);
         return { surface: request.surface };
       } catch {
-        // Edit failed (message deleted / too old): fall back to a follow-up.
+        // Edit failed (message deleted / too old): fall back to a follow-up in
+        // the same target (thread if we have one).
       }
+      const sent = await this.client.sendMessage(target, content);
+      return { surface: { id: sent.id, ...threadPart(request.surface.threadId) } };
+    }
+
+    // First delivery for this task: open a per-task thread (Phase 2A) and post
+    // the status message there. If the client can't create threads, fall back
+    // to the bare channel — one surface per task either way (ADR-013).
+    if (this.client.createThread !== undefined) {
+      const thread = await this.client.createThread(channelId, threadName(request.event.task));
+      const sent = await this.client.sendMessage(thread.id, content);
+      return { surface: { id: sent.id, threadId: thread.id } };
     }
     const sent = await this.client.sendMessage(channelId, content);
     return { surface: { id: sent.id } };
   }
+}
+
+function threadPart(threadId: string | undefined): { threadId?: string } {
+  return threadId === undefined ? {} : { threadId };
+}
+
+/** Discord thread title for a task (<=100 chars). */
+function threadName(task: import('../types.js').Task): string {
+  const ref = task.issue_number !== null ? `#${task.issue_number}` : task.id.slice(0, 8);
+  return `[${ref}] ${task.title}`.slice(0, 100);
 }
 
 // ---------------------------------------------------------------------------

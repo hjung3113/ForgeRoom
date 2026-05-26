@@ -21,6 +21,11 @@ interface SendableChannel {
   messages: { fetch(id: string): Promise<{ edit(payload: { content: string }): Promise<unknown> }> };
 }
 
+/** The thread-creation surface (Phase 2A). discord.js text channels expose it. */
+interface ThreadableChannel {
+  threads: { create(payload: { name: string }): Promise<{ id: string }> };
+}
+
 export class DiscordJsStatusClient implements DiscordStatusClient {
   constructor(private readonly client: Client) {}
 
@@ -34,6 +39,16 @@ export class DiscordJsStatusClient implements DiscordStatusClient {
     const channel = await this.requireSendableChannel(channelId);
     const message = await channel.messages.fetch(messageId);
     await message.edit({ content });
+  }
+
+  async createThread(channelId: string, name: string): Promise<{ id: string }> {
+    const channel = await this.client.channels.fetch(channelId);
+    const threads = (channel as { threads?: ThreadableChannel['threads'] } | null)?.threads;
+    if (channel === null || threads === undefined) {
+      throw new Error(`discord channel ${channelId} cannot host threads`);
+    }
+    const thread = await threads.create({ name });
+    return { id: thread.id };
   }
 
   private async requireSendableChannel(channelId: string): Promise<SendableChannel> {

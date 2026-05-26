@@ -418,6 +418,43 @@ describe('DiscordReporterSink (discord.js behind a fake client)', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(outcome.surface).toEqual({ id: 'msg-10' });
   });
+
+  it('opens a per-task thread on first delivery and posts the status there (Phase 2A)', async () => {
+    const send = vi.fn().mockResolvedValue({ id: 'msg-9' });
+    const edit = vi.fn().mockResolvedValue(undefined);
+    const createThread = vi.fn().mockResolvedValue({ id: 'thread-1' });
+    const client: DiscordStatusClient = { sendMessage: send, editMessage: edit, createThread };
+    const sink = new DiscordReporterSink(client);
+    const task = makeTask({
+      source: 'discord-command',
+      external_ref: { provider: 'discord', id: 'chan-1' },
+      issue_number: 42,
+      title: 'Add login',
+    });
+
+    const first = await sink.deliver({ event: { type: 'task_started', task }, surface: null });
+
+    expect(createThread).toHaveBeenCalledWith('chan-1', '[#42] Add login');
+    expect(send).toHaveBeenCalledWith('thread-1', expect.any(String));
+    expect(first.surface).toEqual({ id: 'msg-9', threadId: 'thread-1' });
+  });
+
+  it('edits the status message inside the persisted thread on re-delivery', async () => {
+    const send = vi.fn().mockResolvedValue({ id: 'msg-9' });
+    const edit = vi.fn().mockResolvedValue(undefined);
+    const createThread = vi.fn().mockResolvedValue({ id: 'thread-1' });
+    const client: DiscordStatusClient = { sendMessage: send, editMessage: edit, createThread };
+    const sink = new DiscordReporterSink(client);
+    const task = makeTask({ source: 'discord-command', external_ref: { provider: 'discord', id: 'chan-1' } });
+
+    await sink.deliver({
+      event: { type: 'step_done', task, step: fakeStep() },
+      surface: { id: 'msg-9', threadId: 'thread-1' },
+    });
+
+    expect(createThread).not.toHaveBeenCalled();
+    expect(edit).toHaveBeenCalledWith('thread-1', 'msg-9', expect.any(String));
+  });
 });
 
 function fakeStep(): Step {
