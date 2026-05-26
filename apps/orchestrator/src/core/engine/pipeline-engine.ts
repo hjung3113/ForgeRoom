@@ -738,6 +738,7 @@ export class MastraPipelineEngine implements PipelineEngine {
     const collaborators = new StepCollaborators({
       task,
       project,
+      projectRoom: this.deps.projectRegistry.getRoom(project.id),
       interpolation,
       stepOutputs,
       stepCounter,

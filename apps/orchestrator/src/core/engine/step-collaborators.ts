@@ -10,7 +10,8 @@ import { OrchestratorError } from '../errors.js';
 import { parseReviewPassedOutput, parseSlicesOutput } from './output-selectors.js';
 import type { IntentRegistry } from '../registries/intent-registry.js';
 import type { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
-import type { ProjectMeta } from '../registries/project-registry.js';
+import type { ProjectMeta, ProjectRoom } from '../registries/project-registry.js';
+import { resolveRuntimeSession } from './runtime-session.js';
 import type { TaskStore } from '../task-store.js';
 import type { Conductor, ReporterEvent, Step, StepResult, Task } from '../types.js';
 import type { CheckRunResult } from '../types.js';
@@ -54,6 +55,8 @@ interface StepCollaboratorCallbacks {
 export interface StepCollaboratorsOptions {
   task: Task;
   project: ProjectMeta;
+  /** Project Room view (ADR-028); drives per-run OpenClaw session/agent override. */
+  projectRoom?: ProjectRoom | null;
   interpolation: InterpolationSource;
   stepOutputs: Record<string, StepOutputView>;
   stepCounter: { value: number };
@@ -68,6 +71,7 @@ export interface StepCollaboratorsOptions {
 export class StepCollaborators {
   private readonly task: Task;
   private readonly project: ProjectMeta;
+  private readonly projectRoom: ProjectRoom | null;
   private readonly interpolation: InterpolationSource;
   private readonly stepOutputs: Record<string, StepOutputView>;
   private readonly stepCounter: { value: number };
@@ -80,6 +84,7 @@ export class StepCollaborators {
   constructor(options: StepCollaboratorsOptions) {
     this.task = options.task;
     this.project = options.project;
+    this.projectRoom = options.projectRoom ?? null;
     this.interpolation = options.interpolation;
     this.stepOutputs = options.stepOutputs;
     this.stepCounter = options.stepCounter;
@@ -197,6 +202,9 @@ export class StepCollaborators {
     const { runtimeTarget, policyId } = this.resolveRuntimeTarget(resolved, agentId);
     await this.recordRoutingDecision(resolved, fileBase, policyId, runtimeTarget);
 
+    const intentKind = this.deps.intentRegistry.resolve(resolved.intentId).kind;
+    const runtimeSession = resolveRuntimeSession(this.projectRoom, intentKind, this.task.id);
+
     await mkdir(path.dirname(outputPath), { recursive: true });
     const result = await this.deps.agentRunner.run({
       agentId,
@@ -207,6 +215,7 @@ export class StepCollaborators {
       cwd: this.task.worktree_path,
       mode: 'headless',
       runtimeTarget,
+      ...(runtimeSession === undefined ? {} : { runtimeSession }),
     });
 
     if (result.failureKind !== undefined || !result.outputExists) {
