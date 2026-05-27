@@ -89,6 +89,7 @@ import {
   TaskStoreContextLookup,
 } from './forgemap-adapters.js';
 import { OrchestratorGatewayPortImpl } from './gateway-port.js';
+import { CanvasWriter } from './canvas-writer.js';
 import { OpenClawCliClient, resolveOpenClawCliConfig } from './openclaw-ipc.js';
 import {
   GitCliWorktreeClient,
@@ -320,6 +321,10 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
   const engine = new MastraPipelineEngine(engineDeps);
 
   // --- Gateway facade + TaskSources ----------------------------------------
+  const roomCanvas =
+    env.canvasRoot === null
+      ? undefined
+      : { projects: registries.projects, writer: new CanvasWriter(env.canvasRoot) };
   const gatewayPort = new OrchestratorGatewayPortImpl({
     engine,
     conductor,
@@ -328,6 +333,7 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
       enqueuePlainEvent(taskStore, taskId, 'dirty_baseline_approved', { approvedBy }),
     recordFeedbackEvent: (taskId, message): Promise<void> =>
       enqueuePlainEvent(taskStore, taskId, 'user_feedback', { message }),
+    ...(roomCanvas === undefined ? {} : { roomCanvas }),
   });
 
   const discordGateway = buildDiscordGateway({ gatewayPort, env, registries, overrides });

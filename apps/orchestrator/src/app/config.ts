@@ -208,6 +208,8 @@ export interface OrchestratorEnv {
   templateRoot: string;
   /** Bundled Step Harness root; each `<id>` file holds that harness's prompt/output contract. */
   harnessRoot: string;
+  /** Canvas dashboard output root (Phase 2D). null → /room canvas disabled. */
+  canvasRoot: string | null;
   /** Whether Mastra Studio opt-in is set (production start must be false). */
   studioEnabled: boolean;
   discord: DiscordEnv | null;
@@ -288,6 +290,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): OrchestratorEn
 
   const templateRoot = env.FORGEROOM_TEMPLATE_ROOT?.trim() || defaultTemplateRoot();
   const harnessRoot = env.FORGEROOM_HARNESS_ROOT?.trim() || defaultHarnessRoot();
+  const canvasRoot = env.FORGEROOM_CANVAS_ROOT?.trim() || null;
 
   const openclawEndpoint = env.FORGEROOM_OPENCLAW_ENDPOINT ?? '';
   const openclawToken = env.FORGEROOM_OPENCLAW_TOKEN ?? '';
@@ -305,6 +308,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): OrchestratorEn
     snapshotDir,
     templateRoot,
     harnessRoot,
+    canvasRoot,
     studioEnabled: TRUTHY.has((env.FORGEROOM_STUDIO ?? '').trim().toLowerCase()),
     discord,
     github,
