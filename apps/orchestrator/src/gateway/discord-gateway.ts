@@ -23,6 +23,7 @@ import {
   type ChatInputCommandInteraction,
   type Interaction,
   type SlashCommandOptionsOnlyBuilder,
+  type SlashCommandSubcommandsOnlyBuilder,
 } from 'discord.js';
 
 import type { Task, TaskRequest } from '../core/types.js';
@@ -53,12 +54,25 @@ export interface OrchestratorGatewayPort {
   listActiveTasks(projectId?: string): Promise<Task[]>;
   /** /history, /stats — recent tasks for a project (newest first, all statuses). */
   listRecentTasks(projectId: string, limit: number): Promise<Task[]>;
+  /** /room sessions — OpenClaw session handles across the project's recent tasks. */
+  listProjectSessions(projectId: string): Promise<RoomSession[]>;
+  /** /room session <task-id> — session handles for one task's steps. */
+  listTaskSessions(taskId: string): Promise<RoomSession[]>;
   /** /ask — Conductor.answer on the task context. */
   askTask(taskId: string, question: string): Promise<string>;
   /** /feedback — recorded for the next step's Conductor.refine input. */
   recordFeedback(taskId: string, message: string): Promise<void>;
   /** Dirty-baseline approval — records the approval event (ADR-013). */
   recordApproval(taskId: string, approvedBy: string): Promise<void>;
+}
+
+/** One OpenClaw session handle row (ADR-028 #86), surfaced by /room sessions. */
+export interface RoomSession {
+  taskId: string;
+  stepId: string;
+  openclawSessionId: string | null;
+  agentKey: string | null;
+  role: string | null;
 }
 
 /** Minimal project view the gateway needs for authorization + workflow checks. */
@@ -126,7 +140,7 @@ export class DiscordGateway {
   }
 
   /** Build the seven MVP slash commands (no step-level override options). */
-  buildSlashCommands(): SlashCommandOptionsOnlyBuilder[] {
+  buildSlashCommands(): Array<SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder> {
     const run = new SlashCommandBuilder()
       .setName('run')
       .setDescription('Start a task for a project')
@@ -170,7 +184,27 @@ export class DiscordGateway {
         .setDescription(description)
         .addStringOption((o) => o.setName('project').setDescription('Project id (inferred from channel if omitted)'));
 
-    const room = withOptionalProject('room', 'Show this Project Room status');
+    const room = new SlashCommandBuilder()
+      .setName('room')
+      .setDescription('Project Room operations')
+      .addSubcommand((s) =>
+        s
+          .setName('status')
+          .setDescription('Project Room status')
+          .addStringOption((o) => o.setName('project').setDescription('Project id (inferred from channel if omitted)')),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('sessions')
+          .setDescription('OpenClaw sessions in this Project Room')
+          .addStringOption((o) => o.setName('project').setDescription('Project id (inferred from channel if omitted)')),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('session')
+          .setDescription('OpenClaw session handles for one task')
+          .addStringOption((o) => o.setName('task-id').setDescription('Task id').setRequired(true)),
+      );
     const history = withOptionalProject('history', 'Recent tasks for this Project Room');
     const stats = withOptionalProject('stats', 'Task outcome counts for this Project Room');
 
@@ -328,6 +362,29 @@ export class DiscordGateway {
   }
 
   private async handleRoom(interaction: ChatInputCommandInteraction): Promise<void> {
+    switch (interaction.options.getSubcommand()) {
+      case 'sessions':
+        return await this.handleRoomSessions(interaction);
+      case 'session':
+        return await this.handleRoomSession(interaction);
+      default:
+        return await this.handleRoomStatus(interaction);
+    }
+  }
+
+  private async handleRoomSessions(interaction: ChatInputCommandInteraction): Promise<void> {
+    const projectId = this.resolveRunProjectId(interaction);
+    const sessions = await this.orchestrator.listProjectSessions(projectId);
+    await this.reply(interaction, renderRoomSessions(`Project Room ${projectId}`, sessions));
+  }
+
+  private async handleRoomSession(interaction: ChatInputCommandInteraction): Promise<void> {
+    const taskId = this.requireString(interaction, 'task-id');
+    const sessions = await this.orchestrator.listTaskSessions(taskId);
+    await this.reply(interaction, renderRoomSessions(`Task ${taskId}`, sessions));
+  }
+
+  private async handleRoomStatus(interaction: ChatInputCommandInteraction): Promise<void> {
     const projectId = this.resolveRunProjectId(interaction);
     const project = this.config.lookupProject(projectId);
     if (project === null) {
@@ -430,4 +487,17 @@ function buildProjectByChannelId(bindings: DiscordProjectChannelBinding[]): Map<
     result.set(binding.channelId, binding.project);
   }
   return result;
+}
+
+function renderRoomSessions(header: string, sessions: RoomSession[]): string {
+  if (sessions.length === 0) {
+    return `${header}: no OpenClaw sessions recorded.`;
+  }
+  const lines = sessions.map((s) => {
+    const role = s.role ?? '-';
+    const agent = s.agentKey ?? '-';
+    const session = s.openclawSessionId ?? '-';
+    return `  ${s.taskId}/${s.stepId} [${role}] agent=${agent} session=${session}`;
+  });
+  return [`${header} — OpenClaw sessions`, ...lines].join('\n');
 }

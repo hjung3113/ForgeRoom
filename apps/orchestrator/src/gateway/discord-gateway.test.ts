@@ -44,6 +44,12 @@ class FakeOrchestrator implements OrchestratorGatewayPort {
   getTaskStatus = vi.fn(async (_taskId: string): Promise<Task | null> => makeTask());
   listActiveTasks = vi.fn(async (_projectId?: string): Promise<Task[]> => [makeTask()]);
   listRecentTasks = vi.fn(async (_projectId: string, _limit: number): Promise<Task[]> => [makeTask()]);
+  listProjectSessions = vi.fn(async (_projectId: string) => [
+    { taskId: 'task-1', stepId: 'plan', openclawSessionId: 'oc-1', agentKey: 'fr-planner', role: 'planner' },
+  ]);
+  listTaskSessions = vi.fn(async (_taskId: string) => [
+    { taskId: 'task-1', stepId: 'execute', openclawSessionId: 'oc-2', agentKey: 'fr-impl', role: 'implementer' },
+  ]);
   askTask = vi.fn(async (_taskId: string, _question: string) => 'the answer');
   recordFeedback = vi.fn(async (_taskId: string, _message: string) => {});
   recordApproval = vi.fn(async (_taskId: string, _approvedBy: string) => {});
@@ -141,12 +147,28 @@ describe('DiscordGateway slash command dispatch', () => {
     expect(req.workflowId).toBeUndefined();
   });
 
-  it('/room reports project room status (default workflow + active tasks)', async () => {
-    const { interaction, reply } = makeInteraction('room', { strings: { project: 'proj-a' } });
+  it('/room status reports project room status (default workflow + active tasks)', async () => {
+    const { interaction, reply } = makeInteraction('room', { strings: { project: 'proj-a' }, subcommand: 'status' });
     await gw.handleInteraction(interaction as never);
     const content = (reply.mock.calls[0]![0] as { content: string }).content;
     expect(content).toContain('Project Room: proj-a');
     expect(content).toContain('Default workflow: default');
+  });
+
+  it('/room sessions lists OpenClaw session handles for the project', async () => {
+    const { interaction, reply } = makeInteraction('room', { strings: { project: 'proj-a' }, subcommand: 'sessions' });
+    await gw.handleInteraction(interaction as never);
+    expect(orch.listProjectSessions).toHaveBeenCalledWith('proj-a');
+    const content = (reply.mock.calls[0]![0] as { content: string }).content;
+    expect(content).toContain('planner');
+    expect(content).toContain('oc-1');
+  });
+
+  it('/room session <task-id> lists that task\'s session handles', async () => {
+    const { interaction, reply } = makeInteraction('room', { strings: { 'task-id': 'task-1' }, subcommand: 'session' });
+    await gw.handleInteraction(interaction as never);
+    expect(orch.listTaskSessions).toHaveBeenCalledWith('task-1');
+    expect((reply.mock.calls[0]![0] as { content: string }).content).toContain('implementer');
   });
 
   it('/history lists recent tasks for the project', async () => {
@@ -171,7 +193,7 @@ describe('DiscordGateway slash command dispatch', () => {
 
   it('/room infers the project from the channel binding when project omitted', async () => {
     gw = new DiscordGateway(orch, makeConfig({ projectChannelBindings: [{ channelId: 'chan-1', project: projects['proj-a']! }] }));
-    const { interaction, reply } = makeInteraction('room', { strings: { project: null } });
+    const { interaction, reply } = makeInteraction('room', { strings: { project: null }, subcommand: 'status' });
     await gw.handleInteraction(interaction as never);
     expect((reply.mock.calls[0]![0] as { content: string }).content).toContain('Project Room: proj-a');
   });
