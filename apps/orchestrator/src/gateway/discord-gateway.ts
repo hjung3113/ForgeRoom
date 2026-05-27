@@ -58,6 +58,8 @@ export interface OrchestratorGatewayPort {
   listProjectSessions(projectId: string): Promise<RoomSession[]>;
   /** /room session <task-id> — session handles for one task's steps. */
   listTaskSessions(taskId: string): Promise<RoomSession[]>;
+  /** /room canvas — refresh the Canvas dashboard read-model; returns its path. */
+  refreshRoomCanvas(projectId: string): Promise<string>;
   /** /ask — Conductor.answer on the task context. */
   askTask(taskId: string, question: string): Promise<string>;
   /** /feedback — recorded for the next step's Conductor.refine input. */
@@ -204,6 +206,12 @@ export class DiscordGateway {
           .setName('session')
           .setDescription('OpenClaw session handles for one task')
           .addStringOption((o) => o.setName('task-id').setDescription('Task id').setRequired(true)),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('canvas')
+          .setDescription('Refresh + open the Canvas dashboard')
+          .addStringOption((o) => o.setName('project').setDescription('Project id (inferred from channel if omitted)')),
       );
     const history = withOptionalProject('history', 'Recent tasks for this Project Room');
     const stats = withOptionalProject('stats', 'Task outcome counts for this Project Room');
@@ -367,9 +375,17 @@ export class DiscordGateway {
         return await this.handleRoomSessions(interaction);
       case 'session':
         return await this.handleRoomSession(interaction);
+      case 'canvas':
+        return await this.handleRoomCanvas(interaction);
       default:
         return await this.handleRoomStatus(interaction);
     }
+  }
+
+  private async handleRoomCanvas(interaction: ChatInputCommandInteraction): Promise<void> {
+    const projectId = this.resolveRunProjectId(interaction);
+    const path = await this.orchestrator.refreshRoomCanvas(projectId);
+    await this.reply(interaction, `Canvas refreshed for ${projectId}: ${path}`);
   }
 
   private async handleRoomSessions(interaction: ChatInputCommandInteraction): Promise<void> {

@@ -218,6 +218,7 @@ function makeEnv(overrides: Partial<OrchestratorEnv> = {}): OrchestratorEnv {
     snapshotDir: path.join(tempDir, 'snapshots'),
     templateRoot,
     harnessRoot: templateRoot,
+    canvasRoot: null,
     studioEnabled: false,
     discord: { token: 't', applicationId: 'app', guildIds: ['g'], allowedUserIds: ['111'] },
     github: { token: 'gh', repos: [{ projectId: 'demo', owner: 'octocat', repo: 'demo' }] },
