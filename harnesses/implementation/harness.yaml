@@ -1,0 +1,12 @@
+id: implementation
+description: Code-writing implementation harness (worktree-scoped writes).
+applies_to:
+  kinds: [execute, refine]
+prompt_contract: ./prompt-contract.md
+permissions:
+  filesystem: worktree_only
+  shell: project_checks_only
+  network: disabled
+tools:
+  allow: [read_file, write_file, grep, git_diff, run_tests]
+  deny: [write_outside_worktree, network]

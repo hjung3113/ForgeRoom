@@ -162,18 +162,20 @@ export class StepCollaborators {
   }
 
   /**
-   * Read a staged Step Harness contract from the worktree (`<worktree>/<source>`),
-   * where `source` is the worktree-relative path WorktreeManager bootstrapped the
-   * bundled contract into. Fails fast when the contract is missing.
+   * Read a staged Step Harness prompt contract from the worktree
+   * (`<worktree>/<source>/prompt-contract.md`), where `source` is the
+   * worktree-relative harness DIR WorktreeManager bootstrapped (ADR-029). The
+   * prompt contract is staged under the canonical `prompt-contract.md` name.
+   * Fails fast when the contract is missing.
    */
   private async loadHarness(harnessId: string, source: string): Promise<string> {
-    const harnessPath = path.join(this.task.worktree_path, source);
+    const harnessPath = path.join(this.task.worktree_path, source, 'prompt-contract.md');
     try {
       return await readFile(harnessPath, 'utf8');
     } catch {
       throw new OrchestratorError(
         'agent_error',
-        `harness contract not found: ${harnessId} (expected staged at ${source} in worktree)`,
+        `harness contract not found: ${harnessId} (expected staged at ${source}/prompt-contract.md in worktree)`,
       );
     }
   }

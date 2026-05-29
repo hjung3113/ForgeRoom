@@ -52,9 +52,18 @@ export async function makeTestTemplateRoot(): Promise<string> {
 export const TEST_HARNESS_IDS = ['planning', 'implementation', 'review'] as const;
 
 /** Test harness contracts (id → content), mirroring the bundled distribution set. */
-export function makeTestHarnessContracts(): Array<{ id: string; content: string }> {
+export function makeTestHarnessContracts(): Array<{
+  id: string;
+  files: ReadonlyArray<{ relativePath: string; content: string }>;
+}> {
   return TEST_HARNESS_IDS.map((id) => ({
     id,
-    content: `# ${id} contract\n\nHarness contract for step {{step_id}} (index {{step_index}}).\n`,
+    files: [
+      { relativePath: 'harness.yaml', content: `id: ${id}\ndescription: ${id} test harness\nprompt_contract: ./prompt-contract.md\n` },
+      {
+        relativePath: 'prompt-contract.md',
+        content: `# ${id} contract\n\nHarness contract for step {{step_id}} (index {{step_index}}).\n`,
+      },
+    ],
   }));
 }

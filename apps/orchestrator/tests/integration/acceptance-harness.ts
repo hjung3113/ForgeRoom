@@ -560,7 +560,13 @@ function assemble(tempDir: string, options: HarnessOptions, templateRoot: string
       // Stage the bundled harness contracts so renderPrompt can compose them
       // (mirrors WorktreeManager bootstrap; ADR-027).
       for (const harness of harnessContracts) {
-        await writeFile(path.join(task.worktree_path, '.forgeroom', 'harnesses', harness.id), harness.content);
+        await mkdir(path.join(task.worktree_path, '.forgeroom', 'harnesses', harness.id), { recursive: true });
+        for (const file of harness.files) {
+          await writeFile(
+            path.join(task.worktree_path, '.forgeroom', 'harnesses', harness.id, file.relativePath),
+            file.content,
+          );
+        }
       }
       return { path: task.worktree_path, branch: task.branch_name };
     },

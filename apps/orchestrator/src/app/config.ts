@@ -22,6 +22,7 @@ import { parse as parseYaml } from 'yaml';
 import { AgentRegistry } from '../core/agent-runtime/agent-registry.js';
 import { HarnessRegistry } from '../core/agent-runtime/harness-registry.js';
 import type { HarnessContract } from '../core/worktree/worktree-manager.js';
+import { parseHarnessManifest } from '../core/agent-runtime/harness-manifest.js';
 import { IntentRegistry } from '../core/registries/intent-registry.js';
 import { ModelPolicyRegistry } from '../core/registries/model-policy-registry.js';
 import { ProjectRegistry } from '../core/registries/project-registry.js';
@@ -135,11 +136,12 @@ export async function loadRegistries(options: LoadRegistriesOptions): Promise<Lo
 }
 
 /**
- * Read the bundled Step Harness contracts (id → content) from the harness root.
- * Each configured harness id maps to a bundled file `<harnessRoot>/<id>` (no
- * extension; the filename IS the id). WorktreeManager stages these into each
- * task worktree at `.forgeroom/harnesses/<id>` (ADR-027). A missing bundled file
- * is a hard boot failure — a harness referenced by config must be shippable.
+ * Read the bundled Step Harnesses (ADR-029) from the harness root. Each
+ * configured harness id maps to a bundled DIRECTORY `<harnessRoot>/<id>/`
+ * containing `harness.yaml` (manifest) + the referenced `prompt_contract`
+ * markdown. The manifest is parsed + validated here (fail-fast on a malformed or
+ * non-shippable harness). WorktreeManager stages every harness file into each
+ * task worktree at `.forgeroom/harnesses/<id>/` (ADR-027/029).
  */
 export async function loadHarnessContracts(
   harnessRoot: string,
@@ -147,13 +149,42 @@ export async function loadHarnessContracts(
 ): Promise<HarnessContract[]> {
   return Promise.all(
     harnesses.list().map(async ({ id }) => {
-      const bundledPath = path.join(harnessRoot, id);
+      const dir = path.join(harnessRoot, id);
+      const manifestPath = path.join(dir, 'harness.yaml');
+      let manifestRaw: string;
       try {
-        const content = await readFile(bundledPath, 'utf8');
-        return { id, content };
+        manifestRaw = await readFile(manifestPath, 'utf8');
       } catch {
-        throw new ConfigError(`bundled harness contract not found: ${id} (expected at ${bundledPath})`);
+        throw new ConfigError(`bundled harness manifest not found: ${id} (expected at ${manifestPath})`);
       }
+
+      let manifest;
+      try {
+        manifest = parseHarnessManifest(id, parseYaml(manifestRaw));
+      } catch (error) {
+        throw new ConfigError(error instanceof Error ? error.message : `harness ${id}: invalid harness.yaml`);
+      }
+
+      const promptRel = manifest.prompt_contract.replace(/^\.\//, '');
+      let promptContent: string;
+      try {
+        promptContent = await readFile(path.join(dir, promptRel), 'utf8');
+      } catch {
+        throw new ConfigError(
+          `harness ${id}: prompt_contract not found: ${manifest.prompt_contract} (expected at ${path.join(dir, promptRel)})`,
+        );
+      }
+
+      // Stage the prompt contract at a canonical name so the renderer reads it
+      // by convention (`<source>/prompt-contract.md`) regardless of the bundle's
+      // source filename.
+      return {
+        id,
+        files: [
+          { relativePath: 'harness.yaml', content: manifestRaw },
+          { relativePath: 'prompt-contract.md', content: promptContent },
+        ],
+      };
     }),
   );
 }
