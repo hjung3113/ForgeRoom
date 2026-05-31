@@ -22,7 +22,7 @@ import { parse as parseYaml } from 'yaml';
 import { AgentRegistry } from '../core/agent-runtime/agent-registry.js';
 import { HarnessRegistry } from '../core/agent-runtime/harness-registry.js';
 import type { HarnessContract } from '../core/worktree/worktree-manager.js';
-import { parseHarnessManifest } from '../core/agent-runtime/harness-manifest.js';
+import { parseHarnessManifest, type HarnessManifest } from '../core/agent-runtime/harness-manifest.js';
 import { IntentRegistry } from '../core/registries/intent-registry.js';
 import { ModelPolicyRegistry } from '../core/registries/model-policy-registry.js';
 import { ProjectRegistry } from '../core/registries/project-registry.js';
@@ -143,11 +143,17 @@ export async function loadRegistries(options: LoadRegistriesOptions): Promise<Lo
  * non-shippable harness). WorktreeManager stages every harness file into each
  * task worktree at `.forgeroom/harnesses/<id>/` (ADR-027/029).
  */
+export interface LoadedHarnesses {
+  contracts: HarnessContract[];
+  manifests: Map<string, HarnessManifest>;
+}
+
 export async function loadHarnessContracts(
   harnessRoot: string,
   harnesses: HarnessRegistry,
-): Promise<HarnessContract[]> {
-  return Promise.all(
+): Promise<LoadedHarnesses> {
+  const manifests = new Map<string, HarnessManifest>();
+  const contracts = await Promise.all(
     harnesses.list().map(async ({ id }) => {
       const dir = path.join(harnessRoot, id);
       const manifestPath = path.join(dir, 'harness.yaml');
@@ -164,6 +170,7 @@ export async function loadHarnessContracts(
       } catch (error) {
         throw new ConfigError(error instanceof Error ? error.message : `harness ${id}: invalid harness.yaml`);
       }
+      manifests.set(id, manifest);
 
       const promptRel = manifest.prompt_contract.replace(/^\.\//, '');
       let promptContent: string;
@@ -187,6 +194,7 @@ export async function loadHarnessContracts(
       };
     }),
   );
+  return { contracts, manifests };
 }
 
 // ---------------------------------------------------------------------------

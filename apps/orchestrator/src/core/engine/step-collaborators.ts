@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { AgentRunner, ResolvedRuntimeTarget } from '../agent-runtime/agent-runner.js';
 import type { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import type { HarnessRegistry } from '../agent-runtime/harness-registry.js';
+import type { HarnessManifest } from '../agent-runtime/harness-manifest.js';
 import type { ApprovalGate } from '../checks/approval-gate.js';
 import type { CheckRunnerRequest } from '../checks/check-runner.js';
 import { OrchestratorError } from '../errors.js';
@@ -38,6 +39,8 @@ interface StepCollaboratorDeps {
   agentRegistry: Pick<AgentRegistry, 'resolve'>;
   /** Resolves a Step Harness id to its worktree-relative contract source (prompt-file-protocol step 8). */
   harnessRegistry: Pick<HarnessRegistry, 'resolve'>;
+  /** Bundled harness manifests (id → parsed `harness.yaml`, ADR-029 E2). Optional — absent → no output-contract validation. */
+  harnessManifests?: ReadonlyMap<string, HarnessManifest>;
 }
 
 interface StepCollaboratorCallbacks {
@@ -206,6 +209,10 @@ export class StepCollaborators {
 
     const intentKind = this.deps.intentRegistry.resolve(resolved.intentId).kind;
     const runtimeSession = resolveRuntimeSession(this.projectRoom, intentKind, this.task.id);
+    const outputContract =
+      resolved.harness === null
+        ? undefined
+        : this.deps.harnessManifests?.get(resolved.harness)?.output;
 
     await mkdir(path.dirname(outputPath), { recursive: true });
     const result = await this.deps.agentRunner.run({
@@ -218,6 +225,7 @@ export class StepCollaborators {
       mode: 'headless',
       runtimeTarget,
       ...(runtimeSession === undefined ? {} : { runtimeSession }),
+      ...(outputContract === undefined ? {} : { outputContract }),
     });
 
     if (result.failureKind !== undefined || !result.outputExists) {

@@ -1,8 +1,10 @@
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 
-import type { OrchestratorFailureCode } from '../errors.js';
+import { OrchestratorError, type OrchestratorFailureCode } from '../errors.js';
+import { validateOutputContract } from '../engine/output-contract-validator.js';
 import type { AgentRegistry, ResolvedAgent } from './agent-registry.js';
+import type { HarnessOutputContract } from './harness-manifest.js';
 
 export type AgentRunFailureKind = Extract<
   OrchestratorFailureCode,
@@ -60,6 +62,12 @@ export interface AgentRunRequest {
   runtimeTarget?: ResolvedRuntimeTarget;
   /** Per-run provider session/agent (ADR-028). See {@link RuntimeSession}. */
   runtimeSession?: RuntimeSession;
+  /**
+   * Harness output contract (ADR-029 E2). When present, AgentRunner validates
+   * the produced output against it; a contract miss surfaces through the
+   * existing `output_contract_failed` retry budget without new failure codes.
+   */
+  outputContract?: HarnessOutputContract;
 }
 
 type AgentRunRequestWithTimeout = AgentRunRequest & {
@@ -195,7 +203,7 @@ export class DefaultAgentRunner implements AgentRunner {
         return result;
       }
 
-      const validation = await validateOutputFile(req.outputPath, this.minOutputBytes);
+      const validation = await validateOutputFile(req.outputPath, this.minOutputBytes, req.outputContract);
       result = withOutputValidation(result, validation);
       if (validation.valid && !isRetryableProviderFailure(result.failureKind)) {
         return result;
@@ -234,16 +242,33 @@ interface OutputValidation {
   bytes: number;
 }
 
-async function validateOutputFile(outputPath: string, minOutputBytes: number): Promise<OutputValidation> {
+async function validateOutputFile(
+  outputPath: string,
+  minOutputBytes: number,
+  outputContract: HarnessOutputContract | undefined,
+): Promise<OutputValidation> {
   try {
     const outputStat = await stat(outputPath);
     const bytes = outputStat.isFile() ? outputStat.size : 0;
+    const sizeValid = outputStat.isFile() && bytes >= minOutputBytes;
 
-    return {
-      valid: outputStat.isFile() && bytes >= minOutputBytes,
-      exists: outputStat.isFile(),
-      bytes,
-    };
+    if (!sizeValid || outputContract === undefined) {
+      return { valid: sizeValid, exists: outputStat.isFile(), bytes };
+    }
+
+    // Contract validation (ADR-029 E2). A miss → valid=false so the existing
+    // retry budget kicks in via `output_contract_failed`.
+    try {
+      const content = await readFile(outputPath, 'utf8');
+      validateOutputContract(content, outputContract);
+    } catch (error) {
+      if (error instanceof OrchestratorError && error.code === 'output_contract_failed') {
+        return { valid: false, exists: true, bytes };
+      }
+      throw error;
+    }
+
+    return { valid: true, exists: true, bytes };
   } catch (error) {
     if (isMissingFileError(error)) {
       return { valid: false, exists: false, bytes: 0 };
@@ -285,6 +310,7 @@ function toRetryResumeRequest(
     ...(req.timeoutMs === undefined ? {} : { timeoutMs: req.timeoutMs }),
     ...(req.runtimeTarget === undefined ? {} : { runtimeTarget: req.runtimeTarget }),
     ...(req.runtimeSession === undefined ? {} : { runtimeSession: req.runtimeSession }),
+    ...(req.outputContract === undefined ? {} : { outputContract: req.outputContract }),
   };
 }
 
@@ -305,6 +331,7 @@ function toProviderResumeRequest(
     timeoutMs,
     ...(runtimeTarget === undefined ? {} : { runtimeTarget }),
     ...(req.runtimeSession === undefined ? {} : { runtimeSession: req.runtimeSession }),
+    ...(req.outputContract === undefined ? {} : { outputContract: req.outputContract }),
   };
 }
 
@@ -319,6 +346,7 @@ function toRunRequest(req: AgentRunnerResumeRequest): AgentRunRequest {
     mode: req.mode,
     ...(req.timeoutMs === undefined ? {} : { timeoutMs: req.timeoutMs }),
     ...(req.runtimeSession === undefined ? {} : { runtimeSession: req.runtimeSession }),
+    ...(req.outputContract === undefined ? {} : { outputContract: req.outputContract }),
   };
 }
 
