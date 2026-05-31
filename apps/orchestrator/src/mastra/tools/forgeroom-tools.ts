@@ -16,10 +16,14 @@ import { z } from 'zod';
 import type { ProjectRegistry } from '../../core/registries/project-registry.js';
 import type { TaskStore } from '../../core/task-store.js';
 import type { Task } from '../../core/types.js';
+import type { HarnessManifest } from '../../core/agent-runtime/harness-manifest.js';
+import { compileRuntimeProfile } from '../../core/engine/runtime-profile-compiler.js';
 
 export interface ForgeRoomToolDeps {
   projects: Pick<ProjectRegistry, 'list' | 'get' | 'getRoom'>;
   taskStore: Pick<TaskStore, 'getTask' | 'listSteps' | 'listTasksByProject' | 'listActiveTasks'>;
+  /** Bundled harness manifests (ADR-029) — surfaced by the harness debug tool. */
+  harnessManifests?: ReadonlyMap<string, HarnessManifest>;
 }
 
 const DEFAULT_TASK_LIMIT = 20;
@@ -133,6 +137,36 @@ export function buildForgeRoomTools(deps: ForgeRoomToolDeps): Record<string, Ret
     },
   });
 
+  const harnessInspect = createTool({
+    id: 'forgeroom_harness_inspect',
+    description:
+      'Inspect a bundled Step Harness (ADR-029): manifest + compiled runtime profile (advisory + ForgeRoom-side gate). NEVER reports provider runtime enforcement — OpenClaw enforces nothing.',
+    inputSchema: z.object({ harnessId: z.string() }),
+    execute: async (input) => {
+      const manifest = deps.harnessManifests?.get(input.harnessId);
+      if (manifest === undefined) {
+        return { found: false as const, harnessId: input.harnessId };
+      }
+      const profile = compileRuntimeProfile(manifest);
+      return {
+        found: true as const,
+        manifest: {
+          id: manifest.id,
+          description: manifest.description,
+          applies_to_kinds: manifest.applies_to_kinds,
+          prompt_contract: manifest.prompt_contract,
+          output: manifest.output,
+          permissions: manifest.permissions,
+          tools: manifest.tools,
+        },
+        profile: {
+          advisory: profile.advisory,
+          gate: profile.gate,
+        },
+      };
+    },
+  });
+
   return {
     forgeroom_project_list: projectList,
     forgeroom_project_status: projectStatus,
@@ -140,5 +174,6 @@ export function buildForgeRoomTools(deps: ForgeRoomToolDeps): Record<string, Ret
     forgeroom_task_read: taskRead,
     forgeroom_task_timeline: taskTimeline,
     forgeroom_room_state: roomState,
+    forgeroom_harness_inspect: harnessInspect,
   };
 }

@@ -13,6 +13,7 @@ import type { IntentRegistry } from '../registries/intent-registry.js';
 import type { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
 import type { ProjectMeta, ProjectRoom } from '../registries/project-registry.js';
 import { resolveRuntimeSession } from './runtime-session.js';
+import { compileRuntimeProfile } from './runtime-profile-compiler.js';
 import type { TaskStore } from '../task-store.js';
 import type { Conductor, ReporterEvent, Step, StepResult, Task } from '../types.js';
 import type { CheckRunResult } from '../types.js';
@@ -161,7 +162,20 @@ export class StepCollaborators {
     const source = this.deps.harnessRegistry.resolve(resolved.harness).source;
     const harnessTemplate = await this.loadHarness(resolved.harness, source);
     const renderedHarness = renderTemplate(harnessTemplate, resolved, inputs, stepIndex, source);
-    return ['# Harness Contract', '', renderedHarness, '', '---', '', '# Step Prompt', '', renderedTemplate].join('\n');
+
+    // Advisory block from the compiled runtime profile (ADR-029 E4). Soft text
+    // only — the model is asked to honor permissions/tools; hard enforcement is
+    // ForgeRoom-owned (ApprovalGate + diff checks). Skipped when no manifest is
+    // wired or the manifest declares no permissions/tools.
+    const manifest = this.deps.harnessManifests?.get(resolved.harness);
+    const advisory = manifest === undefined ? null : compileRuntimeProfile(manifest).advisory;
+
+    const parts = ['# Harness Contract', '', renderedHarness];
+    if (advisory !== null) {
+      parts.push('', '---', '', advisory);
+    }
+    parts.push('', '---', '', '# Step Prompt', '', renderedTemplate);
+    return parts.join('\n');
   }
 
   /**
