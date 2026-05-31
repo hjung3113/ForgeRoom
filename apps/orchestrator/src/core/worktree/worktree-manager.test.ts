@@ -9,9 +9,18 @@ import {
 } from './worktree-manager.js';
 
 const HARNESS_CONTRACTS: HarnessContract[] = [
-  { id: 'planning', content: '# planning contract\n' },
-  { id: 'implementation', content: '# implementation contract\n' },
-  { id: 'review', content: '# review contract\n' },
+  { id: 'planning', files: [
+    { relativePath: 'harness.yaml', content: 'id: planning\n' },
+    { relativePath: 'prompt-contract.md', content: '# planning contract\n' },
+  ] },
+  { id: 'implementation', files: [
+    { relativePath: 'harness.yaml', content: 'id: implementation\n' },
+    { relativePath: 'prompt-contract.md', content: '# implementation contract\n' },
+  ] },
+  { id: 'review', files: [
+    { relativePath: 'harness.yaml', content: 'id: review\n' },
+    { relativePath: 'prompt-contract.md', content: '# review contract\n' },
+  ] },
 ];
 
 describe('WorktreeManager', () => {
@@ -41,22 +50,28 @@ describe('WorktreeManager', () => {
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/outputs',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/diffs',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/logs',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/planning',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/implementation',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/review',
     ]);
     expect(fileSystem.createdFiles.map((file) => file.path)).toEqual([
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/context/task.md',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/context/summary.md',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/context/workflow.md',
       '/tmp/forgeroom/worktrees/task-123/.forgeroom/context/feedback.md',
-      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/planning',
-      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/implementation',
-      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/review',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/planning/harness.yaml',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/planning/prompt-contract.md',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/implementation/harness.yaml',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/implementation/prompt-contract.md',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/review/harness.yaml',
+      '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/review/prompt-contract.md',
     ]);
     expect(fileSystem.createdFiles[0]?.content).toContain('# Task');
     expect(fileSystem.createdFiles[0]?.content).toContain('Implement worktree bootstrap');
 
-    // The bundled harness contracts are staged verbatim into the worktree.
+    // The bundled harness prompt contract is staged verbatim into the worktree.
     const planning = fileSystem.createdFiles.find(
-      (file) => file.path === '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/planning',
+      (file) => file.path === '/tmp/forgeroom/worktrees/task-123/.forgeroom/harnesses/planning/prompt-contract.md',
     );
     expect(planning?.content).toBe('# planning contract\n');
   });

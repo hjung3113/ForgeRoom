@@ -101,7 +101,7 @@ afterEach(async () => {
 
 function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
   const store = new SqliteTaskStore(database);
-  const harnessRegistry = HarnessRegistry.fromConfig({ planning: { source: 'h/p.md' } });
+  const harnessRegistry = HarnessRegistry.fromConfig({ planning: { source: 'h' } });
   const agentRegistry = AgentRegistry.fromConfig(
     { planner: { provider: 'openclaw', runtime: 'r', model: 'm', harness: 'planning' } },
     harnessRegistry,
@@ -174,7 +174,7 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
       await mkdir(path.join(task.worktree_path, '.forgeroom', 'logs'), { recursive: true });
       // Stage the planning harness contract so renderPrompt can compose it (ADR-027).
       await mkdir(path.join(task.worktree_path, 'h'), { recursive: true });
-      await writeFile(path.join(task.worktree_path, 'h', 'p.md'), '# harness {{step_id}}\n');
+      await writeFile(path.join(task.worktree_path, 'h', 'prompt-contract.md'), '# harness {{step_id}}\n');
       return { path: task.worktree_path, branch: task.branch_name };
     },
     ensureForgeroomDir: async (): Promise<void> => Promise.resolve(),
@@ -212,7 +212,7 @@ function workflowRegistryFor(
   yaml: string,
   registries?: Parameters<typeof WorkflowRegistry.fromConfig>[1],
 ): WorkflowRegistry {
-  const harnessRegistry = HarnessRegistry.fromConfig({ planning: { source: 'h/p.md' } });
+  const harnessRegistry = HarnessRegistry.fromConfig({ planning: { source: 'h' } });
   const agentRegistry = AgentRegistry.fromConfig(
     { planner: { provider: 'openclaw', runtime: 'r', model: 'm', harness: 'planning' } },
     harnessRegistry,

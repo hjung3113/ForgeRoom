@@ -15,11 +15,16 @@ export interface WorktreeFileSystem {
   writeFileIfMissing(filePath: string, content: string): Promise<void>;
 }
 
-/** A bundled Step Harness contract staged into the worktree at bootstrap (prompt-file-protocol step 8). */
+/**
+ * A bundled Step Harness staged into the worktree at bootstrap (ADR-027/029).
+ * A harness is a DIRECTORY: `harness.yaml` (manifest) + referenced files (e.g.
+ * `prompt-contract.md`). Each file stages under `.forgeroom/harnesses/<id>/`.
+ */
 export interface HarnessContract {
-  /** Harness id; staged to `.forgeroom/harnesses/<id>` (the worktree-relative `source`). */
+  /** Harness id; staged to `.forgeroom/harnesses/<id>/` (the worktree-relative `source` dir). */
   id: string;
-  content: string;
+  /** Files to stage, each a path relative to the harness dir (e.g. `harness.yaml`). */
+  files: ReadonlyArray<{ relativePath: string; content: string }>;
 }
 
 export interface WorktreeManagerDependencies {
@@ -99,10 +104,15 @@ export class WorktreeManager {
     }
 
     for (const harness of this.harnessContracts) {
-      await this.fileSystem.writeFileIfMissing(
+      await this.fileSystem.ensureDir(
         joinWorktreePath(normalizedWorktreePath, `.forgeroom/harnesses/${harness.id}`),
-        harness.content,
       );
+      for (const file of harness.files) {
+        await this.fileSystem.writeFileIfMissing(
+          joinWorktreePath(normalizedWorktreePath, `.forgeroom/harnesses/${harness.id}/${file.relativePath}`),
+          file.content,
+        );
+      }
     }
   }
 }

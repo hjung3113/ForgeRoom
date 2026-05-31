@@ -93,6 +93,7 @@ describe('ForgeRoom read-only Mastra tools (Phase 2C)', () => {
 
   it('exposes the read-only tool set', () => {
     expect(Object.keys(tools).sort()).toEqual([
+      'forgeroom_harness_inspect',
       'forgeroom_project_list',
       'forgeroom_project_status',
       'forgeroom_room_state',
@@ -100,6 +101,28 @@ describe('ForgeRoom read-only Mastra tools (Phase 2C)', () => {
       'forgeroom_task_read',
       'forgeroom_task_timeline',
     ]);
+  });
+
+  it('harness_inspect returns manifest + compiled runtime profile (ADR-029)', async () => {
+    const manifests = new Map([
+      ['review', {
+        id: 'review', description: 'd', applies_to_kinds: ['review'], prompt_contract: './c.md',
+        output: { required_sections: ['Findings'] },
+        permissions: { filesystem: 'read_only' },
+        tools: { allow: ['read_file'] },
+      }],
+    ]);
+    const toolsWithHarness = buildForgeRoomTools({ ...deps(), harnessManifests: manifests });
+    const out = await run(toolsWithHarness.forgeroom_harness_inspect!, { harnessId: 'review' });
+    expect(out.found).toBe(true);
+    expect(out.manifest.id).toBe('review');
+    expect(out.profile.gate.filesystem).toBe('read_only');
+    expect(out.profile.advisory).toContain('ForgeRoom-side');
+  });
+
+  it('harness_inspect returns found:false for an unknown harness id', async () => {
+    const out = await run(tools.forgeroom_harness_inspect!, { harnessId: 'nope' });
+    expect(out).toEqual({ found: false, harnessId: 'nope' });
   });
 
   it('project_list returns project metadata', async () => {

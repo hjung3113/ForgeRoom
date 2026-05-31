@@ -1,0 +1,15 @@
+id: review
+description: Read-only diff review harness.
+applies_to:
+  kinds: [review]
+prompt_contract: ./prompt-contract.md
+output:
+  first_line_regex: "^Review Result: (pass|fail)$"
+  required_sections: [Findings]
+permissions:
+  filesystem: read_only
+  shell: disabled
+  network: disabled
+tools:
+  allow: [read_file, grep, git_diff, read_logs]
+  deny: [write_file, shell_write]

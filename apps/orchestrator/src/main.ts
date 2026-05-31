@@ -42,13 +42,16 @@ export async function bootOrchestrator(input?: {
     templateExists: (relativePath): boolean => existsSync(path.join(env.templateRoot, relativePath)),
   });
 
-  const harnessContracts = await loadHarnessContracts(env.harnessRoot, registries.harnesses);
+  const { contracts: harnessContracts, manifests: harnessManifests } = await loadHarnessContracts(
+    env.harnessRoot,
+    registries.harnesses,
+  );
 
   const database = createTaskStoreDatabase(env.dbPath);
   migrateTaskStoreDatabase(database);
   const taskStore = new SqliteTaskStore(database);
 
-  const app = composeOrchestrator({ registries, env, taskStore, harnessContracts, log });
+  const app = composeOrchestrator({ registries, env, taskStore, harnessContracts, harnessManifests, log });
   await app.boot();
   log('orchestrator booted: recoverPending complete, TaskSources started');
 

@@ -269,6 +269,53 @@ describe('DefaultAgentRunner', () => {
     });
   });
 
+  it('retries when the output misses the harness contract first_line_regex (ADR-029 E2)', async () => {
+    const req = {
+      ...(await createRunRequest()),
+      outputContract: { first_line_regex: '^Review Result: (pass|fail)$' },
+    };
+    await writeOutput(req.outputPath, 'x'.repeat(60)); // size ok, but wrong first line
+    const retryPromptPath = join(req.cwd, '.forgeroom', 'prompts', '01_plan.retry-2.md');
+    const provider = new FakeAgentRuntimeProvider();
+    provider.results = [providerResult(), providerResult({ durationMs: 75 })];
+    const runner = new DefaultAgentRunner({
+      agentRegistry: registry,
+      provider,
+      createRetryPrompt: async () => {
+        await writeFile(req.outputPath, `Review Result: pass\n${'x'.repeat(60)}`);
+        return retryPromptPath;
+      },
+    });
+
+    const result = await runner.run(req);
+
+    expect(provider.resumeRequests).toHaveLength(1);
+    expect(result.failureKind).toBeUndefined();
+  });
+
+  it('forwards outputContract on the resume retry so the contract still applies (footgun)', async () => {
+    const req = {
+      ...(await createRunRequest()),
+      outputContract: { required_sections: ['Slices'] },
+    };
+    await writeOutput(req.outputPath, 'x'.repeat(60));
+    const retryPromptPath = join(req.cwd, '.forgeroom', 'prompts', '01_plan.retry-2.md');
+    const provider = new FakeAgentRuntimeProvider();
+    provider.results = [providerResult(), providerResult({ durationMs: 75 })];
+    const runner = new DefaultAgentRunner({
+      agentRegistry: registry,
+      provider,
+      createRetryPrompt: async () => {
+        await writeFile(req.outputPath, `## Slices\n- one\n- two\n${'x'.repeat(40)}`);
+        return retryPromptPath;
+      },
+    });
+
+    await runner.run(req);
+
+    expect(provider.resumeRequests[0]!.req.outputContract).toEqual({ required_sections: ['Slices'] });
+  });
+
   it('applies the built-in default timeout to internal resume retries when the run request omits timeoutMs', async () => {
     const { timeoutMs: _timeoutMs, ...req } = await createRunRequest();
     await writeOutput(req.outputPath, 'too small');

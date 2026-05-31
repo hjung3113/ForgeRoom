@@ -31,6 +31,7 @@ import type { IntentRegistry } from '../registries/intent-registry.js';
 import type { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
 import type { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import type { HarnessRegistry } from '../agent-runtime/harness-registry.js';
+import type { HarnessManifest } from '../agent-runtime/harness-manifest.js';
 import type { WorkflowRegistry } from '../registries/workflow-registry.js';
 import type { WorktreeManager } from '../worktree/worktree-manager.js';
 import type { CheckRunnerRequest } from '../checks/check-runner.js';
@@ -133,6 +134,12 @@ export interface PipelineEngineDeps {
   agentRegistry: AgentRegistry;
   /** Harness registry: resolves a step's harness id to its worktree-relative contract source (prompt-file-protocol step 8). */
   harnessRegistry: HarnessRegistry;
+  /**
+   * Bundled harness manifests (id → parsed `harness.yaml`, ADR-029 E2). Used by
+   * step-collaborators to set per-run output contracts on AgentRunRequests; the
+   * map may be empty in tests (no contract, no validation).
+   */
+  harnessManifests?: ReadonlyMap<string, HarnessManifest>;
   /**
    * Resolved-workflow → Mastra builder port (ADR-022). dsl's `mastraWorkflowBuilder`
    * is injected at the composition root so core depends on the neutral port, not
@@ -755,6 +762,7 @@ export class MastraPipelineEngine implements PipelineEngine {
         modelPolicies: this.deps.modelPolicies,
         agentRegistry: this.deps.agentRegistry,
         harnessRegistry: this.deps.harnessRegistry,
+        harnessManifests: this.deps.harnessManifests ?? new Map(),
       },
       callbacks: {
         recordStepRow: (args) => this.recordStepRow(args),

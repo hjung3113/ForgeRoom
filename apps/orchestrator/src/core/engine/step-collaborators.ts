@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { AgentRunner, ResolvedRuntimeTarget } from '../agent-runtime/agent-runner.js';
 import type { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import type { HarnessRegistry } from '../agent-runtime/harness-registry.js';
+import type { HarnessManifest } from '../agent-runtime/harness-manifest.js';
 import type { ApprovalGate } from '../checks/approval-gate.js';
 import type { CheckRunnerRequest } from '../checks/check-runner.js';
 import { OrchestratorError } from '../errors.js';
@@ -12,6 +13,7 @@ import type { IntentRegistry } from '../registries/intent-registry.js';
 import type { ModelPolicyRegistry } from '../registries/model-policy-registry.js';
 import type { ProjectMeta, ProjectRoom } from '../registries/project-registry.js';
 import { resolveRuntimeSession } from './runtime-session.js';
+import { compileRuntimeProfile } from './runtime-profile-compiler.js';
 import type { TaskStore } from '../task-store.js';
 import type { Conductor, ReporterEvent, Step, StepResult, Task } from '../types.js';
 import type { CheckRunResult } from '../types.js';
@@ -38,6 +40,8 @@ interface StepCollaboratorDeps {
   agentRegistry: Pick<AgentRegistry, 'resolve'>;
   /** Resolves a Step Harness id to its worktree-relative contract source (prompt-file-protocol step 8). */
   harnessRegistry: Pick<HarnessRegistry, 'resolve'>;
+  /** Bundled harness manifests (id → parsed `harness.yaml`, ADR-029 E2). Optional — absent → no output-contract validation. */
+  harnessManifests?: ReadonlyMap<string, HarnessManifest>;
 }
 
 interface StepCollaboratorCallbacks {
@@ -158,22 +162,37 @@ export class StepCollaborators {
     const source = this.deps.harnessRegistry.resolve(resolved.harness).source;
     const harnessTemplate = await this.loadHarness(resolved.harness, source);
     const renderedHarness = renderTemplate(harnessTemplate, resolved, inputs, stepIndex, source);
-    return ['# Harness Contract', '', renderedHarness, '', '---', '', '# Step Prompt', '', renderedTemplate].join('\n');
+
+    // Advisory block from the compiled runtime profile (ADR-029 E4). Soft text
+    // only — the model is asked to honor permissions/tools; hard enforcement is
+    // ForgeRoom-owned (ApprovalGate + diff checks). Skipped when no manifest is
+    // wired or the manifest declares no permissions/tools.
+    const manifest = this.deps.harnessManifests?.get(resolved.harness);
+    const advisory = manifest === undefined ? null : compileRuntimeProfile(manifest).advisory;
+
+    const parts = ['# Harness Contract', '', renderedHarness];
+    if (advisory !== null) {
+      parts.push('', '---', '', advisory);
+    }
+    parts.push('', '---', '', '# Step Prompt', '', renderedTemplate);
+    return parts.join('\n');
   }
 
   /**
-   * Read a staged Step Harness contract from the worktree (`<worktree>/<source>`),
-   * where `source` is the worktree-relative path WorktreeManager bootstrapped the
-   * bundled contract into. Fails fast when the contract is missing.
+   * Read a staged Step Harness prompt contract from the worktree
+   * (`<worktree>/<source>/prompt-contract.md`), where `source` is the
+   * worktree-relative harness DIR WorktreeManager bootstrapped (ADR-029). The
+   * prompt contract is staged under the canonical `prompt-contract.md` name.
+   * Fails fast when the contract is missing.
    */
   private async loadHarness(harnessId: string, source: string): Promise<string> {
-    const harnessPath = path.join(this.task.worktree_path, source);
+    const harnessPath = path.join(this.task.worktree_path, source, 'prompt-contract.md');
     try {
       return await readFile(harnessPath, 'utf8');
     } catch {
       throw new OrchestratorError(
         'agent_error',
-        `harness contract not found: ${harnessId} (expected staged at ${source} in worktree)`,
+        `harness contract not found: ${harnessId} (expected staged at ${source}/prompt-contract.md in worktree)`,
       );
     }
   }
@@ -204,6 +223,10 @@ export class StepCollaborators {
 
     const intentKind = this.deps.intentRegistry.resolve(resolved.intentId).kind;
     const runtimeSession = resolveRuntimeSession(this.projectRoom, intentKind, this.task.id);
+    const outputContract =
+      resolved.harness === null
+        ? undefined
+        : this.deps.harnessManifests?.get(resolved.harness)?.output;
 
     await mkdir(path.dirname(outputPath), { recursive: true });
     const result = await this.deps.agentRunner.run({
@@ -216,6 +239,7 @@ export class StepCollaborators {
       mode: 'headless',
       runtimeTarget,
       ...(runtimeSession === undefined ? {} : { runtimeSession }),
+      ...(outputContract === undefined ? {} : { outputContract }),
     });
 
     if (result.failureKind !== undefined || !result.outputExists) {

@@ -1,0 +1,14 @@
+id: planning
+description: Planning and slice-decomposition harness (read-only).
+applies_to:
+  kinds: [write_plan, refine]
+prompt_contract: ./prompt-contract.md
+output:
+  required_sections: [Slices]
+permissions:
+  filesystem: read_only
+  shell: disabled
+  network: disabled
+tools:
+  allow: [read_file, grep, git_diff]
+  deny: [write_file, shell_write]
