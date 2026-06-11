@@ -7,10 +7,18 @@
  *  (a) **advisory text** — a soft prompt/AGENTS block injected into the
  *      rendered prompt. The provider model is *asked* to honor it; OpenClaw
  *      itself enforces NOTHING (its CLI has no per-call permission/tool flags).
- *  (b) **gate config** — ForgeRoom-owned HARD enforcement (ApprovalGate,
- *      command/path checks). The compiler emits the rules; ApprovalGate /
- *      step-collaborators consume them. Producing the config is the contract;
- *      live enforcement at every choke point is a separate integration pass.
+ *  (b) **gate config** — ForgeRoom-owned HARD enforcement config. Currently
+ *      consumed by {@link ApprovalGate}:
+ *        - `shell` — `disabled` denies every project-shell command (check
+ *          commands etc). Agent-execution synthetic is exempt; an agent must
+ *          still be able to write its declared output file.
+ *        - `filesystem` — `read_only` restricts agent-execution writes to
+ *          the `.forgeroom/outputs/` and `.forgeroom/logs/` channels.
+ *        - `network`, `tools.allow`, `tools.deny` — emitted into advisory
+ *          text only. Hard enforcement DEFERRED (no current choke point;
+ *          requires a provider-runtime callback or sandbox layer).
+ *      Producing the full config remains the compiler's contract; integration
+ *      additional choke points may bind further fields over time.
  *  (c) `providerAgentId` — passed through from {@link RuntimeSession} if the
  *      caller already selected one (ADR-028 #85). The compiler does not derive
  *      one on its own; provider-side enforcement still does not exist.
@@ -23,7 +31,11 @@ import type { HarnessManifest } from '../agent-runtime/harness-manifest.js';
 export interface CompiledRuntimeProfile {
   /** Soft advisory text — injected into the rendered prompt next to the harness contract. */
   advisory: string;
-  /** ForgeRoom-side HARD enforcement config. Honored by ApprovalGate + diff checks. */
+  /**
+   * ForgeRoom-side enforcement config. {@link ApprovalGate} consumes `shell`
+   * and `filesystem`. `network` / `toolsAllow` / `toolsDeny` are produced
+   * here but enforcement is deferred (see header comment).
+   */
   gate: GateProfile;
   /** Pre-selected provider-native agent (ADR-028 #85), passed through unchanged. */
   providerAgentId?: string;
@@ -71,7 +83,7 @@ export function compileRuntimeProfile(
   }
   lines.push('');
   lines.push(
-    'These constraints are ForgeRoom-side advisory. ApprovalGate enforces shell/filesystem boundaries; honor the listed tool restrictions in your output.',
+    'These constraints are ForgeRoom-side. ApprovalGate enforces `shell` (disabled blocks project commands) and `filesystem` (read_only restricts writes to .forgeroom/outputs/ + .forgeroom/logs/). `network` and `tools` are advisory-only — honor them in your output.',
   );
 
   const result: CompiledRuntimeProfile = { advisory: lines.join('\n'), gate };

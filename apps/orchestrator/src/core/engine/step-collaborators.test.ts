@@ -114,7 +114,7 @@ describe('StepCollaborators', () => {
           integrateFeedback: async () => {},
           answer: async () => 'answer',
         },
-        approvalGate: { checkCommand: () => ({ allowed: true }) },
+        approvalGate: { checkCommand: () => ({ allowed: true }), checkAgentExecution: () => ({ allowed: true }) },
         agentRunner: {
           run: async () => {
             throw new Error('not used');
@@ -199,7 +199,7 @@ describe('StepCollaborators.renderPrompt template loading', () => {
           integrateFeedback: async () => {},
           answer: async () => 'answer',
         },
-        approvalGate: { checkCommand: () => ({ allowed: true }) },
+        approvalGate: { checkCommand: () => ({ allowed: true }), checkAgentExecution: () => ({ allowed: true }) },
         agentRunner: {
           run: async () => {
             throw new Error('not used');
@@ -293,7 +293,7 @@ describe('StepCollaborators.renderPrompt template loading', () => {
           integrateFeedback: async () => {},
           answer: async () => 'answer',
         },
-        approvalGate: { checkCommand: () => ({ allowed: true }) },
+        approvalGate: { checkCommand: () => ({ allowed: true }), checkAgentExecution: () => ({ allowed: true }) },
         agentRunner: {
           run: async (req) => {
             capturedTarget = req.runtimeTarget;
@@ -385,7 +385,7 @@ describe('StepCollaborators.renderPrompt harness composition (prompt-file-protoc
           integrateFeedback: async () => {},
           answer: async () => 'answer',
         },
-        approvalGate: { checkCommand: () => ({ allowed: true }) },
+        approvalGate: { checkCommand: () => ({ allowed: true }), checkAgentExecution: () => ({ allowed: true }) },
         agentRunner: {
           run: async () => {
             throw new Error('not used');

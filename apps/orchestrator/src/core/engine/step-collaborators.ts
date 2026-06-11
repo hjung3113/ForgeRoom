@@ -5,7 +5,7 @@ import type { AgentRunner, ResolvedRuntimeTarget } from '../agent-runtime/agent-
 import type { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import type { HarnessRegistry } from '../agent-runtime/harness-registry.js';
 import type { HarnessManifest } from '../agent-runtime/harness-manifest.js';
-import type { ApprovalGate } from '../checks/approval-gate.js';
+import type { ApprovalGate, EnforcedProfile } from '../checks/approval-gate.js';
 import type { CheckRunnerRequest } from '../checks/check-runner.js';
 import { OrchestratorError } from '../errors.js';
 import { parseReviewPassedOutput, parseSlicesOutput } from './output-selectors.js';
@@ -28,7 +28,7 @@ import type {
 
 interface StepCollaboratorDeps {
   conductor: Conductor;
-  approvalGate: Pick<ApprovalGate, 'checkCommand'>;
+  approvalGate: Pick<ApprovalGate, 'checkCommand' | 'checkAgentExecution'>;
   agentRunner: AgentRunner;
   checkRunner: { run(request: CheckRunnerRequest): Promise<CheckRunResult> };
   taskStore: Pick<TaskStore, 'updateTaskFinalSlices'>;
@@ -179,6 +179,20 @@ export class StepCollaborators {
   }
 
   /**
+   * Extract the ApprovalGate-enforced subset (shell + filesystem) of the
+   * compiled runtime profile for a step. Returns `undefined` when the step
+   * has no harness or no manifest is registered — preserves prior behaviour
+   * for legacy fixtures.
+   */
+  private getEnforcedProfile(resolved: AdapterResolvedStep): EnforcedProfile | undefined {
+    if (resolved.harness === null) return undefined;
+    const manifest = this.deps.harnessManifests?.get(resolved.harness);
+    if (manifest === undefined) return undefined;
+    const { gate } = compileRuntimeProfile(manifest);
+    return { shell: gate.shell, filesystem: gate.filesystem };
+  }
+
+  /**
    * Read a staged Step Harness prompt contract from the worktree
    * (`<worktree>/<source>/prompt-contract.md`), where `source` is the
    * worktree-relative harness DIR WorktreeManager bootstrapped (ADR-029). The
@@ -209,8 +223,13 @@ export class StepCollaborators {
     const stderrPath = path.join(this.task.worktree_path, '.forgeroom', 'logs', `${fileBase}.stderr`);
     const agentId = this.agentOverrides[resolved.agent] ?? resolved.agent;
 
-    const agentCommand = `read ${promptPath} && write ${outputPath}`;
-    const decision = this.deps.approvalGate.checkCommand(agentCommand, this.task.worktree_path);
+    const enforcedProfile = this.getEnforcedProfile(resolved);
+    const decision = this.deps.approvalGate.checkAgentExecution(
+      promptPath,
+      outputPath,
+      this.task.worktree_path,
+      enforcedProfile,
+    );
     if (!decision.allowed) {
       throw new OrchestratorError(
         'agent_error',
@@ -309,7 +328,13 @@ export class StepCollaborators {
     run: AdapterAgentRunResult,
   ): Promise<{ allPassed: boolean }> {
     const step = await this.callbacks.recordStepRow({ task: this.task, resolved, run });
-    const result = await this.deps.checkRunner.run({ task: this.task, step, project: this.project });
+    const enforcedProfile = this.getEnforcedProfile(resolved);
+    const result = await this.deps.checkRunner.run({
+      task: this.task,
+      step,
+      project: this.project,
+      ...(enforcedProfile === undefined ? {} : { enforcedProfile }),
+    });
     return { allPassed: result.allPassed };
   }
 
