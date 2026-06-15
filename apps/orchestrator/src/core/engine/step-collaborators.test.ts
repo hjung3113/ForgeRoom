@@ -114,7 +114,7 @@ describe('StepCollaborators', () => {
           integrateFeedback: async () => {},
           answer: async () => 'answer',
         },
-        approvalGate: { checkCommand: () => ({ allowed: true }) },
+        approvalGate: { checkCommand: () => ({ allowed: true }), checkAgentExecution: () => ({ allowed: true }) },
         agentRunner: {
           run: async () => {
             throw new Error('not used');
@@ -199,7 +199,7 @@ describe('StepCollaborators.renderPrompt template loading', () => {
           integrateFeedback: async () => {},
           answer: async () => 'answer',
         },
-        approvalGate: { checkCommand: () => ({ allowed: true }) },
+        approvalGate: { checkCommand: () => ({ allowed: true }), checkAgentExecution: () => ({ allowed: true }) },
         agentRunner: {
           run: async () => {
             throw new Error('not used');
@@ -293,7 +293,7 @@ describe('StepCollaborators.renderPrompt template loading', () => {
           integrateFeedback: async () => {},
           answer: async () => 'answer',
         },
-        approvalGate: { checkCommand: () => ({ allowed: true }) },
+        approvalGate: { checkCommand: () => ({ allowed: true }), checkAgentExecution: () => ({ allowed: true }) },
         agentRunner: {
           run: async (req) => {
             capturedTarget = req.runtimeTarget;
@@ -385,7 +385,7 @@ describe('StepCollaborators.renderPrompt harness composition (prompt-file-protoc
           integrateFeedback: async () => {},
           answer: async () => 'answer',
         },
-        approvalGate: { checkCommand: () => ({ allowed: true }) },
+        approvalGate: { checkCommand: () => ({ allowed: true }), checkAgentExecution: () => ({ allowed: true }) },
         agentRunner: {
           run: async () => {
             throw new Error('not used');
@@ -420,9 +420,9 @@ describe('StepCollaborators.renderPrompt harness composition (prompt-file-protoc
   }
 
   async function stageHarness(id: string, content: string): Promise<void> {
-    const dir = path.join(worktree, '.forgeroom', 'harnesses');
+    const dir = path.join(worktree, '.forgeroom', 'harnesses', id);
     await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, id), content);
+    await writeFile(path.join(dir, 'prompt-contract.md'), content);
   }
 
   it('composes the interpolated harness contract before the interpolated step template, refining the composed base', async () => {

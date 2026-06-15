@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 
 import type { AgentRunner } from '../agent-runtime/agent-runner.js';
 import type { CommandRunner, CommandRunnerResult } from '../../utils/command-runner.js';
-import type { ApprovalGate } from './approval-gate.js';
+import type { ApprovalGate, EnforcedProfile } from './approval-gate.js';
 import type { ProjectMeta } from '../registries/project-registry.js';
 import type { TaskStore } from '../task-store.js';
 import type { CheckRunResult, CheckResult, Step, Task } from '../types.js';
@@ -14,6 +14,13 @@ export interface CheckRunnerRequest {
   task: Task;
   step: Step;
   project: ProjectMeta;
+  /**
+   * ApprovalGate-enforced subset of the compiled runtime profile for this
+   * step (ADR-029 E4). When `shell` is `disabled`, every project check
+   * command is denied. Omitted for legacy callers / steps with no harness
+   * manifest — behaviour matches pre-#106 baseline.
+   */
+  enforcedProfile?: EnforcedProfile;
 }
 
 export interface DefaultCheckRunnerOptions {
@@ -110,7 +117,11 @@ export class DefaultCheckRunner {
 
     for (const [commandName, command] of Object.entries(request.project.commands)) {
       const paths = checkArtifactPaths(request.task.worktree_path, commandName, checkFixAttempt);
-      const decision = this.approvalGate.checkCommand(command, request.task.worktree_path);
+      const decision = this.approvalGate.checkCommand(
+        command,
+        request.task.worktree_path,
+        request.enforcedProfile,
+      );
       const commandResult = decision.allowed
         ? await this.commandRunner.run({
             command,

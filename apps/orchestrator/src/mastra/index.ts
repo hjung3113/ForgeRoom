@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { Mastra } from '@mastra/core';
 import { InMemoryStore } from '@mastra/core/storage';
 
-import { loadRegistries, resolveEnv } from '../app/config.js';
+import { loadHarnessContracts, loadRegistries, resolveEnv } from '../app/config.js';
 import { createTaskStoreDatabase, migrateTaskStoreDatabase } from '../db/client.js';
 import { SqliteTaskStore } from '../db/sqlite-task-store.js';
 import { isStudioEnabled } from '../studio/gate.js';
@@ -72,7 +72,8 @@ export async function buildStudioToolDeps(): Promise<ForgeRoomToolDeps | null> {
     const database = createTaskStoreDatabase(env.dbPath);
     migrateTaskStoreDatabase(database);
     const taskStore = new SqliteTaskStore(database);
-    return { projects: registries.projects, taskStore };
+    const { manifests: harnessManifests } = await loadHarnessContracts(env.harnessRoot, registries.harnesses);
+    return { projects: registries.projects, taskStore, harnessManifests };
   } catch {
     return null;
   }

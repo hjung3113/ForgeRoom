@@ -138,6 +138,130 @@ describe('ApprovalGate', () => {
       allowed: true,
     });
   });
+
+  describe('profile-aware enforcement (ADR-029 E4)', () => {
+    const worktreePath = '/tmp/forgeroom/worktrees/task-123';
+
+    it('denies every project command when profile.shell is disabled', () => {
+      expectDenied(
+        gate.checkCommand('pnpm lint', worktreePath, { shell: 'disabled', filesystem: 'inherit' }),
+        'shell_disabled',
+      );
+      expectDenied(
+        gate.checkCommand('pnpm typecheck', worktreePath, {
+          shell: 'disabled',
+          filesystem: 'inherit',
+        }),
+        'shell_disabled',
+      );
+    });
+
+    it('allows project commands when profile.shell is not disabled', () => {
+      expect(
+        gate.checkCommand('pnpm lint', worktreePath, {
+          shell: 'project_checks_only',
+          filesystem: 'worktree_only',
+        }),
+      ).toEqual({ allowed: true });
+      expect(
+        gate.checkCommand('pnpm typecheck', worktreePath, {
+          shell: 'inherit',
+          filesystem: 'inherit',
+        }),
+      ).toEqual({ allowed: true });
+    });
+
+    it('shell.disabled still allows destructive-rule denial path (defense in depth)', () => {
+      expectDenied(
+        gate.checkCommand('pnpm lint', worktreePath, { shell: 'disabled', filesystem: 'inherit' }),
+        'shell_disabled',
+      );
+      expectDenied(
+        gate.checkCommand('git push --force origin main', worktreePath, {
+          shell: 'inherit',
+          filesystem: 'inherit',
+        }),
+        'destructive_git',
+      );
+    });
+
+    it('checkAgentExecution allows output channel writes even with filesystem read_only', () => {
+      const profile = { shell: 'disabled', filesystem: 'read_only' };
+      expect(
+        gate.checkAgentExecution(
+          `${worktreePath}/.forgeroom/prompts/00_plan.md`,
+          `${worktreePath}/.forgeroom/outputs/00_plan.md`,
+          worktreePath,
+          profile,
+        ),
+      ).toEqual({ allowed: true });
+      expect(
+        gate.checkAgentExecution(
+          `${worktreePath}/.forgeroom/prompts/00_plan.md`,
+          `${worktreePath}/.forgeroom/logs/00_plan.stdout`,
+          worktreePath,
+          profile,
+        ),
+      ).toEqual({ allowed: true });
+    });
+
+    it('checkAgentExecution denies non-output writes when filesystem is read_only', () => {
+      expectDenied(
+        gate.checkAgentExecution(
+          `${worktreePath}/.forgeroom/prompts/00_plan.md`,
+          `${worktreePath}/src/index.ts`,
+          worktreePath,
+          { shell: 'disabled', filesystem: 'read_only' },
+        ),
+        'filesystem_read_only',
+      );
+    });
+
+    it('checkAgentExecution allows arbitrary worktree writes when filesystem is worktree_only', () => {
+      expect(
+        gate.checkAgentExecution(
+          `${worktreePath}/.forgeroom/prompts/00_plan.md`,
+          `${worktreePath}/src/index.ts`,
+          worktreePath,
+          { shell: 'project_checks_only', filesystem: 'worktree_only' },
+        ),
+      ).toEqual({ allowed: true });
+    });
+
+    it('checkAgentExecution still denies writes outside worktree regardless of profile', () => {
+      expectDenied(
+        gate.checkAgentExecution(
+          `${worktreePath}/.forgeroom/prompts/00_plan.md`,
+          '/tmp/escape.md',
+          worktreePath,
+          { shell: 'inherit', filesystem: 'worktree_only' },
+        ),
+        'file_outside_worktree',
+      );
+    });
+
+    it('checkAgentExecution still denies secret writes regardless of profile', () => {
+      expectDenied(
+        gate.checkAgentExecution(
+          `${worktreePath}/.forgeroom/prompts/00_plan.md`,
+          `${worktreePath}/.env`,
+          worktreePath,
+          { shell: 'inherit', filesystem: 'worktree_only' },
+        ),
+        'secret_path',
+      );
+    });
+
+    it('checkAgentExecution is a no-op when profile is omitted (legacy behaviour)', () => {
+      expect(
+        gate.checkAgentExecution(
+          `${worktreePath}/.forgeroom/prompts/00_plan.md`,
+          `${worktreePath}/src/index.ts`,
+          worktreePath,
+        ),
+      ).toEqual({ allowed: true });
+    });
+  });
 });
 
 function expectDenied(decision: GateDecision, reason: string): void {

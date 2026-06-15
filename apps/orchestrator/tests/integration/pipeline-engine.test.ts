@@ -147,9 +147,9 @@ function buildWorkflowRegistry(yaml: string): {
   harnesses: HarnessRegistry;
 } {
   const harnessRegistry = HarnessRegistry.fromConfig({
-    planning: { source: 'harnesses/planning.md' },
-    implementation: { source: 'harnesses/implementation.md' },
-    review: { source: 'harnesses/review.md' },
+    planning: { source: 'harnesses/planning' },
+    implementation: { source: 'harnesses/implementation' },
+    review: { source: 'harnesses/review' },
   });
   const agentRegistry = AgentRegistry.fromConfig(
     {
@@ -290,10 +290,14 @@ async function setup(yaml: string, outputs: Record<string, string>): Promise<{
       ]) {
         await mkdir(path.join(task.worktree_path, dir), { recursive: true });
       }
-      // Stage the harness contracts so renderPrompt composes them (ADR-027).
-      await mkdir(path.join(task.worktree_path, 'harnesses'), { recursive: true });
+      // Stage the harness contracts so renderPrompt composes them (ADR-027/029:
+      // harness dir with a canonical prompt-contract.md).
       for (const harness of harnesses.list()) {
-        await writeFile(path.join(task.worktree_path, harness.source), `# harness {{step_id}}\n`);
+        await mkdir(path.join(task.worktree_path, harness.source), { recursive: true });
+        await writeFile(
+          path.join(task.worktree_path, harness.source, 'prompt-contract.md'),
+          `# harness {{step_id}}\n`,
+        );
       }
       return { path: task.worktree_path, branch: task.branch_name };
     },

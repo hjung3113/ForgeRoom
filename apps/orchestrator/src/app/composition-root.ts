@@ -68,6 +68,7 @@ import type {
   TaskRequest,
 } from '../core/types.js';
 import { WorktreeManager, type HarnessContract } from '../core/worktree/worktree-manager.js';
+import type { HarnessManifest } from '../core/agent-runtime/harness-manifest.js';
 import { NodeCommandRunner } from '../utils/command-runner.js';
 import { readFile, writeFile } from 'node:fs/promises';
 
@@ -141,6 +142,12 @@ export interface ComposeOrchestratorOptions {
    * stages them into each task worktree at `.forgeroom/harnesses/<id>` (ADR-027).
    */
   harnessContracts: ReadonlyArray<HarnessContract>;
+  /**
+   * Bundled harness manifests (id → parsed `harness.yaml`, ADR-029). Read by
+   * the boot path and injected so the engine can resolve a step's output
+   * contract (E2) and later its permission/tool profile (E4).
+   */
+  harnessManifests?: ReadonlyMap<string, HarnessManifest>;
   overrides?: ExternalAdapterOverrides;
   /** Logger sink; defaults to stderr. */
   log?: (line: string) => void;
@@ -295,6 +302,7 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     modelPolicies: registries.modelPolicies,
     agentRegistry: registries.agents,
     harnessRegistry: registries.harnesses,
+    harnessManifests: options.harnessManifests ?? new Map(),
     workflowBuilder: mastraWorkflowBuilder,
     taskStore,
     worktreeManager,

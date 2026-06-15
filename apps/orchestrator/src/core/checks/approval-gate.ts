@@ -1,10 +1,12 @@
+import type { GateProfile } from '../engine/runtime-profile-compiler.js';
+
 export interface GateDecision {
   allowed: boolean;
   reason?: GateDenialReason;
   category?: GateDenialCategory;
 }
 
-export type GateDenialCategory = 'command' | 'filesystem' | 'workflow' | 'secret';
+export type GateDenialCategory = 'command' | 'filesystem' | 'workflow' | 'secret' | 'permission';
 
 export type GateDenialReason =
   | 'destructive_git'
@@ -15,7 +17,21 @@ export type GateDenialReason =
   | 'protected_branch'
   | 'secret_path'
   | 'worktree_inside_project'
-  | 'worktree_root_not_allowed';
+  | 'worktree_root_not_allowed'
+  | 'shell_disabled'
+  | 'filesystem_read_only';
+
+/**
+ * Subset of GateProfile fields ApprovalGate currently enforces. Other fields
+ * (network, tools.allow/deny) are produced by the compiler but enforcement is
+ * deferred to follow-up work — see runtime-profile-compiler.ts header comment.
+ */
+export interface EnforcedProfile {
+  shell: GateProfile['shell'];
+  filesystem: GateProfile['filesystem'];
+}
+
+const OUTPUT_CHANNEL_PREFIXES = ['.forgeroom/outputs/', '.forgeroom/logs/'] as const;
 
 export interface WorktreeCreationSafetyInput {
   branch: string;
@@ -24,7 +40,20 @@ export interface WorktreeCreationSafetyInput {
 }
 
 export class ApprovalGate {
-  checkCommand(command: string, _cwd: string): GateDecision {
+  /**
+   * Project-shell command admission. `profile` (optional) carries per-step
+   * harness-derived permissions; when its `shell` field is `disabled`, every
+   * project-shell command is denied (planning/review harness invariant).
+   *
+   * The synthetic agent-execution check ({@link checkAgentExecution}) is
+   * EXEMPT from `shell.disabled` — those harnesses still need to write their
+   * own output file.
+   */
+  checkCommand(command: string, _cwd: string, profile?: EnforcedProfile): GateDecision {
+    if (profile?.shell === 'disabled') {
+      return deny('permission', 'shell_disabled');
+    }
+
     const normalizedCommand = normalizeCommand(command);
     const lowerCommand = normalizedCommand.toLowerCase();
 
@@ -48,6 +77,41 @@ export class ApprovalGate {
       return deny('command', 'download_execute');
     }
 
+    return allow();
+  }
+
+  /**
+   * Agent-execution synthetic (`read <prompt> && write <output>`) admission.
+   * NEVER subject to `profile.shell` — agents must always be able to emit
+   * their declared output file. `profile.filesystem === 'read_only'` is
+   * enforced against the output path: writes outside `.forgeroom/outputs/`
+   * and `.forgeroom/logs/` are denied.
+   */
+  checkAgentExecution(
+    promptPath: string,
+    outputPath: string,
+    worktreePath: string,
+    profile?: EnforcedProfile,
+  ): GateDecision {
+    const normalizedWorktreePath = normalizeAbsolutePath(worktreePath);
+    const normalizedOutput = normalizePathAgainstRoot(outputPath, normalizedWorktreePath);
+
+    if (!isInsideRoot(normalizedOutput, normalizedWorktreePath)) {
+      return deny('filesystem', 'file_outside_worktree');
+    }
+    if (isSecretPath(normalizedOutput)) {
+      return deny('secret', 'secret_path');
+    }
+
+    if (profile?.filesystem === 'read_only') {
+      const relative = normalizedOutput.slice(normalizedWorktreePath.length + 1);
+      const inOutputChannel = OUTPUT_CHANNEL_PREFIXES.some((prefix) => relative.startsWith(prefix));
+      if (!inOutputChannel) {
+        return deny('permission', 'filesystem_read_only');
+      }
+    }
+
+    void promptPath;
     return allow();
   }
 
