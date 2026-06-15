@@ -23,6 +23,26 @@ export interface ResolvedRuntimeTarget {
   permissionProfile?: string;
 }
 
+/**
+ * Per-run provider session/identity (ADR-028 Project Room seam). Separate from
+ * {@link ResolvedRuntimeTarget} (which owns runtime/model/permissionProfile):
+ * this carries WHICH provider-native session/agent a run uses, resolved from the
+ * project room + step role.
+ *
+ * - `providerAgentId`: the provider-native (OpenClaw `--agent`) id, distinct
+ *   from `AgentRunRequest.agentId` (the ForgeRoom AgentRegistry id). A provider
+ *   prefers it over its global fallback agent.
+ * - `sessionKey` / `role`: ForgeRoom-side logical metadata. OpenClaw has no
+ *   session-key flag, so these never reach the CLI; they are carried for
+ *   TaskStore persistence (#86) and operator visibility. The resumable session
+ *   id stays in the existing run-result / resume path (runtime-assigned).
+ */
+export interface RuntimeSession {
+  providerAgentId?: string;
+  sessionKey?: string;
+  role?: string;
+}
+
 export interface AgentRunRequest {
   agentId: string;
   promptPath: string;
@@ -38,6 +58,8 @@ export interface AgentRunRequest {
    * resolved agent's runtime/model.
    */
   runtimeTarget?: ResolvedRuntimeTarget;
+  /** Per-run provider session/agent (ADR-028). See {@link RuntimeSession}. */
+  runtimeSession?: RuntimeSession;
 }
 
 type AgentRunRequestWithTimeout = AgentRunRequest & {
@@ -262,6 +284,7 @@ function toRetryResumeRequest(
     mode: req.mode,
     ...(req.timeoutMs === undefined ? {} : { timeoutMs: req.timeoutMs }),
     ...(req.runtimeTarget === undefined ? {} : { runtimeTarget: req.runtimeTarget }),
+    ...(req.runtimeSession === undefined ? {} : { runtimeSession: req.runtimeSession }),
   };
 }
 
@@ -281,6 +304,7 @@ function toProviderResumeRequest(
     mode: req.mode,
     timeoutMs,
     ...(runtimeTarget === undefined ? {} : { runtimeTarget }),
+    ...(req.runtimeSession === undefined ? {} : { runtimeSession: req.runtimeSession }),
   };
 }
 
@@ -294,6 +318,7 @@ function toRunRequest(req: AgentRunnerResumeRequest): AgentRunRequest {
     cwd: req.cwd,
     mode: req.mode,
     ...(req.timeoutMs === undefined ? {} : { timeoutMs: req.timeoutMs }),
+    ...(req.runtimeSession === undefined ? {} : { runtimeSession: req.runtimeSession }),
   };
 }
 
