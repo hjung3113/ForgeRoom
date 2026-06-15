@@ -60,6 +60,16 @@ export interface Step {
   exit_code: number | null;
   started_at: Date;
   finished_at: Date | null;
+  /**
+   * OpenClaw session handles (ADR-028 Project Room). Nullable resume HINTS —
+   * NOT authority (ADR-017): never consulted to decide next step, success, or
+   * output truth. `openclaw_session_id` is the runtime-assigned resume id;
+   * `openclaw_agent_key` the provider-native agent driven; `openclaw_role` the
+   * Project Room role.
+   */
+  openclaw_session_id: string | null;
+  openclaw_agent_key: string | null;
+  openclaw_role: string | null;
 }
 
 export interface Check {

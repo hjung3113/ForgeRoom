@@ -800,6 +800,9 @@ export class MastraPipelineEngine implements PipelineEngine {
       exit_code: 0,
       started_at: now,
       finished_at: null,
+      openclaw_session_id: run.session?.openclawSessionId ?? null,
+      openclaw_agent_key: run.session?.openclawAgentKey ?? null,
+      openclaw_role: run.session?.openclawRole ?? null,
     };
     return this.deps.taskStore.createStep(step);
   }

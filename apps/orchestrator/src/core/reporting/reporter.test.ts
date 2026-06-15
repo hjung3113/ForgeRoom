@@ -439,5 +439,8 @@ function fakeStep(): Step {
     exit_code: 0,
     started_at: new Date('2026-05-23T00:00:00Z'),
     finished_at: new Date('2026-05-23T00:00:10Z'),
+    openclaw_session_id: null,
+    openclaw_agent_key: null,
+    openclaw_role: null,
   };
 }
