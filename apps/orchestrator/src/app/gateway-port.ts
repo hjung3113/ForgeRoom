@@ -20,7 +20,15 @@
 import type { PipelineEngine, TaskInput } from '../core/engine/pipeline-engine.js';
 import type { Conductor, Task, TaskRequest } from '../core/types.js';
 import type { TaskStore } from '../core/task-store.js';
+import { buildRoomState, type RoomStateDeps } from '../core/reporting/room-state.js';
+import type { RoomState } from '../core/reporting/room-state.js';
 import type { OrchestratorGatewayPort, RoomSession } from '../gateway/discord-gateway.js';
+
+/** Canvas dashboard dependency (Phase 2D). Optional — absent → /room canvas errors cleanly. */
+export interface RoomCanvasDeps {
+  projects: RoomStateDeps['projects'];
+  writer: { write(state: RoomState): Promise<string> };
+}
 
 /** How many recent tasks /room sessions scans for session handles. */
 const ROOM_SESSION_TASK_SCAN = 20;
@@ -33,6 +41,8 @@ export interface OrchestratorGatewayPortDeps {
   recordApprovalEvent: (taskId: string, approvedBy: string) => Promise<void>;
   /** Records user feedback for the next step's Conductor.refine input. */
   recordFeedbackEvent: (taskId: string, message: string) => Promise<void>;
+  /** Canvas dashboard (Phase 2D). Omit to disable /room canvas. */
+  roomCanvas?: RoomCanvasDeps;
 }
 
 export class OrchestratorGatewayPortImpl implements OrchestratorGatewayPort {
@@ -41,6 +51,7 @@ export class OrchestratorGatewayPortImpl implements OrchestratorGatewayPort {
   private readonly taskStore: TaskStore;
   private readonly recordApprovalEvent: (taskId: string, approvedBy: string) => Promise<void>;
   private readonly recordFeedbackEvent: (taskId: string, message: string) => Promise<void>;
+  private readonly roomCanvas: RoomCanvasDeps | undefined;
 
   constructor(deps: OrchestratorGatewayPortDeps) {
     this.engine = deps.engine;
@@ -48,6 +59,15 @@ export class OrchestratorGatewayPortImpl implements OrchestratorGatewayPort {
     this.taskStore = deps.taskStore;
     this.recordApprovalEvent = deps.recordApprovalEvent;
     this.recordFeedbackEvent = deps.recordFeedbackEvent;
+    this.roomCanvas = deps.roomCanvas;
+  }
+
+  async refreshRoomCanvas(projectId: string): Promise<string> {
+    if (this.roomCanvas === undefined) {
+      throw new Error('Canvas is not configured (set FORGEROOM_CANVAS_ROOT)');
+    }
+    const state = await buildRoomState({ projects: this.roomCanvas.projects, taskStore: this.taskStore }, projectId);
+    return this.roomCanvas.writer.write(state);
   }
 
   startTask(request: TaskRequest): Promise<string> {

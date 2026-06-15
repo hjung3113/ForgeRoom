@@ -50,6 +50,7 @@ class FakeOrchestrator implements OrchestratorGatewayPort {
   listTaskSessions = vi.fn(async (_taskId: string) => [
     { taskId: 'task-1', stepId: 'execute', openclawSessionId: 'oc-2', agentKey: 'fr-impl', role: 'implementer' },
   ]);
+  refreshRoomCanvas = vi.fn(async (_projectId: string) => '/canvas/proj-a/index.html');
   askTask = vi.fn(async (_taskId: string, _question: string) => 'the answer');
   recordFeedback = vi.fn(async (_taskId: string, _message: string) => {});
   recordApproval = vi.fn(async (_taskId: string, _approvedBy: string) => {});
@@ -162,6 +163,13 @@ describe('DiscordGateway slash command dispatch', () => {
     const content = (reply.mock.calls[0]![0] as { content: string }).content;
     expect(content).toContain('planner');
     expect(content).toContain('oc-1');
+  });
+
+  it('/room canvas refreshes the dashboard and replies with the path', async () => {
+    const { interaction, reply } = makeInteraction('room', { strings: { project: 'proj-a' }, subcommand: 'canvas' });
+    await gw.handleInteraction(interaction as never);
+    expect(orch.refreshRoomCanvas).toHaveBeenCalledWith('proj-a');
+    expect((reply.mock.calls[0]![0] as { content: string }).content).toContain('/canvas/proj-a/index.html');
   });
 
   it('/room session <task-id> lists that task\'s session handles', async () => {
