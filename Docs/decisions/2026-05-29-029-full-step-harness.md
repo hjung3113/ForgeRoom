@@ -66,6 +66,8 @@ OpenClaw CLI(`agent --json --agent <id> [--session-id] --message --model --timeo
 
 컴파일러 출력은 "이 step에서 ForgeRoom이 무엇을 hard-gate할지" + "prompt에 무엇을 advisory로 넣을지"이지, OpenClaw에 넘기는 권한 프로파일이 아니다.
 
+**Boundary invariant**: `HarnessManifest` 스키마는 provider-specific identity(예: `provider_agent_id`, `openclaw_agent`)를 직접 담지 않는다. agent 선택은 ProjectRoom OpenClaw config × intent role을 통한 `runtimeSession.providerAgentId`로만 흐른다(F2/F8 review 결정). harness 는 "실행 계약" 이고 ProjectRoom 가 "provider inventory" — 둘을 한 파일에 묶으면 harness 가 특정 프로젝트에 결박된다.
+
 ### 5. Phasing/순서 (codex 84)
 
 1. **E1 HarnessInstaller + harness.yaml schema** — 스키마 + installer 호환성 먼저. ADR-027 staging 확장 (디렉터리 stage, harness.yaml + 참조 파일 validate, 누락 시 fail-fast). prompt-contract 합성은 기존대로.

@@ -64,7 +64,7 @@ const DASHBOARD_HTML = `<!doctype html>
 <div id="config" class="muted"></div>
 <h2>Active tasks</h2><div id="active"></div>
 <h2>Recent tasks</h2><div id="recent"></div>
-<h2>OpenClaw sessions</h2><div id="sessions"></div>
+<h2>OpenClaw session handles <span class="muted">(last observed, resume hint per ADR-017)</span></h2><div id="sessions"></div>
 <script>
 function taskCard(t) {
   const step = t.active_step ? ' · step <code>' + t.active_step + '</code>' : '';

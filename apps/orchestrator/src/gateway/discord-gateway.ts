@@ -507,7 +507,7 @@ function buildProjectByChannelId(bindings: DiscordProjectChannelBinding[]): Map<
 
 function renderRoomSessions(header: string, sessions: RoomSession[]): string {
   if (sessions.length === 0) {
-    return `${header}: no OpenClaw sessions recorded.`;
+    return `${header}: no OpenClaw session handles recorded.`;
   }
   const lines = sessions.map((s) => {
     const role = s.role ?? '-';
@@ -515,5 +515,8 @@ function renderRoomSessions(header: string, sessions: RoomSession[]): string {
     const session = s.openclawSessionId ?? '-';
     return `  ${s.taskId}/${s.stepId} [${role}] agent=${agent} session=${session}`;
   });
-  return [`${header} — OpenClaw sessions`, ...lines].join('\n');
+  return [
+    `${header} — OpenClaw session handles (last observed, resume hint per ADR-017)`,
+    ...lines,
+  ].join('\n');
 }
