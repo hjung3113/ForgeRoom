@@ -81,6 +81,10 @@ export class OrchestratorGatewayPortImpl implements OrchestratorGatewayPort {
     return this.taskStore.listActiveTasks(projectId);
   }
 
+  listRecentTasks(projectId: string, limit: number): Promise<Task[]> {
+    return this.taskStore.listTasksByProject(projectId, limit);
+  }
+
   askTask(taskId: string, question: string): Promise<string> {
     return this.conductor.answer(taskId, question);
   }

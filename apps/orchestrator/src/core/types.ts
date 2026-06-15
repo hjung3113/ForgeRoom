@@ -16,6 +16,8 @@ export interface ExternalRef {
   title?: string;
   status_comment_id?: string;
   status_message_id?: string;
+  /** Discord per-task thread id (Phase 2A); paired with status_message_id. */
+  status_thread_id?: string;
 }
 
 export interface Task {
@@ -169,6 +171,13 @@ export type ReporterDestination = 'discord' | 'github';
  */
 export interface StatusSurfaceRef {
   id: string;
+  /**
+   * Discord per-task thread id (Phase 2A). When set, the status message lives
+   * in this thread (a channel id in discord.js terms), not the bare project
+   * channel. Persisted so re-delivery edits the same message in the same
+   * thread. Absent for GitHub surfaces and pre-thread Discord surfaces.
+   */
+  threadId?: string;
 }
 
 /**
