@@ -20,7 +20,10 @@
 import type { PipelineEngine, TaskInput } from '../core/engine/pipeline-engine.js';
 import type { Conductor, Task, TaskRequest } from '../core/types.js';
 import type { TaskStore } from '../core/task-store.js';
-import type { OrchestratorGatewayPort } from '../gateway/discord-gateway.js';
+import type { OrchestratorGatewayPort, RoomSession } from '../gateway/discord-gateway.js';
+
+/** How many recent tasks /room sessions scans for session handles. */
+const ROOM_SESSION_TASK_SCAN = 20;
 
 export interface OrchestratorGatewayPortDeps {
   engine: PipelineEngine;
@@ -83,6 +86,28 @@ export class OrchestratorGatewayPortImpl implements OrchestratorGatewayPort {
 
   listRecentTasks(projectId: string, limit: number): Promise<Task[]> {
     return this.taskStore.listTasksByProject(projectId, limit);
+  }
+
+  async listProjectSessions(projectId: string): Promise<RoomSession[]> {
+    const tasks = await this.taskStore.listTasksByProject(projectId, ROOM_SESSION_TASK_SCAN);
+    const sessions: RoomSession[] = [];
+    for (const task of tasks) {
+      sessions.push(...(await this.listTaskSessions(task.id)));
+    }
+    return sessions;
+  }
+
+  async listTaskSessions(taskId: string): Promise<RoomSession[]> {
+    const steps = await this.taskStore.listSteps(taskId);
+    return steps
+      .filter((s) => s.openclaw_session_id !== null || s.openclaw_role !== null)
+      .map((s) => ({
+        taskId,
+        stepId: s.step_id,
+        openclawSessionId: s.openclaw_session_id,
+        agentKey: s.openclaw_agent_key,
+        role: s.openclaw_role,
+      }));
   }
 
   askTask(taskId: string, question: string): Promise<string> {
