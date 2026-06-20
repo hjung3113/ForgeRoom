@@ -121,6 +121,25 @@ describe('DiscordGateway slash command dispatch', () => {
     expect(project?.required).toBe(false);
   });
 
+  it('orders required options before optional ones (Discord registration invariant)', () => {
+    // Discord rejects registration with APPLICATION_COMMAND_OPTIONS_REQUIRED_INVALID
+    // if a required option follows an optional one.
+    for (const command of gw.buildSlashCommands()) {
+      const options = command.toJSON().options ?? [];
+      let seenOptional = false;
+      for (const option of options) {
+        if (option.required) {
+          expect(
+            seenOptional,
+            `/${command.name}: required option "${option.name}" must precede all optional options`,
+          ).toBe(false);
+        } else {
+          seenOptional = true;
+        }
+      }
+    }
+  });
+
   it('/run builds a valid TaskRequest within allowed_workflows', async () => {
     const { interaction, reply } = makeInteraction('run', {
       strings: { project: 'proj-a', title: 'ship it', workflow: 'review-only' },

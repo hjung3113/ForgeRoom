@@ -146,8 +146,8 @@ export class DiscordGateway {
     const run = new SlashCommandBuilder()
       .setName('run')
       .setDescription('Start a task for a project')
-      .addStringOption((o) => o.setName('project').setDescription('Project id'))
       .addStringOption((o) => o.setName('title').setDescription('Task title').setRequired(true))
+      .addStringOption((o) => o.setName('project').setDescription('Project id'))
       .addStringOption((o) =>
         o.setName('workflow').setDescription('Workflow id (within allowed_workflows)'),
       );
