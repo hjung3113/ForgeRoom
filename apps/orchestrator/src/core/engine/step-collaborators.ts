@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { AgentRunner, ResolvedRuntimeTarget } from '../agent-runtime/agent-runner.js';
+import type { AgentRunner, ResolvedRuntimeTarget, RuntimeSession } from '../agent-runtime/agent-runner.js';
+import { ephemeralAgentIdForTask } from '../agent-runtime/task-agent-lifecycle.js';
 import type { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import type { HarnessRegistry } from '../agent-runtime/harness-registry.js';
 import type { HarnessManifest } from '../agent-runtime/harness-manifest.js';
@@ -241,7 +242,16 @@ export class StepCollaborators {
     await this.recordRoutingDecision(resolved, fileBase, policyId, runtimeTarget);
 
     const intentKind = this.deps.intentRegistry.resolve(resolved.intentId).kind;
-    const runtimeSession = resolveRuntimeSession(this.projectRoom, intentKind, this.task.id);
+    // ADR-030: every step of a task runs through its per-task ephemeral agent
+    // (bound to the worktree), never the global `main` fallback. The project-room
+    // role/sessionKey metadata (ADR-028) is preserved when present, but the
+    // provider-native agent id is ALWAYS the deterministic per-task agent so
+    // retries/resume cannot leak to `main` and lose the worktree workspace.
+    const baseSession = resolveRuntimeSession(this.projectRoom, intentKind, this.task.id);
+    const runtimeSession: RuntimeSession = {
+      ...(baseSession ?? {}),
+      providerAgentId: ephemeralAgentIdForTask(this.task.id),
+    };
     const outputContract =
       resolved.harness === null
         ? undefined
@@ -257,7 +267,7 @@ export class StepCollaborators {
       cwd: this.task.worktree_path,
       mode: 'headless',
       runtimeTarget,
-      ...(runtimeSession === undefined ? {} : { runtimeSession }),
+      runtimeSession,
       ...(outputContract === undefined ? {} : { outputContract }),
     });
 

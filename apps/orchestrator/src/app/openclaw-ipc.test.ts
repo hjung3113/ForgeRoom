@@ -126,7 +126,7 @@ async function request(overrides: Partial<OpenClawExecutionRequest> = {}): Promi
 
 function client(mode: string): OpenClawCliClient {
   return new OpenClawCliClient({
-    config: { bin: process.execPath, baseArgs: [cliPath, 'agent', '--json'], agentId: 'main', extraEnv: { FAKE_OPENCLAW_MODE: mode } },
+    config: { bin: process.execPath, baseArgs: [cliPath, 'agent', '--json'], agentsBaseArgs: ['agents'], agentId: 'main', extraEnv: { FAKE_OPENCLAW_MODE: mode } },
   });
 }
 
@@ -163,6 +163,7 @@ describe('resolveOpenClawCliConfig', () => {
     expect(resolveOpenClawCliConfig({})).toEqual({
       bin: 'openclaw',
       baseArgs: ['agent', '--json'],
+      agentsBaseArgs: ['agents'],
       agentId: 'main',
     });
   });
@@ -173,6 +174,7 @@ describe('resolveOpenClawCliConfig', () => {
     ).toEqual({
       bin: 'oc',
       baseArgs: ['agent', '--json'],
+      agentsBaseArgs: ['agents'],
       agentId: 'reviewer',
     });
   });
@@ -342,7 +344,7 @@ describe('OpenClawCliClient subprocess lifecycle', () => {
   it('maps a missing binary to runtime_unavailable', async () => {
     const req = await request();
     const c = new OpenClawCliClient({
-      config: { bin: '/does/not/exist/openclaw-xyz', baseArgs: ['agent', '--json'], agentId: 'main' },
+      config: { bin: '/does/not/exist/openclaw-xyz', baseArgs: ['agent', '--json'], agentsBaseArgs: ['agents'], agentId: 'main' },
     });
     const response = await c.run(req);
     expect(response.failureKind).toBe('runtime_unavailable');
@@ -361,5 +363,93 @@ describe('OpenClawCliClient subprocess lifecycle', () => {
     expect(response.sessionId).toBe('resumed-session-9');
     const stdout = await readFile(req.stdoutPath, 'utf8');
     expect(stdout).toContain('resumed-session-9');
+  });
+});
+
+// A fake `openclaw agents add|delete` CLI. Records the argv it received to a
+// file so tests can assert the built command, and varies its exit/stderr by
+// FAKE_AGENTS_MODE to exercise the idempotency + error paths (ADR-030).
+const FAKE_AGENTS_CLI = `
+const args = process.argv.slice(2);
+const fs = require('node:fs');
+const argvFile = process.env.FAKE_AGENTS_ARGV;
+if (argvFile) fs.writeFileSync(argvFile, JSON.stringify(args));
+const sub = args[1];
+const name = args[2];
+const mode = process.env.FAKE_AGENTS_MODE || 'ok';
+function arg(n){const i=args.indexOf(n);return i>=0?args[i+1]:undefined;}
+if (mode === 'ok') {
+  process.stdout.write(JSON.stringify({ agentId: name, workspace: arg('--workspace') || null }));
+  process.exit(0);
+} else if (mode === 'exists') {
+  process.stderr.write('Agent "' + name + '" already exists. Run openclaw agents list to inspect.\\n');
+  process.exit(1);
+} else if (mode === 'notfound') {
+  process.stderr.write('Agent "' + name + '" not found. Run openclaw agents list to see configured agents.\\n');
+  process.exit(1);
+} else if (mode === 'boom') {
+  process.stderr.write('catastrophic gateway failure\\n');
+  process.exit(1);
+}
+`;
+
+describe('OpenClawCliClient agent lifecycle (ADR-030)', () => {
+  let agentsCliPath: string;
+  let argvFile: string;
+
+  beforeEach(async () => {
+    agentsCliPath = join(workdir, 'fake-openclaw-agents.cjs');
+    argvFile = join(workdir, 'argv.json');
+    await writeFile(agentsCliPath, FAKE_AGENTS_CLI);
+  });
+
+  function agentsClient(mode: string): OpenClawCliClient {
+    return new OpenClawCliClient({
+      config: {
+        bin: process.execPath,
+        baseArgs: [agentsCliPath, 'agent', '--json'],
+        agentsBaseArgs: [agentsCliPath, 'agents'],
+        agentId: 'main',
+        extraEnv: { FAKE_AGENTS_MODE: mode, FAKE_AGENTS_ARGV: argvFile },
+      },
+    });
+  }
+
+  const endpointToken = { endpoint: 'http://127.0.0.1:18789', token: 'tok' };
+
+  it('builds `agents add <id> --workspace <dir> --non-interactive --json`', async () => {
+    await agentsClient('ok').addAgent({ ...endpointToken, agentId: 'fr-task-1', workspace: '/wt/task-1' });
+    const argv = JSON.parse(await readFile(argvFile, 'utf8')) as string[];
+    expect(argv).toEqual(['agents', 'add', 'fr-task-1', '--workspace', '/wt/task-1', '--non-interactive', '--json']);
+  });
+
+  it('treats an already-existing agent as success (idempotent create on resume)', async () => {
+    await expect(
+      agentsClient('exists').addAgent({ ...endpointToken, agentId: 'fr-task-1', workspace: '/wt/task-1' }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('throws on a genuine add failure (so the run does not silently lose its workspace)', async () => {
+    await expect(
+      agentsClient('boom').addAgent({ ...endpointToken, agentId: 'fr-task-1', workspace: '/wt/task-1' }),
+    ).rejects.toThrow(/fr-task-1/);
+  });
+
+  it('builds `agents delete <id> --force --json`', async () => {
+    await agentsClient('ok').deleteAgent({ ...endpointToken, agentId: 'fr-task-1' });
+    const argv = JSON.parse(await readFile(argvFile, 'utf8')) as string[];
+    expect(argv).toEqual(['agents', 'delete', 'fr-task-1', '--force', '--json']);
+  });
+
+  it('treats a missing agent as success (idempotent delete)', async () => {
+    await expect(
+      agentsClient('notfound').deleteAgent({ ...endpointToken, agentId: 'fr-task-1' }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('throws on a genuine delete failure', async () => {
+    await expect(
+      agentsClient('boom').deleteAgent({ ...endpointToken, agentId: 'fr-task-1' }),
+    ).rejects.toThrow(/fr-task-1/);
   });
 });
