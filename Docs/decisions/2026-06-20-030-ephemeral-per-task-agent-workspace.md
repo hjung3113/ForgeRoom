@@ -75,4 +75,8 @@ openclaw agents delete <name>                                                   
 - `agents add`가 `defaults.models`를 상속하는지, 아니면 `--model`로 준 단일 모델만 허용하는지 — auth smoke가 plan/implement 두 runtime을 한 agent로 증명하며 함께 검증.
 - 동시 task 시 agent 이름 충돌 없음(task id 기반이라 격리되나, 격리 agent 수 상한/리소스 확인).
 
-關聯: issue #111, ADR-027(harness contract staging), ADR-029(full step harness).
+## 후행 발견 (#114)
+
+이 결정으로 worktree 바인딩이 동작하자 라이브 검증에서 **다음** blocker가 드러났다: agent가 task를 읽고 plan을 만들지만, harness prompt-contract가 "출력 파일을 직접 쓰라"고 지시해 worktree-바인딩 agent가 확인 메시지로 응답하고 provider가 그것을 출력으로 영속화 → `## Slices` 없음 → 실패. **출력 채널 의미는 ADR-029가 소유한다**(2026-06-20 보강 참조): `.forgeroom/outputs/*`는 agent 응답을 provider가 기록한 것이고, agent는 그 경로를 직접 쓰지 않는다. ADR-030은 worktree 쓰기(=소스, execute)만 다룬다.
+
+關聯: issue #111, #114, ADR-027(harness contract staging), ADR-029(full step harness — output-channel 의미 소유).

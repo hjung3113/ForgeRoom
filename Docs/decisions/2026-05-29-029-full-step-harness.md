@@ -81,6 +81,19 @@ OpenClaw CLI(`agent --json --agent <id> [--session-id] --message --model --timeo
 - **ADR-013 ApprovalGate = hard enforcement substrate**: harness 권한의 실제 강제 지점.
 - **ADR-023/024(ResolvedRuntimeTarget) + ADR-028 #85(runtimeSession)**: 컴파일러의 `--agent` 선택은 runtimeSession을 통해서만. ResolvedRuntimeTarget(runtime/model/permissionProfile)과 harness profile은 직교 — harness는 "환경/계약", target은 "런타임/모델".
 
+## 보강 (2026-06-20): output-channel 의미 (#114, codex grill 2026-06-20)
+
+ADR-030으로 agent가 worktree에 바인딩된 뒤 라이브 검증에서 plan step이 `output_contract_failed`로 죽었다. 근본 원인은 **출력 채널 모순**이다: gateway OpenClaw provider(`app/openclaw-ipc.ts`, `app/openclaw-provider.ts`)는 agent의 JSON **응답 텍스트**를 받아 **호스트 측에서** `.forgeroom/outputs/NN.md`에 기록한다(agent는 그 파일을 건드리지 않는다). 그러나 세 harness prompt-contract는 모두 agent에게 "Write your full response to the output file"이라 지시했다. worktree-바인딩된 유능한 agent는 이를 문자대로 받아 파일 저장 후 "Saved full plan to 01_plan.md" 같은 **확인 메시지로 응답**했고, provider가 그 확인 메시지를 출력으로 영속화 → `## Slices` 없음 → 실패. 기본 retry 프롬프트("...was not saved... Save the response to that file now")가 오작동을 강화했다. agent 품질이 아니라 **계약 버그**다.
+
+**결정 (codex Q1 92 / Q2 86 / Q3 88):**
+
+1. **`.forgeroom/outputs/<step>.md` = agent 응답 메시지를 provider가 영속화한 것.** 모든 kind 공통 단일 출력 채널. agent는 이 파일(또는 `.forgeroom/outputs/*`)을 **직접 쓰지 않는다**.
+2. **plan/review(read_only)**: 응답 텍스트가 유일한 출력 채널. 계약-모양(plan은 `## Slices`로 끝, review는 `Review Result:` 헤더)을 **응답에** 담는다.
+3. **execute/refine(worktree_only)**: 두 채널을 명시 분리 — **소스 변경은 worktree에 쓴다**(실 산출물, PR=git diff). **서사 출력(무엇을·왜)은 응답 텍스트**이고 provider가 outputs에 기록한다. 금지 문구는 "파일을 쓰지 말라"가 아니라 "**`.forgeroom/outputs/*`를 직접 쓰지 말라**"로 경로 클래스를 명시한다(소스 쓰기와 혼동 방지).
+4. **retry 프롬프트는 "파일 저장"이 아니라 "교정된 응답 재전송"을 요청**한다(`agent-runner.ts` `writeDefaultRetryPrompt`).
+
+영향: `harnesses/{planning,implementation,review}/prompt-contract.md`, `core/agent-runtime/agent-runner.ts`. ADR-030은 이 규칙을 참조만 한다(소유는 ADR-029).
+
 ## 결과
 
 - `harnesses/<id>/harness.yaml` + `prompt-contract.md` 구조 도입. 기존 3개 harness 기계적 이전.

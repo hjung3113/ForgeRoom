@@ -211,7 +211,7 @@ run 종료 후:
 1. `outputPath` 존재 여부 확인
 2. 파일 크기 ≥ `MIN_BYTES` (기본 50)
 3. 미충족 시 AgentRunner가 attempt++ 후 resume continuation 또는 신규 headless run fallback을 선택
-   - resume 메시지: "Your previous response was not saved to <outputPath>. Save the response to that file now."
+   - resume 메시지(#114, ADR-029 output-channel 보강): agent **응답**이 출력이다 — "파일 저장"이 아니라 계약-모양(plan은 `## Slices`)을 갖춘 **완전한 응답 재전송**을 요청한다. agent는 `.forgeroom/outputs/*`를 직접 쓰지 않는다(`defaultRetryPromptBody`).
 4. `MAX_AGENT_ATTEMPTS` (기본 3) 초과 시 step.status=failed
 
 ## 재시도 정책
