@@ -6,4 +6,4 @@ Read the task context in `.forgeroom/context/`, the hotfix output under `.forger
 
 The first non-empty line of your response MUST be exactly `Review Result: pass` or `Review Result: fail`. Follow it with a `## Findings` section.
 
-Write your response to `.forgeroom/outputs/{{step_index}}_{{step_id}}.md`.
+Your reply message IS the step output — ForgeRoom records it verbatim. Do not save, write, or echo it to a file, and do not write anything under `.forgeroom/outputs/`. Just answer with the review.

@@ -6,7 +6,7 @@ Keep what still holds; change only what the feedback requires. Re-state the full
 
 End with a `## Slices` section: one top-level `- ` bullet per slice, each a single line. Only top-level bullets are parsed.
 
-Write your response to `.forgeroom/outputs/{{step_index}}_{{step_id}}.md`.
+Your reply message IS the step output — ForgeRoom records it verbatim. Do not save, write, or echo it to a file, and do not write anything under `.forgeroom/outputs/`. Just answer with the plan.
 
 ## Slices
 
