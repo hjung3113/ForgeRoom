@@ -233,6 +233,24 @@ describe('FileConductor.refine', () => {
     const out = await conductor.refine('task-1', '03_impl', 'base prompt');
     expect(out).toBe('base prompt');
   });
+
+  it('injects the staged task context so refine never claims an empty context (#118)', async () => {
+    const contextDir = path.join(worktree, '.forgeroom', 'context');
+    await writeFile(path.join(contextDir, 'task.md'), '# Task\n\nCreate docs/PING.md containing PONG.\n');
+    await writeFile(path.join(contextDir, 'target-profile.md'), 'Runtime: Node.js + TypeScript.\n');
+    await writeFile(path.join(contextDir, 'selected-forgemap.md'), '# Forgemap: minimal-file-add\n');
+
+    const store = new FakeTaskStore(makeTask(worktree));
+    const agent = new ScriptedAgent([{ text: 'augmented', failed: false }]);
+    const conductor = new FileConductor({ agent, git: new StaticGit(), taskStore: store });
+
+    await conductor.refine('task-1', '01_plan', 'base prompt');
+
+    const prompt = agent.calls[0]?.prompt ?? '';
+    expect(prompt).toContain('Create docs/PING.md containing PONG.');
+    expect(prompt).toContain('Runtime: Node.js + TypeScript.');
+    expect(prompt).toContain('minimal-file-add');
+  });
 });
 
 describe('FileConductor.integrateFeedback', () => {

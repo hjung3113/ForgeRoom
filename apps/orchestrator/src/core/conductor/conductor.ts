@@ -59,6 +59,12 @@ const SCOPE_VIOLATION_LOG_REL = path.join('.forgeroom', 'logs', 'conductor_scope
 const SUMMARY_FS_REL = path.join(CONTEXT_DIR, 'summary.md');
 const FEEDBACK_FS_REL = path.join(CONTEXT_DIR, 'feedback.md');
 
+// Staged task context the refine step augments from. Read-only; missing files
+// degrade to an empty section rather than poisoning the prompt (#118).
+const TASK_FS_REL = path.join(CONTEXT_DIR, 'task.md');
+const TARGET_PROFILE_FS_REL = path.join(CONTEXT_DIR, 'target-profile.md');
+const SELECTED_FORGEMAP_FS_REL = path.join(CONTEXT_DIR, 'selected-forgemap.md');
+
 // Forward-slash forms for comparison against git porcelain output (always '/').
 const SUMMARY_REL = '.forgeroom/context/summary.md';
 const FEEDBACK_REL = '.forgeroom/context/feedback.md';
@@ -181,7 +187,18 @@ export class FileConductor implements Conductor {
     const worktree = await this.requireWorktree(taskId);
     const summary = await readOr(path.join(worktree, SUMMARY_FS_REL), EMPTY_SUMMARY);
     const feedback = await readOr(path.join(worktree, FEEDBACK_FS_REL), EMPTY_FEEDBACK);
-    const prompt = buildRefinePrompt({ summary, feedback, stepId, basePrompt });
+    const taskContext = await readOr(path.join(worktree, TASK_FS_REL), '');
+    const targetProfile = await readOr(path.join(worktree, TARGET_PROFILE_FS_REL), '');
+    const selectedForgemap = await readOr(path.join(worktree, SELECTED_FORGEMAP_FS_REL), '');
+    const prompt = buildRefinePrompt({
+      summary,
+      feedback,
+      taskContext,
+      targetProfile,
+      selectedForgemap,
+      stepId,
+      basePrompt,
+    });
 
     const result = await this.guardedRun({
       taskId,
@@ -411,11 +428,20 @@ function buildIntegrateFeedbackPrompt(summary: string, feedback: string): string
 function buildRefinePrompt(input: {
   summary: string;
   feedback: string;
+  taskContext: string;
+  targetProfile: string;
+  selectedForgemap: string;
   stepId: string;
   basePrompt: string;
 }): string {
   return [
     '[CONTEXT]',
+    '- Task (task.md):',
+    sectionOrAbsent(input.taskContext),
+    '- Target profile (target-profile.md):',
+    sectionOrAbsent(input.targetProfile),
+    '- Selected forgemap (selected-forgemap.md):',
+    sectionOrAbsent(input.selectedForgemap),
     '- Accumulated summary:',
     input.summary,
     '- Integrated feedback:',
@@ -425,9 +451,15 @@ function buildRefinePrompt(input: {
     input.basePrompt,
     '',
     '[INSTRUCTION]',
-    'Augment this step base_prompt with task context. Do not change the original intent;',
-    'add specificity and rationale. Output the augmented prompt only.',
+    'Augment this step base_prompt with the task context above. Do not change the original intent;',
+    'add specificity and rationale. The task context is provided here in full — do not claim it is',
+    'missing or instruct the planner to halt. Output the augmented prompt only.',
   ].join('\n');
+}
+
+/** Render a context file body, or an explicit absent-marker so the agent does not infer emptiness. */
+function sectionOrAbsent(body: string): string {
+  return body.trim() === '' ? '(not staged for this task)' : body;
 }
 
 function buildAnswerPrompt(summary: string, question: string): string {
