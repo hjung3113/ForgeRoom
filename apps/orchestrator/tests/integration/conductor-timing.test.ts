@@ -117,7 +117,7 @@ describe('Conductor ADR-016 timing (integration)', () => {
     };
     const conductor = new FileConductor({ agent, git: new GitCliConductorGit(), taskStore: noopTaskStore });
 
-    const out = await conductor.refine('task-int', '03_impl', 'base');
+    const out = await conductor.refineNotes('task-int', '03_impl', 'base');
 
     expect(out).toBe('augmented prompt'); // text preserved
     await expect(access(path.join(repo, offending))).rejects.toThrow(); // reverted

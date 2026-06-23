@@ -109,7 +109,7 @@ describe('StepCollaborators', () => {
       deps: {
         conductor: {
           init: async () => {},
-          refine: async (_taskId, _stepId, base) => `${base}\n\nrefined`,
+          refineNotes: async () => 'CONDUCTOR_NOTES',
           update: async () => {},
           integrateFeedback: async () => {},
           answer: async () => 'answer',
@@ -154,11 +154,19 @@ describe('StepCollaborators', () => {
 
     expect(promptPath).toBe(path.join(worktree, '.forgeroom', 'prompts', '01_plan.md'));
     const written = await readFile(promptPath, 'utf8');
-    // Template contents are loaded and {{...}} placeholders interpolated, then
-    // the Conductor refine pass appends its addendum.
+    // The rendered prompt is renderer-owned: template contents loaded and {{...}}
+    // interpolated. The Conductor never replaces or appends to the prompt (#121,
+    // ADR-027 amendment) — its notes are staged as a separate context artifact.
     expect(written).toContain('Implement output.md for step plan.');
     expect(written).toContain('.forgeroom/outputs/01_plan.md');
-    expect(written).toContain('refined');
+    expect(written).not.toContain('CONDUCTOR_NOTES');
+
+    // refineNotes output is staged under .forgeroom/context/refined-notes/, not in the prompt.
+    const notes = await readFile(
+      path.join(worktree, '.forgeroom', 'context', 'refined-notes', '01_plan.md'),
+      'utf8',
+    );
+    expect(notes).toContain('CONDUCTOR_NOTES');
   });
 });
 
@@ -194,7 +202,7 @@ describe('StepCollaborators.renderPrompt template loading', () => {
       deps: {
         conductor: {
           init: async () => {},
-          refine: async (_taskId, _stepId, base) => base,
+          refineNotes: async () => "",
           update: async () => {},
           integrateFeedback: async () => {},
           answer: async () => 'answer',
@@ -289,7 +297,7 @@ describe('StepCollaborators.renderPrompt template loading', () => {
       deps: {
         conductor: {
           init: async () => {},
-          refine: async (_t, _s, base) => base,
+          refineNotes: async () => "",
           update: async () => {},
           integrateFeedback: async () => {},
           answer: async () => 'answer',
@@ -387,7 +395,7 @@ describe('StepCollaborators.renderPrompt harness composition (prompt-file-protoc
       deps: {
         conductor: {
           init: async () => {},
-          refine: async (_t, _s, base) => `${base}\n\nrefined`,
+          refineNotes: async () => "CONDUCTOR_NOTES",
           update: async () => {},
           integrateFeedback: async () => {},
           answer: async () => 'answer',
@@ -432,7 +440,7 @@ describe('StepCollaborators.renderPrompt harness composition (prompt-file-protoc
     await writeFile(path.join(dir, 'prompt-contract.md'), content);
   }
 
-  it('composes the interpolated harness contract before the interpolated step template, refining the composed base', async () => {
+  it('composes the interpolated harness contract before the interpolated step template, renderer-owned (no conductor rewrite)', async () => {
     await stageHarness(
       'implementation',
       'Harness contract for step {{step_id}} (index {{step_index}}).\n',
@@ -457,8 +465,14 @@ describe('StepCollaborators.renderPrompt harness composition (prompt-file-protoc
     expect(written).toContain('Implement prior-output.md for step plan.');
     expect(written).not.toContain('{{');
 
-    // refine() ran on the composed base (its addendum is appended).
-    expect(written.trimEnd().endsWith('refined')).toBe(true);
+    // The Conductor does not rewrite or append to the prompt (#121): its notes
+    // are staged separately, never injected into the renderer-owned prompt.
+    expect(written).not.toContain('CONDUCTOR_NOTES');
+    const notes = await readFile(
+      path.join(worktree, '.forgeroom', 'context', 'refined-notes', '01_plan.md'),
+      'utf8',
+    );
+    expect(notes).toContain('CONDUCTOR_NOTES');
   });
 
   it('renders template-only (no harness contract) when the step has no harness', async () => {
