@@ -8,6 +8,7 @@ import { AgentRegistry, type ResolvedAgent } from './agent-registry.js';
 import {
   DEFAULT_AGENT_TIMEOUT_MS,
   DefaultAgentRunner,
+  defaultRetryPromptBody,
   type AgentResumeRequest,
   type AgentRunnerResumeRequest,
   type AgentRunRequest,
@@ -17,6 +18,22 @@ import {
   type ResolvedRuntimeTarget,
 } from './agent-runner.js';
 import { HarnessRegistry } from './harness-registry.js';
+
+describe('defaultRetryPromptBody (#114 output-channel)', () => {
+  it('asks for a corrected REPLY, never a file save', () => {
+    const body = defaultRetryPromptBody();
+    expect(body).toMatch(/repl(y|ied)/i);
+    // The pre-#114 wording told the agent to "Save the response to that file" —
+    // which a worktree-bound agent takes literally and answers with a
+    // confirmation instead of the contract-shaped output. Must be gone.
+    expect(body).not.toMatch(/save the response to that file/i);
+    expect(body).not.toMatch(/was not saved to/i);
+  });
+
+  it('explains that ForgeRoom records the reply as the output', () => {
+    expect(defaultRetryPromptBody()).toMatch(/records|persist/i);
+  });
+});
 
 class FakeAgentRuntimeProvider implements AgentRuntimeProvider {
   // The injected `runtimeTarget` (ADR-023) is captured separately so the

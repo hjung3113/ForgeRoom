@@ -22,7 +22,8 @@ runnable entry (`main.ts`).
 | `git-cli.ts` | Shared Git CLI primitive adapter for app-level git integrations | — |
 | `gateway-port.ts` | `OrchestratorGatewayPort` facade over PipelineEngine / Conductor / TaskStore | [Docs/modules/discord-gateway.md](../../../../Docs/modules/discord-gateway.md) |
 | `openclaw-provider.ts` | `AgentRuntimeProvider` implementation over OpenClaw IPC + its OpenClaw-specific transport types (relocated out of `core/`: ADR-023 scope B, #71) | [ADR-012](../../../../Docs/decisions/2026-05-22-012-agent-runtime-provider-boundary.md) |
-| `openclaw-ipc.ts` | Boot OpenClaw IPC client (real subprocess: #31) | [ADR-012](../../../../Docs/decisions/2026-05-22-012-agent-runtime-provider-boundary.md) |
+| `openclaw-ipc.ts` | Boot OpenClaw IPC client (real subprocess: #31); `addAgent`/`deleteAgent` drive `openclaw agents add/delete` for per-task ephemeral agents (ADR-030) | [ADR-012](../../../../Docs/decisions/2026-05-22-012-agent-runtime-provider-boundary.md) |
+| `openclaw-task-agent-lifecycle.ts` | `TaskAgentLifecycle` over OpenClaw IPC: maps task id → `fr-<taskid>` agent bound to the worktree (ADR-030) | [ADR-030](../../../../Docs/decisions/2026-06-20-030-ephemeral-per-task-agent-workspace.md) |
 | `worktree-adapters.ts` | Git-CLI worktree client + node-fs file system | [Docs/modules/worktree-manager.md](../../../../Docs/modules/worktree-manager.md) |
 | `worktree-naming.ts` | Branch + worktree path naming | — |
 | `forgemap-adapters.ts` | Repo probe + task lookup + bootstrap forgemap store | [Docs/modules/forgemap.md](../../../../Docs/modules/forgemap.md) |

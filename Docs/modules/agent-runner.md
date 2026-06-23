@@ -211,7 +211,7 @@ run 종료 후:
 1. `outputPath` 존재 여부 확인
 2. 파일 크기 ≥ `MIN_BYTES` (기본 50)
 3. 미충족 시 AgentRunner가 attempt++ 후 resume continuation 또는 신규 headless run fallback을 선택
-   - resume 메시지: "Your previous response was not saved to <outputPath>. Save the response to that file now."
+   - resume 메시지(#114, ADR-029 output-channel 보강): agent **응답**이 출력이다 — "파일 저장"이 아니라 계약-모양(plan은 `## Slices`)을 갖춘 **완전한 응답 재전송**을 요청한다. agent는 `.forgeroom/outputs/*`를 직접 쓰지 않는다(`defaultRetryPromptBody`).
 4. `MAX_AGENT_ATTEMPTS` (기본 3) 초과 시 step.status=failed
 
 ## 재시도 정책
@@ -223,11 +223,24 @@ run 종료 후:
 - Budget 소진 시 step.status=failed로 기록하고 공통 `failureKind`를 남긴다.
 - CheckRunner 자동 수정은 별도 budget이다. AgentRunner retry는 valid step output 생성까지, CheckRunner retry는 생성된 코드 변경의 품질 게이트 통과까지를 책임진다.
 
+## Worktree 바인딩 — 태스크별 ephemeral agent (ADR-030)
+
+OpenClaw `agent` CLI에는 `--cwd`/`--workspace`가 없어, gateway mode의 모든 run은 전역 `agents.defaults.workspace`($HOME)에서 실행된다. ForgeRoom은 태스크마다 worktree를 만들고 plan은 `.forgeroom/context/*`를 **읽고** implement는 소스를 **써야** 하므로, $HOME 기준 실행은 둘 다 실패한다(issue #111).
+
+해결: 태스크마다 worktree에 바인딩된 ephemeral OpenClaw agent를 둔다.
+
+- 이름은 task id에서 **결정적으로** 도출한다(`ephemeralAgentIdForTask` → `fr-<taskid>`). 재시도/resume이 전역 `main`으로 새지 않는다.
+- PipelineEngine이 run 시작 전 `TaskAgentLifecycle.ensure`(idempotent create)로 agent를 worktree에 바인딩하고, terminal settle(done/failed/canceled)에서 `remove`로 삭제한다(best-effort — 삭제 실패가 task 결과를 바꾸지 않는다).
+- step 실행은 **모두** 이 agent로 한다(`runtimeSession.providerAgentId = ephemeralAgentIdForTask(task.id)`). 한 agent가 `--model`로 plan(claude-cli)·implement(openai) 두 runtime을 모두 실행한다(생성 시 `--model` 불필요 — `defaults.models` 상속, 실측 확인).
+- `child_process`는 `app/openclaw-ipc.ts`의 `agents add/delete` IPC에만 둔다. core는 provider-neutral `TaskAgentLifecycle` seam(`core/agent-runtime/task-agent-lifecycle.ts`)만 의존한다.
+- 후속(ADR-030 deferred): boot-time orphan GC(`fr-*` ↔ nonterminal TaskStore 대조), per-role agent.
+
 ## 의존
 
 - AgentRegistry
 - AgentRuntimeProvider
 - OpenClawProvider / OpenClaw IPC 클라이언트
+- TaskAgentLifecycle (ADR-030, ephemeral 태스크 agent)
 - 파일 시스템
 
 ## 보안
@@ -240,4 +253,5 @@ run 종료 후:
 - [ADR-003](../decisions/2026-05-21-003-agent-runner-openclaw-delegation.md)
 - [ADR-012](../decisions/2026-05-22-012-agent-runtime-provider-boundary.md)
 - [ADR-004](../decisions/2026-05-21-004-file-based-prompt-passing.md)
+- [ADR-030](../decisions/2026-06-20-030-ephemeral-per-task-agent-workspace.md)
 - [Stage 5 Agent Timeout Policy](../review-decisions/2026-05-23-stage-5-agent-timeout-policy.md)

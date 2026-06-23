@@ -242,6 +242,9 @@ export interface AgentScript {
  */
 export class FakeOpenClawIpc implements OpenClawIpcClient {
   readonly agentCalls: string[] = [];
+  /** Ephemeral-agent lifecycle calls (ADR-030) for assertions. */
+  readonly addAgentCalls: string[] = [];
+  readonly deleteAgentCalls: string[] = [];
   private readonly reviewCalls: Record<string, number> = {};
   private readonly attemptByStep: Record<string, number> = {};
 
@@ -249,6 +252,16 @@ export class FakeOpenClawIpc implements OpenClawIpcClient {
 
   health(): Promise<ProviderHealth> {
     return Promise.resolve({ ok: true, message: 'fake' });
+  }
+
+  addAgent(request: { agentId: string }): Promise<void> {
+    this.addAgentCalls.push(request.agentId);
+    return Promise.resolve();
+  }
+
+  deleteAgent(request: { agentId: string }): Promise<void> {
+    this.deleteAgentCalls.push(request.agentId);
+    return Promise.resolve();
   }
 
   async run(request: OpenClawExecutionRequest): Promise<OpenClawRunResponse> {

@@ -23,6 +23,7 @@ import { InMemoryStore } from '@mastra/core/storage';
 import type { WorkflowRunState } from '@mastra/core/workflows';
 
 import type { AgentRunner } from '../agent-runtime/agent-runner.js';
+import type { TaskAgentLifecycle } from '../agent-runtime/task-agent-lifecycle.js';
 import type { ApprovalGate } from '../checks/approval-gate.js';
 import type { Conductor, Reporter, Task } from '../types.js';
 import type { TaskStore, CreateTaskInput } from '../task-store.js';
@@ -191,6 +192,15 @@ export interface PipelineEngineDeps {
    * when the project has no GitHub repo configured.
    */
   labelTargetFor?: (task: Task) => { owner: string; repo: string } | null;
+  /**
+   * Per-task ephemeral OpenClaw agent lifecycle (ADR-030). When wired, the engine
+   * `ensure`s a worktree-bound agent before every run (idempotent, so resume and
+   * recovery re-ensure it) and `remove`s it once the task settles to a terminal
+   * state (done/failed/canceled). Optional so existing tests and non-OpenClaw
+   * setups need no wiring; absent → no-op (runs fall back to the provider's
+   * configured global agent, the pre-ADR-030 behaviour).
+   */
+  taskAgentLifecycle?: TaskAgentLifecycle;
   /** Where worktrees may be created (passed to ApprovalGate worktree check). */
   allowedWorktreeRoots: string[];
   /** Bundled prompt-template root; `prompt_template` is resolved relative to it. */
@@ -276,6 +286,9 @@ export class MastraPipelineEngine implements PipelineEngine {
   private readonly labelEffect: IssueLabelLifecycleEffect | undefined;
   private readonly labelTargetFor: ((task: Task) => { owner: string; repo: string } | null) | undefined;
 
+  /** Per-task ephemeral agent lifecycle (ADR-030); no-op when unwired. */
+  private readonly taskAgentLifecycle: TaskAgentLifecycle | undefined;
+
   constructor(deps: PipelineEngineDeps) {
     this.deps = deps;
     this.createTaskId = deps.createTaskId ?? randomUUID;
@@ -296,6 +309,7 @@ export class MastraPipelineEngine implements PipelineEngine {
     });
     this.labelEffect = deps.labelEffect;
     this.labelTargetFor = deps.labelTargetFor;
+    this.taskAgentLifecycle = deps.taskAgentLifecycle;
   }
 
   // -------------------------------------------------------------------------
@@ -439,6 +453,9 @@ export class MastraPipelineEngine implements PipelineEngine {
     const eventId = this.createEventId();
     await this.deps.taskStore.cancelTask(taskId, eventId, { reason: 'user_canceled' });
     await this.deps.reporter.notify({ type: 'task_canceled', task: { ...task, status: 'canceled' } });
+    // ADR-030: cancel is terminal — tear down the ephemeral agent (the worktree
+    // itself is preserved per pipeline-engine.md). Best-effort.
+    await this.deleteTaskAgent({ ...task, status: 'canceled' });
   }
 
   // -------------------------------------------------------------------------
@@ -542,6 +559,9 @@ export class MastraPipelineEngine implements PipelineEngine {
 
   private async startRun(input: { task: Task; project: ProjectMeta; opts: RunOpts }): Promise<void> {
     const { task, project } = input;
+    // ADR-030: bind the task's ephemeral agent to its worktree BEFORE any step
+    // runs, so plan can read `.forgeroom/context/*` and implement can write source.
+    await this.ensureTaskAgent(task);
     const built = this.buildWorkflow({ task, project, opts: input.opts });
     const { mastra, workflowName } = this.makeMastra(built.workflow);
     const wf = mastra.getWorkflow(workflowName);
@@ -558,6 +578,9 @@ export class MastraPipelineEngine implements PipelineEngine {
 
   private async resumeRun(input: { task: Task; project: ProjectMeta; runId: string }): Promise<void> {
     const { task, project, runId } = input;
+    // ADR-030: re-ensure the worktree-bound agent on resume/recovery (idempotent;
+    // the OpenClaw agent may have been deleted or the process restarted).
+    await this.ensureTaskAgent(task);
     const built = this.buildWorkflow({ task, project, opts: { vars: task.vars } });
     const { mastra, workflowName } = this.makeMastra(built.workflow);
 
@@ -611,7 +634,7 @@ export class MastraPipelineEngine implements PipelineEngine {
           task: { ...task, status: 'failed', failure_reason: reason },
           failure_reason: reason,
         });
-        await this.applyLabelLifecycle(task, 'failed');
+        await this.onTaskTerminal(task, 'failed');
         return;
       }
 
@@ -622,7 +645,7 @@ export class MastraPipelineEngine implements PipelineEngine {
           type: 'task_done_no_diff',
           task: { ...task, status: 'done' },
         });
-        await this.applyLabelLifecycle(task, 'done');
+        await this.onTaskTerminal(task, 'done');
         return;
       }
 
@@ -637,11 +660,11 @@ export class MastraPipelineEngine implements PipelineEngine {
           task: { ...task, status: 'failed', failure_reason: reason },
           failure_reason: reason,
         });
-        await this.applyLabelLifecycle(task, 'failed');
+        await this.onTaskTerminal(task, 'failed');
         return;
       }
       await this.deps.taskStore.updateTaskStatus(task.id, 'done');
-      await this.applyLabelLifecycle(task, 'done');
+      await this.onTaskTerminal(task, 'done');
       return;
     }
     if (result.status === 'suspended') {
@@ -659,7 +682,7 @@ export class MastraPipelineEngine implements PipelineEngine {
       task: { ...task, status: 'failed', failure_reason: reason },
       failure_reason: reason,
     });
-    await this.applyLabelLifecycle(task, 'failed');
+    await this.onTaskTerminal(task, 'failed');
   }
 
   /**
@@ -669,6 +692,46 @@ export class MastraPipelineEngine implements PipelineEngine {
    * The effect's own failure must never alter the settle outcome — it catches
    * internally, so this call always resolves (never rejects).
    */
+  /**
+   * Terminal-settle side effects, applied AFTER the authoritative status is
+   * persisted: the triage-label transition (ADR-026) then the per-task ephemeral
+   * agent teardown (ADR-030). Both are best-effort and must never alter the
+   * task's recorded outcome.
+   */
+  private async onTaskTerminal(task: Task, terminalStatus: 'done' | 'failed'): Promise<void> {
+    await this.applyLabelLifecycle(task, terminalStatus);
+    await this.deleteTaskAgent(task);
+  }
+
+  /**
+   * Create the task's worktree-bound ephemeral agent (ADR-030). Idempotent at the
+   * IPC layer (an already-existing agent is success), so re-ensuring on resume or
+   * recovery is safe. A genuine create failure propagates so the run fails rather
+   * than silently falling back to the global `main` agent in `$HOME`.
+   */
+  private async ensureTaskAgent(task: Task): Promise<void> {
+    if (this.taskAgentLifecycle === undefined) {
+      return;
+    }
+    await this.taskAgentLifecycle.ensure({ taskId: task.id, workspace: task.worktree_path });
+  }
+
+  /**
+   * Delete the task's ephemeral agent on terminal settle (ADR-030). Best-effort:
+   * a delete failure is logged and swallowed so it can never change the task's
+   * terminal outcome. Idempotent at the IPC layer (a missing agent is success).
+   */
+  private async deleteTaskAgent(task: Task): Promise<void> {
+    if (this.taskAgentLifecycle === undefined) {
+      return;
+    }
+    try {
+      await this.taskAgentLifecycle.remove({ taskId: task.id });
+    } catch (error) {
+      this.log(`task-agent-lifecycle: failed to delete ephemeral agent for task ${task.id}: ${String(error)}`);
+    }
+  }
+
   private async applyLabelLifecycle(task: Task, terminalStatus: 'done' | 'failed'): Promise<void> {
     if (this.labelEffect === undefined || this.labelTargetFor === undefined) {
       return;

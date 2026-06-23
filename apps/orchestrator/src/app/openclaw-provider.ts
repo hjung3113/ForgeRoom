@@ -43,6 +43,26 @@ export interface OpenClawResumeRequest extends OpenClawExecutionRequest {
   sessionId: string;
 }
 
+/**
+ * Create a per-task ephemeral OpenClaw agent bound to its worktree (ADR-030).
+ * Maps to `openclaw agents add <agentId> --workspace <workspace> --non-interactive`.
+ */
+export interface OpenClawAgentAddRequest {
+  endpoint: string;
+  token: string;
+  /** OpenClaw agent id to create (`openclaw agents add <id>`). */
+  agentId: string;
+  /** Worktree directory bound to the agent (`--workspace`). */
+  workspace: string;
+}
+
+/** Delete a per-task ephemeral OpenClaw agent (`openclaw agents delete <id>`). */
+export interface OpenClawAgentDeleteRequest {
+  endpoint: string;
+  token: string;
+  agentId: string;
+}
+
 export interface OpenClawRunResponse {
   exitCode: number;
   failureKind?: AgentRunFailureKind;
@@ -61,6 +81,10 @@ export interface OpenClawIpcClient {
   health(request: OpenClawHealthRequest): Promise<ProviderHealth>;
   run(request: OpenClawExecutionRequest): Promise<OpenClawRunResponse>;
   resume(request: OpenClawResumeRequest): Promise<OpenClawRunResponse>;
+  /** Idempotent create of a worktree-bound agent (ADR-030); existing → success. */
+  addAgent(request: OpenClawAgentAddRequest): Promise<void>;
+  /** Idempotent delete of a per-task agent (ADR-030); missing → success. */
+  deleteAgent(request: OpenClawAgentDeleteRequest): Promise<void>;
 }
 
 export interface OpenClawProviderConfig {

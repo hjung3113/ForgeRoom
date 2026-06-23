@@ -126,6 +126,8 @@ function fakeOpenClaw(): OpenClawIpcClient {
     health: () => Promise.resolve({ ok: false, message: 'fake' }),
     run: () => Promise.reject(new Error('fake openclaw run')),
     resume: () => Promise.reject(new Error('fake openclaw resume')),
+    addAgent: () => Promise.resolve(),
+    deleteAgent: () => Promise.resolve(),
   };
 }
 

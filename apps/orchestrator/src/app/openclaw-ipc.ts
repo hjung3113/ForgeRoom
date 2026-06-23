@@ -43,6 +43,8 @@ import { dirname } from 'node:path';
 
 import type { AgentRunFailureKind, ProviderHealth } from '../core/agent-runtime/agent-runner.js';
 import type {
+  OpenClawAgentAddRequest,
+  OpenClawAgentDeleteRequest,
   OpenClawExecutionRequest,
   OpenClawHealthRequest,
   OpenClawIpcClient,
@@ -63,6 +65,20 @@ const EXIT_COMMAND_NOT_FOUND = 127;
 /** Connection-refused signature in CLI stderr → the gateway is not reachable. */
 const CONNECTION_REFUSED = /ECONNREFUSED|ECONNRESET|connection refused/i;
 
+/** `agents add` output signature for an already-configured agent (idempotent create). */
+const AGENT_ALREADY_EXISTS = /already exists/i;
+
+/** `agents delete` output signature for a missing agent (idempotent delete). */
+const AGENT_NOT_FOUND = /not found/i;
+
+/** Raised when an `agents` lifecycle command fails for a non-idempotent reason. */
+export class OpenClawAgentLifecycleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OpenClawAgentLifecycleError';
+  }
+}
+
 export interface OpenClawCliConfig {
   /** The OpenClaw CLI binary (FORGEROOM_OPENCLAW_BIN, default "openclaw"). */
   bin: string;
@@ -72,6 +88,13 @@ export interface OpenClawCliConfig {
    * `["agent","--json"]`.
    */
   baseArgs: string[];
+  /**
+   * Leading argv for the `agents` subcommand (ADR-030 lifecycle add/delete).
+   * Defaults to `["agents"]`; tests point it at a fake CLI script. The `agent`
+   * (run) and `agents` (lifecycle) subcommands are distinct, so they carry
+   * separate base args rather than sharing {@link baseArgs}.
+   */
+  agentsBaseArgs: string[];
   /** OpenClaw agent id (FORGEROOM_OPENCLAW_AGENT, default "main"). */
   agentId: string;
   /** Extra environment merged into the child (e.g. for the runtime). */
@@ -91,7 +114,7 @@ export function resolveOpenClawCliConfig(input: {
   const bin = input.cliBin?.trim() || 'openclaw';
   const baseArgs = parseArgs(input.cliArgsJson) ?? ['agent', '--json'];
   const agentId = input.agentId?.trim() || 'main';
-  return { bin, baseArgs, agentId };
+  return { bin, baseArgs, agentsBaseArgs: ['agents'], agentId };
 }
 
 function parseArgs(raw: string | undefined): string[] | null {
@@ -166,6 +189,85 @@ export class OpenClawCliClient implements OpenClawIpcClient {
   async resume(request: OpenClawResumeRequest): Promise<OpenClawRunResponse> {
     const message = await readFile(request.promptPath, 'utf8');
     return this.execute(this.buildArgs(request, message, request.sessionId), request, request.sessionId);
+  }
+
+  /**
+   * Create the per-task ephemeral agent bound to its worktree (ADR-030):
+   * `agents add <id> --workspace <dir> --non-interactive --json`. Idempotent —
+   * an "already exists" failure (re-create on resume/recovery) is treated as
+   * success; any other nonzero exit throws so a run never silently loses its
+   * workspace binding and falls back to the global `main` agent.
+   */
+  async addAgent(request: OpenClawAgentAddRequest): Promise<void> {
+    const args = [
+      ...this.config.agentsBaseArgs,
+      'add',
+      request.agentId,
+      '--workspace',
+      request.workspace,
+      '--non-interactive',
+      '--json',
+    ];
+    const { exitCode, output } = await this.spawnLifecycle(args, request);
+    if (exitCode === 0 || AGENT_ALREADY_EXISTS.test(output)) {
+      return;
+    }
+    throw new OpenClawAgentLifecycleError(
+      `failed to create OpenClaw agent ${request.agentId}: ${output.trim() || `exit ${exitCode}`}`,
+    );
+  }
+
+  /**
+   * Delete the per-task agent (`agents delete <id> --force --json`). Idempotent —
+   * a "not found" failure is treated as success (the agent is already gone), so
+   * delete-on-terminal-settle is safe to call unconditionally.
+   */
+  async deleteAgent(request: OpenClawAgentDeleteRequest): Promise<void> {
+    const args = [...this.config.agentsBaseArgs, 'delete', request.agentId, '--force', '--json'];
+    const { exitCode, output } = await this.spawnLifecycle(args, request);
+    if (exitCode === 0 || AGENT_NOT_FOUND.test(output)) {
+      return;
+    }
+    throw new OpenClawAgentLifecycleError(
+      `failed to delete OpenClaw agent ${request.agentId}: ${output.trim() || `exit ${exitCode}`}`,
+    );
+  }
+
+  /**
+   * Run a fire-and-forget `agents` lifecycle command, capturing combined
+   * stdout+stderr (the CLI prints its "already exists"/"not found" message there,
+   * not always as JSON). NODE_OPTIONS is stripped like the run path so the child
+   * Node CLI does not inherit our loaders (see {@link sanitizedParentEnv}).
+   */
+  private spawnLifecycle(
+    args: string[],
+    request: { endpoint: string; token: string },
+  ): Promise<{ exitCode: number; output: string }> {
+    return new Promise((resolve) => {
+      const child = this.spawnFn(this.config.bin, args, {
+        env: {
+          ...sanitizedParentEnv(),
+          ...this.config.extraEnv,
+          OPENCLAW_ENDPOINT: request.endpoint,
+          OPENCLAW_TOKEN: request.token,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: false,
+      });
+      let output = '';
+      child.stdout?.on('data', (chunk: Buffer) => {
+        output += chunk.toString('utf8');
+      });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        output += chunk.toString('utf8');
+      });
+      child.once('error', (error: NodeJS.ErrnoException) => {
+        resolve({ exitCode: EXIT_COMMAND_NOT_FOUND, output: error.message });
+      });
+      child.once('close', (code) => {
+        resolve({ exitCode: code ?? 1, output });
+      });
+    });
   }
 
   /**

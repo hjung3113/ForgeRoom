@@ -92,6 +92,7 @@ import {
 import { OrchestratorGatewayPortImpl } from './gateway-port.js';
 import { CanvasWriter } from './canvas-writer.js';
 import { OpenClawCliClient, resolveOpenClawCliConfig } from './openclaw-ipc.js';
+import { OpenClawTaskAgentLifecycle } from './openclaw-task-agent-lifecycle.js';
 import {
   GitCliWorktreeClient,
   NodeWorktreeFileSystem,
@@ -212,6 +213,15 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     provider,
   });
 
+  // Per-task ephemeral OpenClaw agent lifecycle (ADR-030): binds each task's
+  // worktree to a dedicated agent so plan can read `.forgeroom/context/*` and
+  // implement can write source, instead of running in the global $HOME workspace.
+  const taskAgentLifecycle = new OpenClawTaskAgentLifecycle({
+    client: ipcClient,
+    endpoint: env.openclaw.endpoint,
+    token: env.openclaw.token,
+  });
+
   // --- Conductor (file-based, AgentRunner-backed) --------------------------
   const conductor: Conductor = new FileConductor({
     agent: new AgentRunnerConductorAgent({ agentRunner, agentId: conductorAgentId(registries) }),
@@ -318,6 +328,7 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
     branchPublisher,
     ...(labelEffect === null ? {} : { labelEffect }),
     ...(labelTargetFor === null ? {} : { labelTargetFor }),
+    taskAgentLifecycle,
     allowedWorktreeRoots: env.allowedWorktreeRoots,
     templateRoot: env.templateRoot,
     worktreePathFor: (input): string =>

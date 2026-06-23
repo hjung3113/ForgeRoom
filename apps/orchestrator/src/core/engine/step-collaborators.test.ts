@@ -276,6 +276,7 @@ describe('StepCollaborators.renderPrompt template loading', () => {
       stepOutputs,
     };
     let capturedTarget: unknown;
+    let capturedSession: unknown;
     const collaborators = new StepCollaborators({
       task: taskRow,
       project,
@@ -297,6 +298,7 @@ describe('StepCollaborators.renderPrompt template loading', () => {
         agentRunner: {
           run: async (req) => {
             capturedTarget = req.runtimeTarget;
+            capturedSession = req.runtimeSession;
             await writeFile(req.outputPath, 'x'.repeat(60));
             return {
               exitCode: 0,
@@ -337,6 +339,11 @@ describe('StepCollaborators.renderPrompt template loading', () => {
 
     // No model_policy on the intent → agent-derived target.
     expect(capturedTarget).toEqual({ providerId: 'openclaw', runtime: 'r', model: 'm' });
+
+    // ADR-030: every step drives the deterministic per-task ephemeral agent so
+    // it runs in the task's worktree, never the global `main` fallback. No
+    // project room is wired here, yet providerAgentId is still set.
+    expect(capturedSession).toEqual({ providerAgentId: 'fr-task-1' });
 
     const routing = JSON.parse(
       await readFile(path.join(worktree, '.forgeroom', 'routing', '01_plan.json'), 'utf8'),

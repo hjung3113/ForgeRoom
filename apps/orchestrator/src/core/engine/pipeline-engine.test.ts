@@ -27,6 +27,7 @@ import { AgentRegistry } from '../agent-runtime/agent-registry.js';
 import { HarnessRegistry } from '../agent-runtime/harness-registry.js';
 import { ApprovalGate, type GateDecision } from '../checks/approval-gate.js';
 import type { AgentRunner, AgentRunResult } from '../agent-runtime/agent-runner.js';
+import type { TaskAgentLifecycle } from '../agent-runtime/task-agent-lifecycle.js';
 import type { CheckRunResult, Conductor, Reporter, StepResult, Task } from '../types.js';
 import {
   MastraPipelineEngine,
@@ -801,5 +802,107 @@ describe('MastraPipelineEngine label-lifecycle external effect (ADR-026)', () =>
     expect(task?.failure_reason).toBe('pr_create_failed');
     expect(calls.remove[0]).toMatchObject({ name: 'ready-for-agent', issue_number: 66 });
     expect(calls.add[0]).toMatchObject({ labels: ['needs-info'], issue_number: 66 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-task ephemeral agent lifecycle (ADR-030, #111)
+// ---------------------------------------------------------------------------
+
+function recordingLifecycle(): {
+  ensured: { taskId: string; workspace: string }[];
+  removed: string[];
+  lifecycle: TaskAgentLifecycle;
+} {
+  const ensured: { taskId: string; workspace: string }[] = [];
+  const removed: string[] = [];
+  return {
+    ensured,
+    removed,
+    lifecycle: {
+      ensure: async (req): Promise<void> => {
+        ensured.push(req);
+      },
+      remove: async (req): Promise<void> => {
+        removed.push(req.taskId);
+      },
+    },
+  };
+}
+
+describe('MastraPipelineEngine ephemeral agent lifecycle (ADR-030)', () => {
+  it('ensures the worktree-bound agent before the run and removes it on done', async () => {
+    const { ensured, removed, lifecycle } = recordingLifecycle();
+    const d = deps({ taskAgentLifecycle: lifecycle });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    expect((await d.taskStore.getTask(taskId))?.status).toBe('done');
+    expect(ensured).toHaveLength(1);
+    expect(ensured[0]?.taskId).toBe(taskId);
+    expect(ensured[0]?.workspace).toBe(path.join(tempDir, 'wt', taskId));
+    expect(removed).toEqual([taskId]);
+  });
+
+  it('removes the agent when the task fails', async () => {
+    const failingRunner: AgentRunner = {
+      run: async (req): Promise<AgentRunResult> =>
+        ({
+          exitCode: 1,
+          failureKind: 'agent_error',
+          outputExists: false,
+          outputBytes: 0,
+          durationMs: 1,
+          sessionId: null,
+          stdoutPath: req.stdoutPath,
+          stderrPath: req.stderrPath,
+        }) as AgentRunResult,
+      resume: async (req): Promise<AgentRunResult> =>
+        ({
+          exitCode: 1,
+          failureKind: 'agent_error',
+          outputExists: false,
+          outputBytes: 0,
+          durationMs: 1,
+          sessionId: null,
+          stdoutPath: req.stdoutPath,
+          stderrPath: req.stderrPath,
+        }) as AgentRunResult,
+    };
+    const { removed, lifecycle } = recordingLifecycle();
+    const d = deps({ agentRunner: failingRunner, taskAgentLifecycle: lifecycle });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    expect((await d.taskStore.getTask(taskId))?.status).toBe('failed');
+    expect(removed).toEqual([taskId]);
+  });
+
+  it('keeps the agent for a paused (suspended) task and removes it only on cancel', async () => {
+    const { ensured, removed, lifecycle } = recordingLifecycle();
+    const d = deps({ workflowRegistry: workflowRegistryFor(PAUSING_YAML), taskAgentLifecycle: lifecycle });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    // Suspended is NOT terminal — the agent must survive for the resume.
+    expect((await d.taskStore.getTask(taskId))?.status).toBe('paused');
+    expect(ensured).toHaveLength(1);
+    expect(removed).toEqual([]);
+
+    await engine.cancel(taskId);
+    expect((await d.taskStore.getTask(taskId))?.status).toBe('canceled');
+    expect(removed).toEqual([taskId]);
+  });
+
+  it('does not let a delete failure change the terminal outcome', async () => {
+    const lifecycle: TaskAgentLifecycle = {
+      ensure: async (): Promise<void> => Promise.resolve(),
+      remove: async (): Promise<void> => Promise.reject(new Error('gateway down')),
+    };
+    const d = deps({ taskAgentLifecycle: lifecycle });
+    const engine = new MastraPipelineEngine(d);
+    const taskId = await engine.runFull('proj', { title: 't', description: 'd', source: 'discord-command' });
+
+    expect((await d.taskStore.getTask(taskId))?.status).toBe('done');
   });
 });

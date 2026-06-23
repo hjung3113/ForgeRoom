@@ -94,7 +94,7 @@ function provider(mode: string): OpenClawProvider {
         cliArgsJson: process.env.FORGEROOM_OPENCLAW_ARGS,
         agentId: process.env.FORGEROOM_OPENCLAW_AGENT,
       })
-    : { bin: process.execPath, baseArgs: [cliPath, 'agent', '--json'], agentId: 'main', extraEnv: { FAKE_OPENCLAW_MODE: mode } };
+    : { bin: process.execPath, baseArgs: [cliPath, 'agent', '--json'], agentsBaseArgs: ['agents'], agentId: 'main', extraEnv: { FAKE_OPENCLAW_MODE: mode } };
   return new OpenClawProvider({
     endpoint: process.env.FORGEROOM_OPENCLAW_ENDPOINT ?? 'http://127.0.0.1:18789',
     token: process.env.FORGEROOM_OPENCLAW_TOKEN ?? 'e2e-token',

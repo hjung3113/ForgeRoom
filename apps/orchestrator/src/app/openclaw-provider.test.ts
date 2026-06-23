@@ -49,6 +49,14 @@ class FakeOpenClawIpcClient implements OpenClawIpcClient {
       sessionId: request.sessionId,
     });
   }
+
+  addAgent(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  deleteAgent(): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 const agent: ResolvedAgent = {

@@ -383,13 +383,28 @@ function isMissingFileError(error: unknown): boolean {
   );
 }
 
+/**
+ * Default retry-prompt body (#114, ADR-029 output-channel 보강). The agent's
+ * reply message IS the step output — ForgeRoom persists it to the output file on
+ * the host side; the agent never writes that file. The pre-#114 wording ("save
+ * the response to that file now") made a worktree-bound agent do a file-save
+ * dance and answer with a confirmation instead of the contract-shaped output, so
+ * the retry must instead ask for a corrected REPLY. Exported for direct testing.
+ */
+export function defaultRetryPromptBody(): string {
+  return (
+    'Your previous reply did not satisfy the step output contract — it was empty, ' +
+    'too short, or missing a required section (for example a planning step must end ' +
+    'with a `## Slices` section). Re-send your COMPLETE response as your reply ' +
+    'message. Do NOT save it to a file: ForgeRoom records your reply itself as the ' +
+    'step output.\n'
+  );
+}
+
 async function writeDefaultRetryPrompt(context: RetryPromptContext): Promise<string> {
   const promptPath = retryPromptPath(context.request.promptPath, context.attempt);
   await mkdir(dirname(promptPath), { recursive: true });
-  await writeFile(
-    promptPath,
-    `Your previous response was not saved to ${context.request.outputPath}. Save the response to that file now.\n`,
-  );
+  await writeFile(promptPath, defaultRetryPromptBody());
 
   return promptPath;
 }
