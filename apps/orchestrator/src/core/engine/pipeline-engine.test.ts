@@ -160,7 +160,7 @@ function deps(overrides: Partial<PipelineEngineDeps> = {}): PipelineEngineDeps {
     init: async (): Promise<void> => Promise.resolve(),
     update: async (_t: string, _s: StepResult): Promise<void> => Promise.resolve(),
     integrateFeedback: async (): Promise<void> => Promise.resolve(),
-    refine: async (_t: string, _s: string, base: string): Promise<string> => base,
+    refineNotes: async (_t: string, _s: string, _base: string): Promise<string> => '',
     answer: async (): Promise<string> => 'ok',
   };
   const reporter: Reporter = {

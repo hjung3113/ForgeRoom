@@ -209,20 +209,20 @@ describe('FileConductor.update', () => {
   });
 });
 
-describe('FileConductor.refine', () => {
-  it('returns the augmented prompt on success', async () => {
+describe('FileConductor.refineNotes', () => {
+  it('returns the agent notes on success', async () => {
     const store = new FakeTaskStore(makeTask(worktree));
     const conductor = new FileConductor({
-      agent: new ScriptedAgent([{ text: 'augmented prompt', failed: false }]),
+      agent: new ScriptedAgent([{ text: '- watch the trailing newline', failed: false }]),
       git: new StaticGit(),
       taskStore: store,
     });
 
-    const out = await conductor.refine('task-1', '03_impl', 'base prompt');
-    expect(out).toBe('augmented prompt');
+    const out = await conductor.refineNotes('task-1', '03_impl', 'base prompt');
+    expect(out).toBe('- watch the trailing newline');
   });
 
-  it('falls back to base prompt on agent failure', async () => {
+  it('returns empty notes on agent failure (caller keeps the renderer-owned prompt)', async () => {
     const store = new FakeTaskStore(makeTask(worktree));
     const conductor = new FileConductor({
       agent: new ScriptedAgent([{ text: '', failed: true }]),
@@ -230,21 +230,33 @@ describe('FileConductor.refine', () => {
       taskStore: store,
     });
 
-    const out = await conductor.refine('task-1', '03_impl', 'base prompt');
-    expect(out).toBe('base prompt');
+    const out = await conductor.refineNotes('task-1', '03_impl', 'base prompt');
+    expect(out).toBe('');
   });
 
-  it('injects the staged task context so refine never claims an empty context (#118)', async () => {
+  it('instructs the agent NOT to author the deliverable or reproduce the prompt (#121)', async () => {
+    const store = new FakeTaskStore(makeTask(worktree));
+    const agent = new ScriptedAgent([{ text: 'notes', failed: false }]);
+    const conductor = new FileConductor({ agent, git: new StaticGit(), taskStore: store });
+
+    await conductor.refineNotes('task-1', '01_plan', 'base prompt with ## Slices scaffold');
+
+    const prompt = agent.calls[0]?.prompt ?? '';
+    expect(prompt).toMatch(/do NOT author the deliverable/i);
+    expect(prompt).toMatch(/do NOT (?:reproduce|answer)/i);
+  });
+
+  it('injects the staged task context so refine notes never claim an empty context (#118)', async () => {
     const contextDir = path.join(worktree, '.forgeroom', 'context');
     await writeFile(path.join(contextDir, 'task.md'), '# Task\n\nCreate docs/PING.md containing PONG.\n');
     await writeFile(path.join(contextDir, 'target-profile.md'), 'Runtime: Node.js + TypeScript.\n');
     await writeFile(path.join(contextDir, 'selected-forgemap.md'), '# Forgemap: minimal-file-add\n');
 
     const store = new FakeTaskStore(makeTask(worktree));
-    const agent = new ScriptedAgent([{ text: 'augmented', failed: false }]);
+    const agent = new ScriptedAgent([{ text: 'notes', failed: false }]);
     const conductor = new FileConductor({ agent, git: new StaticGit(), taskStore: store });
 
-    await conductor.refine('task-1', '01_plan', 'base prompt');
+    await conductor.refineNotes('task-1', '01_plan', 'base prompt');
 
     const prompt = agent.calls[0]?.prompt ?? '';
     expect(prompt).toContain('Create docs/PING.md containing PONG.');

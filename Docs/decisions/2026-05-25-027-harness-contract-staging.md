@@ -33,7 +33,24 @@ date: 2026-05-25
 <interpolated step template>
 ```
 
-**Refine-on-composed** (codex 95): renderPrompt가 harness + template을 각각 보간·합성한 뒤, 그 합성 결과(composed base)를 `conductor.refine(task_id, step_id, composedBase)`에 넘긴다. (이전에는 template-only base로 refine했다.)
+**Refine-on-composed** (codex 95): renderPrompt가 harness + template을 각각 보간·합성한 뒤, 그 합성 결과(composed base)를 `conductor.refine(task_id, step_id, composedBase)`에 넘긴다. (이전에는 template-only base로 refine했다.) — **2026-06-23 #121 amendment로 대체됨, 아래 참조.**
+
+## Amendment 2026-06-23 (#121): Refine-as-bounded-context
+
+**배경.** 위 "Refine-on-composed" 규칙은 `conductor.refine()`의 반환값을 **최종 실행 프롬프트로 그대로 사용**했다. refine은 LLM이라 composed base를 자유롭게 rewrite했고, planning step에서는 템플릿의 `## Slices` scaffold를 **완성된 계획으로 채워버렸다**. 그 결과 executor가 받은 프롬프트는 이미 완성된 답이었고, executor는 "할 게 없다"며 OpenClaw silent token `NO_REPLY`를 반환 → 파이프라인이 plan step에서 dead-end (live E2E throwaway #119에서 확인).
+
+**결정 (codex grill 2026-06-23, gpt-5.5, confidence 93).**
+
+**불변식: Conductor는 어떤 step의 실행 프롬프트도 소유하지 않는다.**
+
+- `Conductor.refine(taskId, stepId, base) → string(프롬프트)`를 `Conductor.refineNotes(taskId, stepId, base) → string(노트)`로 대체한다. 입력으로 composed base를 받아 인지하되, **deliverable을 author하거나 scaffold를 채우지 않고** task-specific 컨텍스트/근거/리스크 콜아웃/누락-컨텍스트 힌트만 노트로 출력한다.
+- `StepCollaborators.renderPrompt`가 최종 프롬프트 합성의 **유일 소유자**다. renderer-owned `base`(harness + template, 보간 완료)를 그대로 prompt 파일에 쓴다. Conductor 출력은 프롬프트를 대체하지 못한다.
+- refineNotes 출력은 별도 컨텍스트 artifact로 `.forgeroom/context/refined-notes/<NN>_<step>.md`에 stage한다(비어 있거나 실패 시 파일 생략, graceful). step template은 이 노트를 "컨텍스트 전용 — deliverable 아님"으로 참조한다.
+- harness/output contract와 step template은 Conductor 출력에 의해 절대 대체되지 않는다.
+
+instruction-only "author하지 마"(option a)는 이 실패 클래스에 너무 물렁해 primary로 쓰지 않고 refineNotes 프롬프트 내 보조 가드로만 둔다. plan step refine 건너뛰기(option c)는 유용한 컨텍스트를 버리고 kind별 예외를 만들어 기각.
+
+ADR-005(Conductor scope)는 "Conductor는 metadata/context만 생산하며 step deliverable이나 최종 실행 프롬프트를 author하지 않는다"로 읽으면 일관된다. ADR-029(output-channel)는 영향 없음 — 실패 seam이 output 채널이 아니었다.
 
 **Harness optional**: run step의 resolved harness는 harness id(string)다. group/review_loop 등 비-run step은 `harness: null`이며, null/absent면 harness 계약을 건너뛰고 template-only로 렌더한다(#68 동작 유지). `ResolvedStep.harness` 타입을 `string | null`로 확장한다.
 

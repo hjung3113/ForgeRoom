@@ -183,14 +183,14 @@ export class FileConductor implements Conductor {
     await writeFile(feedbackPath, next);
   }
 
-  async refine(taskId: string, stepId: string, basePrompt: string): Promise<string> {
+  async refineNotes(taskId: string, stepId: string, basePrompt: string): Promise<string> {
     const worktree = await this.requireWorktree(taskId);
     const summary = await readOr(path.join(worktree, SUMMARY_FS_REL), EMPTY_SUMMARY);
     const feedback = await readOr(path.join(worktree, FEEDBACK_FS_REL), EMPTY_FEEDBACK);
     const taskContext = await readOr(path.join(worktree, TASK_FS_REL), '');
     const targetProfile = await readOr(path.join(worktree, TARGET_PROFILE_FS_REL), '');
     const selectedForgemap = await readOr(path.join(worktree, SELECTED_FORGEMAP_FS_REL), '');
-    const prompt = buildRefinePrompt({
+    const prompt = buildRefineNotesPrompt({
       summary,
       feedback,
       taskContext,
@@ -207,9 +207,9 @@ export class FileConductor implements Conductor {
       cwd: worktree,
     });
 
-    // Graceful degradation: fall back to the base prompt as-is.
+    // Graceful degradation: no notes (the caller keeps the renderer-owned prompt).
     if (result.failed || result.text.trim() === '') {
-      return basePrompt;
+      return '';
     }
 
     return result.text;
@@ -425,7 +425,7 @@ function buildIntegrateFeedbackPrompt(summary: string, feedback: string): string
   ].join('\n');
 }
 
-function buildRefinePrompt(input: {
+function buildRefineNotesPrompt(input: {
   summary: string;
   feedback: string;
   taskContext: string;
@@ -447,13 +447,16 @@ function buildRefinePrompt(input: {
     '- Integrated feedback:',
     input.feedback,
     `- Current step: ${input.stepId}`,
-    '- Base prompt:',
+    '- Step prompt the executor will receive (for your awareness — do NOT reproduce or answer it):',
     input.basePrompt,
     '',
     '[INSTRUCTION]',
-    'Augment this step base_prompt with the task context above. Do not change the original intent;',
-    'add specificity and rationale. The task context is provided here in full — do not claim it is',
-    'missing or instruct the planner to halt. Output the augmented prompt only.',
+    'Write short CONTEXT NOTES that help the executor do this step well: task-specific guidance,',
+    'risks to watch, emphasis, and any missing-context hints drawn from the context above.',
+    'You are NOT the executor. Do NOT author the deliverable, do NOT write the plan, do NOT fill in',
+    'any `## Slices` or other answer section, and do NOT reproduce the step prompt. The task context',
+    'is provided in full — never claim it is missing or tell the executor to halt. If you have nothing',
+    'useful to add, output nothing. Output the notes only (markdown bullets).',
   ].join('\n');
 }
 

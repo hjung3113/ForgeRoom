@@ -2,7 +2,7 @@
 
 You are planning the work for this task.
 
-Read the task context in `.forgeroom/context/` (task.md, target-profile.md, selected-forgemap.md) and the staged source docs under `.forgeroom/context/docs/`.
+Read the task context in `.forgeroom/context/` (task.md, target-profile.md, selected-forgemap.md) and the staged source docs under `.forgeroom/context/docs/`. If present, also read `.forgeroom/context/refined-notes/{{step_index}}_{{step_id}}.md` for Conductor guidance (context only — it is not the plan; you still author the plan yourself).
 
 Produce a concrete implementation plan: the approach, the files likely to change, risks, and the discrete slices the work breaks into. Keep each slice independently implementable and verifiable.
 
