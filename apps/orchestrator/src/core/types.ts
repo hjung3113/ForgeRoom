@@ -117,7 +117,14 @@ export interface Conductor {
   // the returned promise resolves, so a later Mastra suspend/resume finds them.
   update(taskId: string, stepResult: StepResult): Promise<void>;
   integrateFeedback(taskId: string): Promise<void>;
-  refine(taskId: string, stepId: string, basePrompt: string): Promise<string>;
+  /**
+   * Produce bounded context notes for a step (#121, ADR-027 amendment). Takes the
+   * renderer-owned composed prompt for awareness; returns task-specific context,
+   * rationale, and risk callouts — NEVER the executable prompt and never the step
+   * deliverable. The caller stages the notes separately; the Conductor does not
+   * own the prompt. Empty string = no notes.
+   */
+  refineNotes(taskId: string, stepId: string, basePrompt: string): Promise<string>;
   answer(taskId: string, question: string): Promise<string>;
 }
 

@@ -124,9 +124,27 @@ export class StepCollaborators {
       resolved.promptTemplate,
     );
     const base = await this.composeWithHarness(resolved, inputs, pad2(index), renderedTemplate);
-    const refined = await this.deps.conductor.refine(this.task.id, resolved.stepId, base);
+
+    // ADR-027 amendment (#121): the renderer OWNS the executable prompt. The
+    // Conductor never rewrites or replaces it — it produces bounded context
+    // notes staged under .forgeroom/context/refined-notes/, so a prompt can
+    // never end up pre-filled with the deliverable (the NO_REPLY failure).
     await mkdir(path.dirname(promptPath), { recursive: true });
-    await writeFile(promptPath, refined);
+    await writeFile(promptPath, base);
+
+    const notes = await this.deps.conductor.refineNotes(this.task.id, resolved.stepId, base);
+    if (notes.trim() !== '') {
+      const notesPath = path.join(
+        this.task.worktree_path,
+        '.forgeroom',
+        'context',
+        'refined-notes',
+        `${fileBase}.md`,
+      );
+      await mkdir(path.dirname(notesPath), { recursive: true });
+      await writeFile(notesPath, notes);
+    }
+
     this.promptIndex.set(resolved.mastraStepId, { index, fileBase });
     return promptPath;
   }

@@ -11,7 +11,7 @@ last_reviewed: 2026-05-21
 
 - task별 누적 요약(`.forgeroom/context/summary.md`) 유지
 - staged ForgeMap context를 읽어 step 프롬프트 보강에 반영
-- step 시작 전 base prompt 보강
+- step 시작 전 컨텍스트 노트 생성 (실행 프롬프트는 renderer 소유; ADR-027 #121 amendment)
 - step 종료 후 summary 갱신
 - step 사이 사용자 피드백을 다음 step 프롬프트 보강에 반영
 - `/ask` 명령 응답
@@ -25,7 +25,7 @@ interface Conductor {
   init(taskId: TaskId): Promise<void>
   update(taskId: TaskId, stepResult: StepResult): Promise<void>  // 동기, 다음 step 시작 전 완료
   integrateFeedback(taskId: TaskId): Promise<void>
-  refine(taskId: TaskId, stepId: string, basePrompt: string): Promise<string>
+  refineNotes(taskId: TaskId, stepId: string, basePrompt: string): Promise<string>
   answer(taskId: TaskId, question: string): Promise<string>
 }
 ```
@@ -36,13 +36,13 @@ interface Conductor {
 
 - 매 호출 = 1회 headless 실행
 - 입력: selected ForgeMap context + summary + 직전 step의 prompt/output/diff 요약 + 사용자 피드백 또는 질문
-- 출력: 갱신된 summary, feedback.md, 보강 프롬프트, 또는 답변
+- 출력: 갱신된 summary, feedback.md, **컨텍스트 노트**(refineNotes), 또는 답변
 
 `Conductor.update`는 Mastra workflow run의 suspend 직전에 동기 완료되어야 한다 ([ADR-016](../decisions/2026-05-23-016-dsl-to-mastra-adapter.md)). 순서: agent 실행 → CheckRunner(kind:execute) → diff 저장 → **Conductor.update** → Reporter notify → (pauseAfterGate step에서) Mastra suspend. 이로써 resume 시점에 `.forgeroom/context/summary.md`와 `feedback.md`가 항상 디스크에 commit된 상태를 보장한다.
 
 ## 호출 입력 (구성)
 
-`refine`의 경우:
+`refineNotes`의 경우 (ADR-027 #121 amendment):
 ```
 [CONTEXT]
 - task 메타 (task.md)
@@ -51,12 +51,17 @@ interface Conductor {
 - 통합된 피드백 문서 (`feedback.md`, 존재하는 경우)
 - 워크플로우 정의
 - 직전 step output (last_step_id 기준)
-- 현재 step base_prompt
+- executor가 받을 step 프롬프트 (인지용 — 재생산·응답 금지)
 
 [INSTRUCTION]
-이 step의 base_prompt를 task 맥락에 맞게 보강하라.
-원래 의도를 변경하지 말고, 구체성·근거를 추가하라.
+이 step을 잘 수행하도록 돕는 짧은 컨텍스트 노트만 작성하라(task별 가이드, 리스크,
+강조점, 누락-컨텍스트 힌트). deliverable을 author하지 말고, `## Slices` 등 답 섹션을
+채우지 말고, step 프롬프트를 재생산하지 마라. 추가할 게 없으면 아무것도 출력하지 마라.
 ```
+
+출력은 실행 프롬프트를 대체하지 않는다. renderer(`StepCollaborators.renderPrompt`)가 renderer-owned
+`base`(harness + template)를 프롬프트로 쓰고, refineNotes 출력은 `.forgeroom/context/refined-notes/<NN>_<step>.md`에
+별도 stage한다(비거나 실패 시 생략). step template이 이 노트를 "컨텍스트 전용"으로 참조한다.
 
 `integrateFeedback`의 경우:
 ```
@@ -131,7 +136,7 @@ conductor:
 
 ## 에러
 
-- AgentRunner 실패 → 1회 재시도. 또 실패 시 보강 생략하고 base_prompt 그대로 사용 (graceful degradation). `update`/`answer`는 실패 시 사용자에게 알림.
+- AgentRunner 실패 → 1회 재시도. 또 실패 시 노트 생략(빈 문자열 반환), renderer-owned 프롬프트 그대로 사용 (graceful degradation). `update`/`answer`는 실패 시 사용자에게 알림.
 - summary 길이 폭발 → 4000 토큰 강제 truncate
 - scope 위반 → revert + 로그 + 진행 계속
 
