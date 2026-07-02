@@ -19,11 +19,11 @@ runnable entry (`main.ts`).
 | `config.ts` | `configs/*.yaml` → registries; env → `OrchestratorEnv` (isolated env loading) | [Docs/phases/phase-1-mvp.md](../../../../Docs/phases/phase-1-mvp.md) |
 | `composition-root.ts` | `composeOrchestrator()` → `OrchestratorApp.boot()` | ADR-012, ADR-013, ADR-015, ADR-019 |
 | `conductor-git.ts` | Git-backed Conductor scope-guard adapter | [Docs/modules/conductor.md](../../../../Docs/modules/conductor.md) |
-| `git-cli.ts` | Shared Git CLI primitive adapter for app-level git integrations | — |
+| `git-cli.ts` | Shared Git CLI primitive adapter for app-level git integrations; `excludeFromWorktree` adds local-only `info/exclude` rules (keeps untracked artifacts out of commits, #124) | — |
 | `gateway-port.ts` | `OrchestratorGatewayPort` facade over PipelineEngine / Conductor / TaskStore | [Docs/modules/discord-gateway.md](../../../../Docs/modules/discord-gateway.md) |
 | `openclaw-provider.ts` | `AgentRuntimeProvider` implementation over OpenClaw IPC + its OpenClaw-specific transport types (relocated out of `core/`: ADR-023 scope B, #71) | [ADR-012](../../../../Docs/decisions/2026-05-22-012-agent-runtime-provider-boundary.md) |
 | `openclaw-ipc.ts` | Boot OpenClaw IPC client (real subprocess: #31); `addAgent`/`deleteAgent` drive `openclaw agents add/delete` for per-task ephemeral agents (ADR-030) | [ADR-012](../../../../Docs/decisions/2026-05-22-012-agent-runtime-provider-boundary.md) |
-| `openclaw-task-agent-lifecycle.ts` | `TaskAgentLifecycle` over OpenClaw IPC: maps task id → `fr-<taskid>` agent bound to the worktree (ADR-030) | [ADR-030](../../../../Docs/decisions/2026-06-20-030-ephemeral-per-task-agent-workspace.md) |
+| `openclaw-task-agent-lifecycle.ts` | `TaskAgentLifecycle` over OpenClaw IPC: maps task id → `fr-<taskid>` agent bound to the worktree; `ensure` also excludes OpenClaw bootstrap artifacts (`OPENCLAW_ARTIFACT_EXCLUDES`) from the task commit (ADR-030, #124) | [ADR-030](../../../../Docs/decisions/2026-06-20-030-ephemeral-per-task-agent-workspace.md) |
 | `worktree-adapters.ts` | Git-CLI worktree client + node-fs file system | [Docs/modules/worktree-manager.md](../../../../Docs/modules/worktree-manager.md) |
 | `worktree-naming.ts` | Branch + worktree path naming | — |
 | `forgemap-adapters.ts` | Repo probe + task lookup + bootstrap forgemap store | [Docs/modules/forgemap.md](../../../../Docs/modules/forgemap.md) |

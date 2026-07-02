@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { promisify } from 'node:util';
 
 type ExecFileCallback = (error: NodeJS.ErrnoException | null, stdout: string, stderr: string) => void;
@@ -93,6 +95,31 @@ export class GitCli {
   async commit(input: { cwd: string; message: string }): Promise<void> {
     await this.execFile('git', ['add', '--all'], { cwd: input.cwd });
     await this.execFile('git', ['commit', '--message', input.message], { cwd: input.cwd });
+  }
+
+  /**
+   * Add local-only ignore rules to the worktree so untracked files matching
+   * `patterns` are never staged by {@link commit} (`git add --all`). The rules
+   * go into the git exclude file resolved via `git rev-parse --git-path
+   * info/exclude` — for a linked worktree this resolves to the shared common
+   * `.git/info/exclude`, so the rules are local to the managed clone and never
+   * written into the target repository's tracked `.gitignore`. Idempotent: a
+   * pattern already present (any line) is not appended again, so repeated calls
+   * on resume/recovery do not duplicate lines. Only affects untracked files.
+   */
+  async excludeFromWorktree(input: { cwd: string; patterns: string[] }): Promise<void> {
+    const { stdout } = await this.execFile('git', ['rev-parse', '--git-path', 'info/exclude'], {
+      cwd: input.cwd,
+    });
+    const excludeFile = path.resolve(input.cwd, stdout.trim());
+    const existing = await readFile(excludeFile, 'utf8').catch(() => '');
+    const present = new Set(existing.split('\n').map((line) => line.trim()));
+    const missing = input.patterns.filter((pattern) => !present.has(pattern));
+    if (missing.length === 0) {
+      return;
+    }
+    const prefix = existing.length === 0 || existing.endsWith('\n') ? '' : '\n';
+    await writeFile(excludeFile, `${prefix}${missing.join('\n')}\n`, { flag: 'a' });
   }
 
   /**

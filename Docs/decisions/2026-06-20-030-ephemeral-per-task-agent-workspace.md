@@ -80,3 +80,19 @@ openclaw agents delete <name>                                                   
 이 결정으로 worktree 바인딩이 동작하자 라이브 검증에서 **다음** blocker가 드러났다: agent가 task를 읽고 plan을 만들지만, harness prompt-contract가 "출력 파일을 직접 쓰라"고 지시해 worktree-바인딩 agent가 확인 메시지로 응답하고 provider가 그것을 출력으로 영속화 → `## Slices` 없음 → 실패. **출력 채널 의미는 ADR-029가 소유한다**(2026-06-20 보강 참조): `.forgeroom/outputs/*`는 agent 응답을 provider가 기록한 것이고, agent는 그 경로를 직접 쓰지 않는다. ADR-030은 worktree 쓰기(=소스, execute)만 다룬다.
 
 關聯: issue #111, #114, ADR-027(harness contract staging), ADR-029(full step harness — output-channel 의미 소유).
+
+## 보강 (2026-07-03, #124) — bootstrap artifact를 task commit에서 격리
+
+첫 그린 E2E(#122→PR #123)에서 worktree 바인딩이 동작하자 **다음** 위생 결함이 드러났다: OpenClaw는 per-agent bootstrap/persona 파일(`SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `USER.md`, `HEARTBEAT.md`, `.openclaw/`)을 workspace 루트 = **worktree 루트**에 기록한다. branch-publication이 `git add --all`로 전부 스테이징하므로 이 런타임 산출물이 태스크 브랜치/PR로 새어 들어갔다.
+
+**결정: workspace를 worktree에 바인딩하는 결정은 이 bootstrap 산출물을 task commit에서 격리하는 것까지 포함한다.** agent 생성 직후(`ensure`), OpenClaw 산출물 denylist를 worktree의 로컬 `info/exclude`에 idempotent하게 기록한다. 산출물은 항상 untracked이므로 `git add --all`이 건너뛴다.
+
+- 경로 해석: `git rev-parse --git-path info/exclude`. linked worktree에서는 **공유 common `.git/info/exclude`**로 해석된다(실측 확인). 산출물 이름은 모든 태스크에서 동일하고 append가 idempotent하므로 공유 스코프는 무해하다.
+- **로컬 전용**: 타겟 repo의 tracked 파일(`.gitignore`)에는 절대 쓰지 않는다.
+- **소유권 분리**: denylist(OpenClaw 파일 이름)는 OpenClaw lifecycle 어댑터가 소유(`OPENCLAW_ARTIFACT_EXCLUDES`). exclude **메커니즘**은 provider-neutral(`WorktreeExcludeWriter` / `GitCli.excludeFromWorktree`) — generic commit/branch-publication 경로는 OpenClaw 파일 이름을 알지 못한다.
+
+기각한 대안: (a) agent home을 worktree 밖으로 — implement가 worktree에 소스를 써야 하므로 이 ADR의 바인딩 자체와 모순. (b) generic commit 경로의 denylist — provider-agnostic 계층에 OpenClaw 지식 누출.
+
+영향받은 코드: `app/git-cli.ts`(`excludeFromWorktree` 추가), `app/openclaw-task-agent-lifecycle.ts`(`OPENCLAW_ARTIFACT_EXCLUDES` + `ensure`가 exclude 호출), `app/composition-root.ts`(lifecycle에 `git` 주입).
+
+關聯: issue #124.
