@@ -218,6 +218,7 @@ export function composeOrchestrator(options: ComposeOrchestratorOptions): Orches
   // implement can write source, instead of running in the global $HOME workspace.
   const taskAgentLifecycle = new OpenClawTaskAgentLifecycle({
     client: ipcClient,
+    git: new GitCli(),
     endpoint: env.openclaw.endpoint,
     token: env.openclaw.token,
   });

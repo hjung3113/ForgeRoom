@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { GitCli, type GitExecFileFn } from './git-cli.js';
+
+const run = promisify(execFile);
 
 interface ExecCall {
   file: string;
@@ -133,5 +141,73 @@ describe('GitCli', () => {
       args: ['ls-files', '--error-unmatch', '--', 'tracked.ts'],
       options: { cwd: '/repo' },
     });
+  });
+});
+
+describe('GitCli.excludeFromWorktree (real git)', () => {
+  let repo: string;
+
+  beforeEach(async () => {
+    repo = await mkdtemp(path.join(tmpdir(), 'git-cli-exclude-'));
+    await run('git', ['init', '-q'], { cwd: repo });
+    await run('git', ['config', 'user.email', 'test@forgeroom.dev'], { cwd: repo });
+    await run('git', ['config', 'user.name', 'ForgeRoom Test'], { cwd: repo });
+    await run('git', ['config', 'commit.gpgsign', 'false'], { cwd: repo });
+    await run('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: repo });
+  });
+
+  afterEach(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+
+  it('keeps excluded untracked artifacts out of a commit while staging the deliverable', async () => {
+    const git = new GitCli();
+
+    // Simulate what the OpenClaw agent leaves in the worktree root.
+    await writeFile(path.join(repo, 'SOUL.md'), 'persona');
+    await writeFile(path.join(repo, 'HEARTBEAT.md'), 'beat');
+    await mkdir(path.join(repo, '.openclaw'), { recursive: true });
+    await writeFile(path.join(repo, '.openclaw', 'workspace-state.json'), '{}');
+    await writeFile(path.join(repo, 'Docs-PING.md'), 'PONG'); // the deliverable
+
+    await git.excludeFromWorktree({ cwd: repo, patterns: ['.openclaw/', 'SOUL.md', 'HEARTBEAT.md'] });
+    await git.commit({ cwd: repo, message: 'deliverable' });
+
+    const { stdout } = await run('git', ['show', '--name-only', '--format=', 'HEAD'], { cwd: repo });
+    const committed = stdout.split('\n').filter((line) => line.length > 0);
+    expect(committed).toEqual(['Docs-PING.md']);
+  });
+
+  it('appends each pattern idempotently across repeated calls', async () => {
+    const git = new GitCli();
+
+    await git.excludeFromWorktree({ cwd: repo, patterns: ['SOUL.md', '.openclaw/'] });
+    await git.excludeFromWorktree({ cwd: repo, patterns: ['SOUL.md', '.openclaw/'] });
+
+    const excludePath = path.join(repo, '.git', 'info', 'exclude');
+    const lines = (await readFile(excludePath, 'utf8')).split('\n').filter((l) => l.trim().length > 0);
+    expect(lines.filter((l) => l === 'SOUL.md')).toEqual(['SOUL.md']);
+    expect(lines.filter((l) => l === '.openclaw/')).toEqual(['.openclaw/']);
+  });
+
+  it('resolves the shared exclude file from inside a linked worktree', async () => {
+    const git = new GitCli();
+    const wt = await mkdtemp(path.join(tmpdir(), 'git-cli-linkedwt-'));
+    await rm(wt, { recursive: true, force: true });
+    await run('git', ['worktree', 'add', '-q', wt, 'HEAD'], { cwd: repo });
+    try {
+      await writeFile(path.join(wt, 'SOUL.md'), 'persona');
+      await writeFile(path.join(wt, 'keep.md'), 'real');
+
+      await git.excludeFromWorktree({ cwd: wt, patterns: ['SOUL.md'] });
+      await git.commit({ cwd: wt, message: 'from worktree' });
+
+      const { stdout } = await run('git', ['show', '--name-only', '--format=', 'HEAD'], { cwd: wt });
+      const committed = stdout.split('\n').filter((line) => line.length > 0);
+      expect(committed).toEqual(['keep.md']);
+    } finally {
+      await run('git', ['worktree', 'remove', '--force', wt], { cwd: repo }).catch(() => undefined);
+      await rm(wt, { recursive: true, force: true });
+    }
   });
 });
